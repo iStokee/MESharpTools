@@ -40,15 +40,6 @@ the real `csharp_interop.dll` at runtime.
 Release artifacts (the tool DLLs) are built by the maintainer from the monorepo via
 `tools/ToolRelease.ps1`, which has `csharp_interop` available.
 
-### Orbit plugin decoupling
-
-`SharpBuilder.OrbitPlugin` no longer references all of Orbit — only the standalone
-`Orbit.Plugin.Abstractions` contract (`IOrbitTool` / `IOrbitPlugin`). Orbit references the same
-assembly and its `PluginLoadContext` shares it to the default ALC, so the plugin's interface type
-identity matches Orbit's at runtime. The abstractions are contract-only (two interfaces) and travel
-with the tools repo (vendored source or binary) — Orbit/ME source stays private. This is what lets
-the tools build (and ship) without Orbit present.
-
 ## Live-update model (mirrors Orbit)
 
 - Each tool is registered in `%USERPROFILE%\MemoryError\tools.json` with its GitHub `repo`,
