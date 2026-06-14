@@ -40,7 +40,7 @@ the real `csharp_interop.dll` at runtime.
 Release artifacts (the tool DLLs) are built by the maintainer from the monorepo via
 `tools/ToolRelease.ps1`, which has `csharp_interop` available.
 
-## Live-update model (mirrors Orbit)
+## Live-update model
 
 - Each tool is registered in `%USERPROFILE%\MemoryError\tools.json` with its GitHub `repo`,
   `tagPrefix`, `assetName`, and `dllName` (built-ins seeded automatically by `ToolRegistry`).
