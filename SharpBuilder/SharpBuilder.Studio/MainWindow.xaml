@@ -1,0 +1,157 @@
+<controls:MetroWindow x:Class="SharpBuilder.Studio.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="http://metro.mahapps.com/winfx/xaml/controls"
+        xmlns:views="clr-namespace:SharpBuilder.Editor.Wpf.Views;assembly=SharpBuilder.Editor.Wpf"
+        xmlns:vm="clr-namespace:SharpBuilder.Editor.Wpf.ViewModels;assembly=SharpBuilder.Editor.Wpf"
+        Title="SharpBuilder"
+        Height="900"
+        Width="1400"
+        MinHeight="720"
+        MinWidth="1180"
+        BorderThickness="0"
+        GlowBrush="{DynamicResource MahApps.Brushes.Accent}">
+    <controls:MetroWindow.Resources>
+        <!-- Slim workspace action button (New / Demo). -->
+        <Style x:Key="WorkspaceActionButton" TargetType="Button">
+            <Setter Property="Foreground" Value="#FFE6ECF5" />
+            <Setter Property="Background" Value="#22FFFFFF" />
+            <Setter Property="BorderBrush" Value="#33FFFFFF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="12,5" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="7"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#3344B6FF" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#7744B6FF" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Tab header: graph title + dirty/running markers + close button. -->
+        <DataTemplate x:Key="CanvasTabHeader" DataType="{x:Type vm:CanvasDocument}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Running pulse -->
+                <Ellipse Grid.Column="0" Width="8" Height="8" Margin="0,0,7,0"
+                         VerticalAlignment="Center" Fill="#FF6EE86E" Visibility="Collapsed"
+                         x:Name="RunDot" />
+
+                <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center"
+                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="180" />
+
+                <!-- Dirty marker -->
+                <TextBlock Grid.Column="2" Text=" •" VerticalAlignment="Center" Foreground="#FFFFC857"
+                           FontWeight="Bold" Visibility="Collapsed" x:Name="DirtyDot" />
+
+                <Button Grid.Column="3" Width="18" Height="18" Margin="8,0,0,0" Padding="0"
+                        VerticalAlignment="Center" Cursor="Hand"
+                        Background="Transparent" BorderThickness="0" Foreground="#FFB7C0CE"
+                        ToolTip="Close canvas"
+                        Command="{Binding DataContext.CloseCanvasCommand, RelativeSource={RelativeSource AncestorType=controls:MetroWindow}}"
+                        CommandParameter="{Binding}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="CloseBd" Background="Transparent" CornerRadius="5">
+                                <TextBlock Text="✕" FontSize="10" HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="{TemplateBinding Foreground}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="CloseBd" Property="Background" Value="#55E8526E" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                    <Setter TargetName="RunDot" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsDirty}" Value="True">
+                    <Setter TargetName="DirtyDot" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </controls:MetroWindow.Resources>
+
+    <Grid>
+        <Grid.Background>
+            <RadialGradientBrush Center="0.5,0.0" GradientOrigin="0.5,0.0" RadiusX="1.1" RadiusY="0.9">
+                <GradientStop Offset="0" Color="#FF12161F" />
+                <GradientStop Offset="1" Color="#FF0C0F16" />
+            </RadialGradientBrush>
+        </Grid.Background>
+
+        <DockPanel>
+            <!-- Workspace bar: session target + canvas actions -->
+            <Border DockPanel.Dock="Top" Background="#2A0E1320" Padding="14,8" BorderThickness="0,0,0,1"
+                    BorderBrush="#22FFFFFF">
+                <Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="WORKSPACE" Foreground="#FF7DD3FC" FontWeight="Bold"
+                                   FontSize="11" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <Border Background="#22FFFFFF" CornerRadius="6" Padding="8,3">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Session:" Foreground="#FFAEB8C6" VerticalAlignment="Center"
+                                           Margin="0,0,8,0" FontSize="12" />
+                                <ComboBox MinWidth="150" VerticalAlignment="Center"
+                                          ItemsSource="{Binding Sessions}"
+                                          SelectedItem="{Binding SelectedSession}"
+                                          ToolTip="All canvases target this session. Cross-session routing is a later phase." />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Style="{StaticResource WorkspaceActionButton}"
+                                Command="{Binding NewCanvasCommand}" Content="＋  New canvas" />
+                        <Button Style="{StaticResource WorkspaceActionButton}"
+                                Command="{Binding LoadDemoCommand}" Content="▣  Load demo"
+                                ToolTip="Open two demo graphs (skilling loop + anti-idle) on the same session" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Canvas tabs -->
+            <TabControl x:Name="CanvasTabs"
+                        Background="Transparent" BorderThickness="0"
+                        ItemsSource="{Binding Canvases}"
+                        SelectedItem="{Binding ActiveCanvas}"
+                        ItemTemplate="{StaticResource CanvasTabHeader}">
+                <TabControl.ContentTemplate>
+                    <DataTemplate DataType="{x:Type vm:CanvasDocument}">
+                        <views:NodeEditorControl DataContext="{Binding Editor}" />
+                    </DataTemplate>
+                </TabControl.ContentTemplate>
+            </TabControl>
+        </DockPanel>
+    </Grid>
+</controls:MetroWindow>

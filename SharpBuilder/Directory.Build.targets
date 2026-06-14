@@ -1,0 +1,13 @@
+<Project>
+  <Target Name="CopySharpBuilderReleaseBuildToProd" AfterTargets="Build" Condition="'$(Configuration)'=='Release'">
+    <PropertyGroup>
+      <RepositoryRoot>$(MSBuildThisFileDirectory)..\..\..\</RepositoryRoot>
+      <MESharpProdBuildDir>$(RepositoryRoot)Build\Prod\mesharp_interop\</MESharpProdBuildDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <SharpBuilderReleaseBuildArtifacts Include="$(TargetDir)**\*.*" />
+    </ItemGroup>
+    <MakeDir Directories="$(MESharpProdBuildDir)" />
+    <Copy SourceFiles="@(SharpBuilderReleaseBuildArtifacts)" DestinationFiles="@(SharpBuilderReleaseBuildArtifacts->'$(MESharpProdBuildDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

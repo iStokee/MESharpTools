@@ -41,7 +41,7 @@ $catalog = @{
     apitool      = @{ ProjectPath = 'MESharpTools/MESharpApiTool/MESharpApiTool.csproj';   PackId = 'MESharpApiTool';      AssetName = 'MESharpApiTool.dll';        TagPrefix = 'apitool-';      Tfm = 'net10.0-windows' }
     mcptool      = @{ ProjectPath = 'MESharpTools/MESharpMcpTool/MESharpMcpTool.csproj';   PackId = 'MESharpMcpTool';      AssetName = 'MESharpMcpTool.dll';        TagPrefix = 'mcptool-';      Tfm = 'net10.0-windows' }
     navtool      = @{ ProjectPath = 'MESharpTools/MESharpNavTool/MESharpNavTool.csproj';   PackId = 'MESharpNavTool';      AssetName = 'MESharpNavTool.dll';        TagPrefix = 'navtool-';      Tfm = 'net10.0-windows' }
-    sharpbuilder = @{ ProjectPath = 'SharpBuilder/SharpBuilder.ScriptHost/SharpBuilder.ScriptHost.csproj'; PackId = 'SharpBuilder'; AssetName = 'SharpBuilder.ScriptHost.dll'; TagPrefix = 'sharpbuilder-'; Tfm = 'net10.0-windows' }
+    sharpbuilder = @{ ProjectPath = 'MESharpTools/SharpBuilder/SharpBuilder.ScriptHost/SharpBuilder.ScriptHost.csproj'; PackId = 'SharpBuilder'; AssetName = 'SharpBuilder.ScriptHost.dll'; TagPrefix = 'sharpbuilder-'; Tfm = 'net10.0-windows' }
 }
 
 $meta = $catalog[$Tool]
