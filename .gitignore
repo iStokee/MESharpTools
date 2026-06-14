@@ -1,32 +1,38 @@
-# Prerequisites
-*.d
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
 
-# Precompiled Headers
-*.gch
-*.pch
+# .NET
+project.lock.json
+project.fragment.lock.json
+*.nupkg
+*.snupkg
+.packages/
+*.binlog
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+# Fody / Costura intermediates
+Costura/
 
-# Fortran module files
-*.mod
-*.smod
+# Tool release staging (produced by tools/ToolRelease.ps1)
+release/
+*.manifest.json
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
+# OS noise
+Thumbs.db
+.DS_Store
 
-# Executables
-*.exe
-*.out
-*.app
+# Logs
+*.log

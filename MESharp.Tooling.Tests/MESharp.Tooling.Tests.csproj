@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- The relocated API browser UI tests construct WPF controls (System.Windows.Controls). -->
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference for the pure ToolVersioning logic only; tests exercise no native/P-Invoke paths. -->
+    <ProjectReference Include="..\..\csharp_interop\csharp_interop.csproj" />
+    <!-- API browser tool: hosts the ApiDocumentationService/ViewModel/Browser UI tests that were
+         relocated here when the browser was extracted out of csharp_interop into a standalone tool. -->
+    <ProjectReference Include="..\MESharpApiTool\MESharpApiTool.csproj" />
+  </ItemGroup>
+</Project>

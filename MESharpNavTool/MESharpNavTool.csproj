@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>annotations</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <OutputType>Library</OutputType>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>MESharpNavTool</AssemblyName>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- English-only keeps satellite resource folders out of bin so the xcopy deploy stays clean. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="FodyWeavers.xml" />
+  </ItemGroup>
+
+  <!--
+    Costura embeds MESharp.Tooling, MahApps, IconPacks and the managed WebView2 assemblies into the
+    script DLL so the scripts folder stays self-contained. csharp_interop is excluded (FodyWeavers.xml)
+    because ME loads it from Build_DLL and a second copy breaks hot reload (DUPLICATE_ASSEMBLY_FIX.md).
+  -->
+  <ItemGroup>
+    <PackageReference Include="Costura.Fody" Version="6.0.0">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Fody" Version="6.9.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="MahApps.Metro" Version="2.4.11" />
+    <PackageReference Include="MahApps.Metro.IconPacks" Version="6.1.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MESharp.Tooling\MESharp.Tooling.csproj" />
+    <ProjectReference Include="..\..\csharp_interop\csharp_interop.csproj" />
+  </ItemGroup>
+
+  <!-- Embed the coverage map page so CoverageMapServer can serve it regardless of run location. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\tools\webwalk_map\index.html" Link="webwalk_map\index.html" LogicalName="MESharp.webwalk_map.index.html" />
+  </ItemGroup>
+
+  <!--
+    Deploy only the woven script DLL (deps are Costura-embedded). The WebView2 native loader cannot be
+    embedded, so copy it alongside. Never copy the whole TargetDir: a stray csharp_interop.dll in the
+    scripts folder breaks hot reload (DUPLICATE_ASSEMBLY_FIX.md).
+  -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="if not exist &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetPath)&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(TargetName).pdb&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; 2&gt;nul&#xD;&#xA;if exist &quot;$(OutputPath)runtimes\win-x64\native\WebView2Loader.dll&quot; copy /Y &quot;$(OutputPath)runtimes\win-x64\native\WebView2Loader.dll&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;exit /b 0" />
+  </Target>
+</Project>

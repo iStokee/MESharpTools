@@ -1,0 +1,72 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--  Shared flag badge resources used across item views  -->
+    <Style x:Key="ItemFlagBadgeBorderStyle" TargetType="Border">
+        <Setter Property="Width" Value="24" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
+        <Setter Property="Opacity" Value="0.35" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                <Setter Property="Background" Value="{DynamicResource PrimaryBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+                <Setter Property="Opacity" Value="1" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="ItemFlagBadgeTextStyle" TargetType="TextBlock">
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource App.MutedBrush}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <DataTemplate x:Key="ItemFlagBadgesTemplate">
+        <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+            <Border Style="{StaticResource ItemFlagBadgeBorderStyle}" Tag="{Binding IsAlchable}">
+                <TextBlock Style="{StaticResource ItemFlagBadgeTextStyle}" Text="A" />
+                <Border.ToolTip>
+                    <TextBlock Text="Alchable" />
+                </Border.ToolTip>
+            </Border>
+            <Border Style="{StaticResource ItemFlagBadgeBorderStyle}" Tag="{Binding IsBankable}">
+                <TextBlock Style="{StaticResource ItemFlagBadgeTextStyle}" Text="B" />
+                <Border.ToolTip>
+                    <TextBlock Text="Bankable" />
+                </Border.ToolTip>
+            </Border>
+            <Border Style="{StaticResource ItemFlagBadgeBorderStyle}" Tag="{Binding IsNoted}">
+                <TextBlock Style="{StaticResource ItemFlagBadgeTextStyle}" Text="N" />
+                <Border.ToolTip>
+                    <TextBlock Text="Noted" />
+                </Border.ToolTip>
+            </Border>
+            <Border Style="{StaticResource ItemFlagBadgeBorderStyle}" Tag="{Binding IsTradeable}">
+                <TextBlock Style="{StaticResource ItemFlagBadgeTextStyle}" Text="T" />
+                <Border.ToolTip>
+                    <TextBlock Text="Tradable" />
+                </Border.ToolTip>
+            </Border>
+            <Border
+                Margin="0"
+                Style="{StaticResource ItemFlagBadgeBorderStyle}"
+                Tag="{Binding IsStackable}">
+                <TextBlock Style="{StaticResource ItemFlagBadgeTextStyle}" Text="S" />
+                <Border.ToolTip>
+                    <TextBlock Text="Stackable" />
+                </Border.ToolTip>
+            </Border>
+        </StackPanel>
+    </DataTemplate>
+
+</ResourceDictionary>

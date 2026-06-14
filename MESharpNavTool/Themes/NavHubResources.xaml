@@ -1,0 +1,83 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="clr-namespace:MESharp.ViewModels"
+    xmlns:views="clr-namespace:MESharp.Views">
+
+    <!--
+        Shared building blocks for the Navigation hub family (Map, Travel, Routes,
+        Graph Data). Each view used to declare its own near-identical Card/header/
+        hint styles with drifting paddings and radii; views now BasedOn these so the
+        hub reads as one surface. App-wide brushes (App.*) come from Themes/Dark|Light.
+    -->
+
+    <!--
+        VM→View mapping for the hub's ContentControl (CurrentDetailViewModel). Without these the
+        ContentControl falls back to ToString() and the Travel/Routes/Graph panes render as plain
+        text. These lived in MESharpDebugUtil's App.xaml; the standalone tool has no App.xaml, so
+        they must be declared here (this dictionary is always merged by ScriptEntry.BootstrapResources).
+    -->
+    <DataTemplate DataType="{x:Type vm:NavigationViewModel}">
+        <views:NavigationView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:WebwalkingViewModel}">
+        <views:WebwalkingView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:WebwalkGraphViewModel}">
+        <views:WebwalkGraphView />
+    </DataTemplate>
+
+    <Style x:Key="Hub.Card" TargetType="Border">
+        <Setter Property="Padding" Value="10" />
+        <Setter Property="Background" Value="{DynamicResource App.CardBrush}" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+
+    <Style x:Key="Hub.InsetCard" TargetType="Border">
+        <Setter Property="Padding" Value="10" />
+        <Setter Property="Margin" Value="0,0,0,8" />
+        <Setter Property="Background" Value="{DynamicResource App.BackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+
+    <!-- Big title in a pane's header card -->
+    <Style x:Key="Hub.PageTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource App.ForegroundBrush}" />
+    </Style>
+
+    <!-- Header above a group of fields inside a card -->
+    <Style x:Key="Hub.SectionHeader" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="0,0,0,6" />
+        <Setter Property="Foreground" Value="{DynamicResource App.ForegroundBrush}" />
+    </Style>
+
+    <Style x:Key="Hub.HintText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{DynamicResource App.SubtleForegroundBrush}" />
+    </Style>
+
+    <Style x:Key="Hub.FieldLabel" TargetType="TextBlock">
+        <Setter Property="Margin" Value="0,0,0,4" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource App.SubtleForegroundBrush}" />
+    </Style>
+
+    <!-- Small status dot used by chips (validation, collision, recording) -->
+    <Style x:Key="Hub.StatusDot" TargetType="Ellipse">
+        <Setter Property="Width" Value="9" />
+        <Setter Property="Height" Value="9" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Fill" Value="#9E9E9E" />
+    </Style>
+
+</ResourceDictionary>

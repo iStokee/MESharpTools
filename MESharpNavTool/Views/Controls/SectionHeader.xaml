@@ -1,0 +1,191 @@
+<UserControl
+    x:Class="MESharp.Views.Controls.SectionHeader"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:conv="clr-namespace:MESharp.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <conv:BoolToStringConverter x:Key="BoolToStringConverter" />
+        <!-- Local fallbacks so SectionHeader remains usable even when theme dictionaries are not merged yet. -->
+        <Style x:Key="PanelToggleButton" TargetType="ToggleButton">
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="Background" Value="{DynamicResource App.BackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{DynamicResource App.ForegroundBrush}" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource PrimarySoftBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource PrimarySoftBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource PrimaryBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="HeaderHelpButton" TargetType="Button">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource App.SubtleForegroundBrush}" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="11">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource PrimarySoftBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Border
+        Padding="{Binding HeaderPadding, RelativeSource={RelativeSource AncestorType=UserControl}}"
+        Background="{DynamicResource App.CardBrush}"
+        BorderBrush="{DynamicResource App.BorderBrush}"
+        BorderThickness="1"
+        CornerRadius="{Binding HeaderCornerRadius, RelativeSource={RelativeSource AncestorType=UserControl}}">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Border
+                        Width="36"
+                        Height="36"
+                        Margin="0,0,10,0"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource PrimarySoftBrush}"
+                        BorderBrush="{DynamicResource PrimaryBrush}"
+                        BorderThickness="1"
+                        CornerRadius="999">
+                        <Grid>
+                            <iconPacks:PackIconMaterial
+                                Width="{Binding IconSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                Height="{Binding IconSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Foreground="{Binding IconForeground, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                Kind="{Binding IconKind, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                        </Grid>
+                    </Border>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="{Binding TitleFontSize, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        FontWeight="SemiBold"
+                        Text="{Binding Title, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                </StackPanel>
+
+                <TextBlock
+                    Margin="0,4,0,0"
+                    Foreground="{DynamicResource App.SubtleForegroundBrush}"
+                    Text="{Binding Description, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    TextWrapping="Wrap"
+                    Visibility="{Binding Description, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource NullToVisibilityConverter}}" />
+
+                <ContentPresenter
+                    Margin="0,8,0,0"
+                    Content="{Binding AdditionalContent, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Visibility="{Binding AdditionalContent, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource NullToVisibilityConverter}}" />
+            </StackPanel>
+
+            <StackPanel
+                Grid.Column="1"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Orientation="Horizontal">
+                <ContentPresenter
+                    VerticalAlignment="Center"
+                    Content="{Binding RightContent, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Visibility="{Binding RightContent, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource NullToVisibilityConverter}}" />
+                <ToggleButton
+                    MinWidth="118"
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    IsChecked="{Binding AreSectionsExpanded, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=TwoWay}"
+                    Checked="OnExpandCollapseToggleChanged"
+                    Unchecked="OnExpandCollapseToggleChanged"
+                    Style="{StaticResource PanelToggleButton}"
+                    ToolTip="{Binding ExpandCollapseToolTip, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Visibility="{Binding ShowExpandCollapseAll, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal">
+                        <iconPacks:PackIconMaterial
+                            Width="14"
+                            Height="14"
+                            Margin="0,0,6,0"
+                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}">
+                            <iconPacks:PackIconMaterial.Style>
+                                <Style TargetType="iconPacks:PackIconMaterial">
+                                    <Setter Property="Kind" Value="UnfoldMoreHorizontal" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding AreSectionsExpanded, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                                            <Setter Property="Kind" Value="UnfoldLessHorizontal" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </iconPacks:PackIconMaterial.Style>
+                        </iconPacks:PackIconMaterial>
+                        <TextBlock Text="{Binding AreSectionsExpanded, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Collapse All|Expand All'}" />
+                    </StackPanel>
+                </ToggleButton>
+                <Button
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    Command="{Binding HelpCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    CommandParameter="{Binding HelpCommandParameter, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Style="{StaticResource HeaderHelpButton}"
+                    ToolTip="{Binding HelpToolTip, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Visibility="{Binding ShowHelp, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <iconPacks:PackIconMaterial
+                        Width="18"
+                        Height="18"
+                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                        Kind="HelpCircleOutline" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>
