@@ -65,6 +65,19 @@ public class GraphValidatorTests
 	}
 
 	[Fact]
+	public void AdvancedDefinition_Warns()
+	{
+		var interaction = Node("objects.interact");
+		Param(interaction, "name", "Gate", NodeParamType.List);
+
+		var issues = _validator.Validate(Graph(interaction));
+
+		Assert.Contains(issues, i =>
+			i.Severity == ValidationSeverity.Warning &&
+			i.Message.Contains("advanced native-capture node"));
+	}
+
+	[Fact]
 	public void GameApiNode_IsAnErrorWhenGameApiUnavailable()
 	{
 		var check = Node("conditions.inventoryFull", NodeType.Condition);
@@ -149,6 +162,20 @@ public class GraphValidatorTests
 		var issues = _validator.Validate(Graph(a, b));
 
 		Assert.Contains(issues, i => i.Message.Contains("multiple fallback"));
+	}
+
+	[Fact]
+	public void DuplicateTransitionsToSameTarget_Warn()
+	{
+		var a = Node("traversal.wait");
+		Param(a, "delayMs", "1", NodeParamType.Number);
+		var b = Node(NodeCatalogDefaults.TerminalId, NodeType.Terminal);
+		Edge(a, b, label: "first");
+		Edge(a, b, label: "second");
+
+		var issues = _validator.Validate(Graph(a, b));
+
+		Assert.Contains(issues, i => i.Message.Contains("duplicate transitions"));
 	}
 
 	[Fact]

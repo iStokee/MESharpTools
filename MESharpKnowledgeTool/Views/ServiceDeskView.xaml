@@ -1,0 +1,341 @@
+<UserControl
+    x:Class="MESharp.Views.ServiceDeskView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+    xmlns:vm="clr-namespace:MESharp.ViewModels"
+    mc:Ignorable="d"
+    d:DataContext="{d:DesignInstance Type=vm:ServiceDeskViewModel}"
+    d:DesignHeight="860" d:DesignWidth="1320"
+    Background="{DynamicResource MahApps.Brushes.ThemeBackground}"
+    TextElement.Foreground="{DynamicResource MahApps.Brushes.ThemeForeground}">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="208" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!--  ════ Left nav rail ════════════════════════════════════════════════  -->
+        <Border Grid.Column="0" Background="{DynamicResource MahApps.Brushes.Gray10}"
+                BorderBrush="{DynamicResource MahApps.Brushes.Gray6}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <!--  brand  -->
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="14,16,12,16">
+                    <iconPacks:PackIconMaterial Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,10,0"
+                                                Foreground="{DynamicResource MahApps.Brushes.Accent}" Kind="ClipboardCheckOutline" />
+                    <StackPanel>
+                        <TextBlock FontSize="14" FontWeight="Bold" Text="Knowledge OS" />
+                        <TextBlock Style="{StaticResource Desk.Hint}" Text="Service Desk" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!--  live status (rail footer)  -->
+                <StackPanel DockPanel.Dock="Bottom" Margin="14,10,12,14">
+                    <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,0,0,6" Text="SYSTEM" FontSize="9" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,3"><Ellipse Style="{StaticResource Desk.StatusDot}" Tag="{Binding SessionDot}" /><TextBlock Style="{StaticResource Desk.Hint}" Text="{Binding SessionState}" /></StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,3"><Ellipse Style="{StaticResource Desk.StatusDot}" Tag="{Binding ClickDot}" /><TextBlock Style="{StaticResource Desk.Hint}" Text="{Binding ClickState}" /></StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,3"><Ellipse Style="{StaticResource Desk.StatusDot}" Tag="{Binding ScanDot}" /><TextBlock Style="{StaticResource Desk.Hint}" Text="{Binding ScanState}" /></StackPanel>
+                    <StackPanel Orientation="Horizontal"><Ellipse Style="{StaticResource Desk.StatusDot}" Tag="{Binding PassiveDot}" /><TextBlock Style="{StaticResource Desk.Hint}" Text="{Binding PassiveState}" /></StackPanel>
+                </StackPanel>
+
+                <!--  destinations  -->
+                <StackPanel DockPanel.Dock="Top">
+                    <ToggleButton Style="{StaticResource Desk.NavButton}" Command="{Binding NavigateCommand}" CommandParameter="dashboard" IsChecked="{Binding IsPageDashboard, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal"><iconPacks:PackIconMaterial Width="16" Height="16" VerticalAlignment="Center" Margin="0,0,12,0" Kind="InformationOutline" /><TextBlock Text="Dashboard" /></StackPanel>
+                    </ToggleButton>
+                    <ToggleButton Style="{StaticResource Desk.NavButton}" Command="{Binding NavigateCommand}" CommandParameter="queue" IsChecked="{Binding IsPageQueue, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal"><iconPacks:PackIconMaterial Width="16" Height="16" VerticalAlignment="Center" Margin="0,0,12,0" Kind="FormatListChecks" /><TextBlock Text="Queue" /></StackPanel>
+                    </ToggleButton>
+                    <ToggleButton Style="{StaticResource Desk.NavButton}" Command="{Binding NavigateCommand}" CommandParameter="capture" IsChecked="{Binding IsPageCapture, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal"><iconPacks:PackIconMaterial Width="16" Height="16" VerticalAlignment="Center" Margin="0,0,12,0" Kind="MapSearch" /><TextBlock Text="Capture &amp; Scan" /></StackPanel>
+                    </ToggleButton>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!--  ════ Page host ════════════════════════════════════════════════════  -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!--  ───────────── DASHBOARD ─────────────  -->
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsPageDashboard, Converter={StaticResource BoolToVis}}">
+                <StackPanel Margin="18">
+                    <TextBlock Style="{StaticResource Desk.PageTitle}" Text="Overview" />
+                    <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,2,0,14" Text="Verify curated &amp; synthetic data in-game. Confirm tier-1, approve tier-2, flag tier-3." />
+
+                    <WrapPanel>
+                        <Border Style="{StaticResource Desk.MetricCard}" Margin="0,0,10,10"><StackPanel><TextBlock Style="{StaticResource Desk.MetricValue}" Text="{Binding OpenCount}" /><TextBlock Style="{StaticResource Desk.MetricLabel}" Text="OPEN" /></StackPanel></Border>
+                        <Border Style="{StaticResource Desk.MetricCard}" Margin="0,0,10,10"><StackPanel><TextBlock Style="{StaticResource Desk.MetricValue}" Text="{Binding NeedsActionCount}" /><TextBlock Style="{StaticResource Desk.MetricLabel}" Text="NEEDS ACTION" /></StackPanel></Border>
+                        <Border Style="{StaticResource Desk.MetricCard}" Margin="0,0,10,10"><StackPanel><TextBlock Style="{StaticResource Desk.MetricValue}" Text="{Binding StagedCount}" /><TextBlock Style="{StaticResource Desk.MetricLabel}" Text="STAGED" /></StackPanel></Border>
+                        <Border Style="{StaticResource Desk.MetricCard}" Margin="0,0,10,10"><StackPanel><TextBlock Style="{StaticResource Desk.MetricValue}" Text="{Binding ResolvedCount}" /><TextBlock Style="{StaticResource Desk.MetricLabel}" Text="RESOLVED" /></StackPanel></Border>
+                        <Border Style="{StaticResource Desk.MetricCard}" Margin="0,0,10,10"><StackPanel><TextBlock Style="{StaticResource Desk.MetricValue}" Text="{Binding AvgConfidence, StringFormat='{}{0}%'}" /><TextBlock Style="{StaticResource Desk.MetricLabel}" Text="CONFIDENCE" /></StackPanel></Border>
+                    </WrapPanel>
+
+                    <Border Style="{StaticResource Desk.Card}" Margin="0,8,0,0">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Desk.SectionHeader}" Text="Quick actions" />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource Desk.ActionButton}" Margin="0,0,8,0" Command="{Binding SyncCommand}" ToolTip="Re-scan the nav graph for new unverified seeds (runs automatically on open).">
+                                    <StackPanel Orientation="Horizontal"><iconPacks:PackIconMaterial Width="14" Height="14" VerticalAlignment="Center" Margin="0,0,7,0" Kind="Refresh" /><TextBlock Text="Re-scan cases" /></StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource Desk.ActionButton}" Command="{Binding RefreshCommand}" Content="Refresh" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!--  ───────────── QUEUE ─────────────  -->
+            <Grid Grid.Row="0" Margin="18" Visibility="{Binding IsPageQueue, Converter={StaticResource BoolToVis}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0" Margin="0,0,0,10">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource Desk.ActionButton}" Command="{Binding RefreshCommand}" ToolTip="Reload">
+                        <iconPacks:PackIconMaterial Width="14" Height="14" Kind="Refresh" />
+                    </Button>
+                    <TextBlock Style="{StaticResource Desk.PageTitle}" VerticalAlignment="Center" Text="{Binding ViewTitle}" />
+                </DockPanel>
+
+                <!--  view chips + filters  -->
+                <Border Grid.Row="1" Style="{StaticResource Desk.Card}">
+                    <StackPanel Orientation="Horizontal">
+                        <ToggleButton Margin="0,0,6,0" Padding="10,4" Command="{Binding SelectViewCommand}" CommandParameter="open" IsChecked="{Binding IsViewOpen, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="Open" /><TextBlock Margin="6,0,0,0" Opacity="0.65" Text="{Binding OpenCount}" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Margin="0,0,6,0" Padding="10,4" Command="{Binding SelectViewCommand}" CommandParameter="needs" IsChecked="{Binding IsViewNeedsAction, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="Needs action" /><TextBlock Margin="6,0,0,0" Opacity="0.65" Text="{Binding NeedsActionCount}" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Margin="0,0,6,0" Padding="10,4" Command="{Binding SelectViewCommand}" CommandParameter="staged" IsChecked="{Binding IsViewStaged, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="Staged" /><TextBlock Margin="6,0,0,0" Opacity="0.65" Text="{Binding StagedCount}" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Margin="0,0,6,0" Padding="10,4" Command="{Binding SelectViewCommand}" CommandParameter="resolved" IsChecked="{Binding IsViewResolved, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="Resolved" /><TextBlock Margin="6,0,0,0" Opacity="0.65" Text="{Binding ResolvedCount}" /></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Margin="0,0,16,0" Padding="10,4" Command="{Binding SelectViewCommand}" CommandParameter="closed" IsChecked="{Binding IsViewClosed, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="Closed" /><TextBlock Margin="6,0,0,0" Opacity="0.65" Text="{Binding ClosedCount}" /></StackPanel>
+                        </ToggleButton>
+
+                        <ComboBox Width="130" Margin="0,0,8,0" VerticalAlignment="Center" ItemsSource="{Binding SignalFilterOptions}" SelectedItem="{Binding SignalFilter}" ToolTip="Signal type" />
+                        <ComboBox Width="100" Margin="0,0,8,0" VerticalAlignment="Center" ItemsSource="{Binding CategoryFilterOptions}" SelectedItem="{Binding CategoryFilter}" ToolTip="Surface" />
+                        <Border Style="{StaticResource Desk.Chip}" Padding="6,3" Background="{DynamicResource MahApps.Brushes.ThemeBackground}">
+                            <StackPanel Orientation="Horizontal">
+                                <iconPacks:PackIconMaterial Width="13" Height="13" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource MahApps.Brushes.Gray}" Kind="Magnify" />
+                                <TextBox Width="150" BorderThickness="0" Background="Transparent" VerticalAlignment="Center" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}" ToolTip="Search case #, title or target" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!--  list + detail  -->
+                <Grid Grid.Row="2" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="320" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="404" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Style="{StaticResource Desk.Card}" Padding="6">
+                        <ListBox ItemsSource="{Binding Tasks}" SelectedItem="{Binding Selected}"
+                                 ItemContainerStyle="{StaticResource Desk.TicketItem}"
+                                 Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,6" CornerRadius="6" BorderThickness="1"
+                                            Background="{DynamicResource MahApps.Brushes.ThemeBackground}"
+                                            BorderBrush="{DynamicResource MahApps.Brushes.Gray6}">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}" />
+                                                        <Setter Property="BorderThickness" Value="1.5" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="4" CornerRadius="2,0,0,2">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{StaticResource Desk.Open.Brush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding StateDot}" Value="ok"><Setter Property="Background" Value="{StaticResource Desk.Resolved.Brush}" /></DataTrigger>
+                                                            <DataTrigger Binding="{Binding StateDot}" Value="warn"><Setter Property="Background" Value="{StaticResource Desk.Staged.Brush}" /></DataTrigger>
+                                                            <DataTrigger Binding="{Binding StateDot}" Value="busy"><Setter Property="Background" Value="{StaticResource Desk.Claimed.Brush}" /></DataTrigger>
+                                                            <DataTrigger Binding="{Binding StateDot}" Value="off"><Setter Property="Background" Value="{StaticResource Desk.Closed.Brush}" /></DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="11,9,8,9">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Style="{StaticResource Desk.CaseLabel}" Text="{Binding CaseLabel}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                    <Border Style="{StaticResource Desk.StatusPill}" Tag="{Binding State}"><TextBlock FontSize="9" Text="{Binding State}" /></Border>
+                                                </StackPanel>
+                                                <TextBlock Margin="0,4,0,0" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                                                    <Border Style="{StaticResource Desk.Chip}"><TextBlock FontSize="10" Text="{Binding SignalType}" /></Border>
+                                                    <Border Style="{StaticResource Desk.Chip}"><TextBlock FontSize="10" Text="{Binding Tier}" /></Border>
+                                                    <Border Style="{StaticResource Desk.Chip}"><TextBlock FontSize="10" Text="{Binding Category}" /></Border>
+                                                    <TextBlock FontSize="10" VerticalAlignment="Center" Style="{StaticResource Desk.Hint}" Text="{Binding EvidenceCount, StringFormat='{}{0} ev'}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <Border Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0" CornerRadius="9" Padding="8,2" Background="{DynamicResource MahApps.Brushes.Gray10}">
+                                                <TextBlock FontSize="11" FontWeight="SemiBold" Text="{Binding Confidence, StringFormat='{}{0}%'}" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+
+                    <!--  case detail (fixed width, internally scrolled — never overflows the window)  -->
+                    <Border Grid.Column="2" Style="{StaticResource Desk.Card}">
+                        <Grid>
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="{Binding HasNoSelection, Converter={StaticResource BoolToVis}}">
+                                <iconPacks:PackIconMaterial Width="34" Height="34" HorizontalAlignment="Center" Opacity="0.35" Foreground="{DynamicResource MahApps.Brushes.Gray}" Kind="ClipboardCheckOutline" />
+                                <TextBlock Margin="0,8,0,0" Style="{StaticResource Desk.Hint}" HorizontalAlignment="Center" Text="Select a case to view details and act." />
+                            </StackPanel>
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Style="{StaticResource Desk.CaseLabel}" FontSize="13" VerticalAlignment="Center" Text="{Binding Selected.CaseLabel}" Margin="0,0,8,0" />
+                                        <Border Style="{StaticResource Desk.StatusPill}" Tag="{Binding Selected.State}"><TextBlock FontSize="10" Text="{Binding Selected.State}" /></Border>
+                                    </StackPanel>
+                                    <TextBlock Style="{StaticResource Desk.SectionHeader}" Margin="0,8,0,0" Text="{Binding Selected.Title}" TextWrapping="Wrap" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                        <Border Style="{StaticResource Desk.Chip}"><TextBlock FontSize="10" Text="{Binding Selected.SignalType}" /></Border>
+                                        <Border Style="{StaticResource Desk.Chip}"><TextBlock FontSize="10" Text="{Binding Selected.Tier}" /></Border>
+                                        <Border Style="{StaticResource Desk.Chip}"><TextBlock FontSize="10" Text="{Binding Selected.Category}" /></Border>
+                                    </StackPanel>
+
+                                    <TextBlock Margin="0,8,0,0" Style="{StaticResource Desk.Hint}" Text="{Binding Selected.Body}" />
+
+                                    <TextBlock Margin="0,12,0,2" Style="{StaticResource Desk.SectionHeader}" Text="Location" />
+                                    <TextBlock TextWrapping="Wrap" Text="{Binding Selected.AnchorText}" />
+
+                                    <DockPanel Margin="0,12,0,2">
+                                        <TextBlock DockPanel.Dock="Right" Style="{StaticResource Desk.Hint}" VerticalAlignment="Center" Text="{Binding Selected.EvidenceCount, StringFormat='{}{0} entries'}" />
+                                        <TextBlock Style="{StaticResource Desk.SectionHeader}" Margin="0" Text="Evidence" />
+                                    </DockPanel>
+                                    <TextBox Style="{StaticResource Desk.Mono}" MinHeight="78" MaxHeight="210" Text="{Binding Selected.EvidenceText, Mode=OneWay}" />
+
+                                    <TextBlock Margin="0,12,0,2" Style="{StaticResource Desk.SectionHeader}" Text="Closing notes" />
+                                    <TextBlock Margin="0,0,0,3" Style="{StaticResource Desk.Hint}" Text="How the data is used / how it links to other cases." />
+                                    <TextBox MinHeight="60" MaxHeight="150" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Text="{Binding Selected.ClosingNotes, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Button HorizontalAlignment="Right" Margin="0,4,0,0" Padding="10,4" Command="{Binding SaveNotesCommand}" CommandParameter="{Binding Selected}">
+                                        <StackPanel Orientation="Horizontal"><iconPacks:PackIconMaterial Width="12" Height="12" VerticalAlignment="Center" Margin="0,0,5,0" Kind="ContentSaveAlert" /><TextBlock Text="Save notes" /></StackPanel>
+                                    </Button>
+
+                                    <StackPanel Margin="0,10,0,0" Visibility="{Binding Selected.IsStaged, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource Desk.SectionHeader}" Text="Staged diff (awaiting approval)" />
+                                        <TextBox Style="{StaticResource Desk.Mono}" MinHeight="48" MaxHeight="120" Text="{Binding Selected.ProposedDiff, Mode=OneWay}" />
+                                    </StackPanel>
+
+                                    <Separator Margin="0,14,0,10" Background="{DynamicResource MahApps.Brushes.Gray6}" />
+                                    <Button Style="{StaticResource Desk.PrimaryButton}" HorizontalContentAlignment="Center" Content="Confirm (capture + resolve)" Command="{Binding ConfirmCommand}" CommandParameter="{Binding Selected}" />
+                                    <Button Style="{StaticResource Desk.ActionButton}" Margin="0,8,0,0" Content="Capture full pack (live)" Command="{Binding CapturePackCommand}" CommandParameter="{Binding Selected}" />
+                                    <Button Style="{StaticResource Desk.ActionButton}" Margin="0,8,0,0" Content="Approve staged diff" Command="{Binding ApproveCommand}" CommandParameter="{Binding Selected}" Visibility="{Binding Selected.IsStaged, Converter={StaticResource BoolToVis}}" />
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="8" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" Style="{StaticResource Desk.ActionButton}" HorizontalContentAlignment="Center" Content="Claim" Command="{Binding ClaimCommand}" CommandParameter="{Binding Selected}" />
+                                        <Button Grid.Column="2" Style="{StaticResource Desk.ActionButton}" HorizontalContentAlignment="Center" Content="Flag" Command="{Binding FlagCommand}" CommandParameter="{Binding Selected}" />
+                                    </Grid>
+                                    <Button Style="{StaticResource Desk.ActionButton}" Margin="0,8,0,0" HorizontalContentAlignment="Center" Content="Close (purge evidence)" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!--  ───────────── CAPTURE & SCAN ─────────────  -->
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsPageCapture, Converter={StaticResource BoolToVis}}">
+                <StackPanel Margin="18" MaxWidth="720" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource Desk.PageTitle}" Text="Capture &amp; Scan" />
+                    <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,2,0,14" Text="The levers that gather evidence in-game. Turn these on before walking/crossing so packs carry your clicks." />
+
+                    <Border Style="{StaticResource Desk.Card}">
+                        <StackPanel>
+                            <DockPanel>
+                                <Ellipse DockPanel.Dock="Right" Style="{StaticResource Desk.StatusDot}" Tag="{Binding ClickDot}" VerticalAlignment="Center" />
+                                <CheckBox FontSize="13" IsChecked="{Binding RecordClicks}" Content="Record clicks (DoAction recorder)" />
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,4,0,0" Text="Enables ME's click recorder so capture packs include your approach → cross → run sequence. Without it, packs record the world snapshot but no clicks." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Desk.Card}">
+                        <StackPanel>
+                            <DockPanel>
+                                <Ellipse DockPanel.Dock="Right" Style="{StaticResource Desk.StatusDot}" Tag="{Binding PassiveDot}" VerticalAlignment="Center" />
+                                <CheckBox FontSize="13" IsChecked="{Binding CaptureEnabled}" Content="Passive auto-resolve" />
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,4,0,0" Text="Auto-resolves tier-1 tile cases from movement during normal play — walk past a seeded tile and it confirms itself." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Desk.Card}">
+                        <StackPanel>
+                            <CheckBox FontSize="13" IsChecked="{Binding ScreenshotsEnabled}" Content="Capture screenshots" />
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,4,0,8" Text="Attach a screenshot to each capture pack for visual attestation (what the screen shows vs what the code reads). The image is saved to disk and purged when the case closes; only its path goes in the pack." />
+                            <CheckBox Margin="20,0,0,0" FontSize="13" IsEnabled="{Binding ScreenshotsEnabled}" IsChecked="{Binding BlackoutChat}" Content="Black out chatbox (privacy)" />
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="20,4,0,0" Text="Redacts the chat region (resolved from interface geometry, with a bottom-left fallback) before the file is written. Requires ME's native capture export." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Desk.Card}">
+                        <StackPanel>
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Ellipse Style="{StaticResource Desk.StatusDot}" Tag="{Binding ScanDot}" VerticalAlignment="Center" />
+                                    <TextBlock Style="{StaticResource Desk.Hint}" Text="{Binding ScanState}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Desk.SectionHeader}" Margin="0" Text="Area scanner" />
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,4,0,8" Text="Record a series of capture packs as you move (e.g. walk the wilderness wall E↔W), then summarize distinct objects + the area covered." />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource Desk.ActionButton}" Margin="0,0,8,0" Command="{Binding ScanStartCommand}">
+                                    <StackPanel Orientation="Horizontal"><iconPacks:PackIconMaterial Width="14" Height="14" VerticalAlignment="Center" Margin="0,0,7,0" Kind="MapSearch" /><TextBlock Text="Start" /></StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource Desk.ActionButton}" Margin="0,0,8,0" Content="Stop" Command="{Binding ScanStopCommand}" />
+                                <Button Style="{StaticResource Desk.ActionButton}" Margin="0,0,8,0" Content="Sample now" Command="{Binding ScanSampleCommand}" />
+                                <Button Style="{StaticResource Desk.ActionButton}" Content="Summary" Command="{Binding ScanSummaryCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!--  ───────────── status bar (all pages) ─────────────  -->
+            <Border Grid.Row="1" Background="{DynamicResource MahApps.Brushes.Gray10}" BorderBrush="{DynamicResource MahApps.Brushes.Gray6}" BorderThickness="0,1,0,0" Padding="14,7">
+                <StackPanel Orientation="Horizontal">
+                    <iconPacks:PackIconMaterial Width="13" Height="13" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource MahApps.Brushes.Gray}" Kind="InformationOutline" />
+                    <TextBlock VerticalAlignment="Center" Style="{StaticResource Desk.Hint}" Text="{Binding Status}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

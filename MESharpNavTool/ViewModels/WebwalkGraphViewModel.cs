@@ -23,6 +23,21 @@ namespace MESharp.ViewModels
         public string Notes { get; init; } = string.Empty;
     }
 
+    public sealed class GraphAreaDisplay
+    {
+        public string Id { get; init; } = string.Empty;
+        public string Name { get; init; } = string.Empty;
+        public int Z { get; init; }
+        public string Shape { get; init; } = string.Empty;   // "rect" or "polygon (N)"
+        public string Bounds { get; init; } = string.Empty;  // human-readable extent
+        public string Tags { get; init; } = string.Empty;
+        public string Source { get; init; } = string.Empty;
+        public bool Enabled { get; init; } = true;
+        // Centre, for "show on map".
+        public int CenterX { get; init; }
+        public int CenterY { get; init; }
+    }
+
     public sealed class GraphRouteDisplay
     {
         public string Id { get; init; } = string.Empty;
@@ -102,12 +117,14 @@ namespace MESharp.ViewModels
         public ObservableCollection<GraphNodeDisplay> Nodes { get; } = new();
         public ObservableCollection<GraphEdgeDisplay> Edges { get; } = new();
         public ObservableCollection<GraphRouteDisplay> Routes { get; } = new();
+        public ObservableCollection<GraphAreaDisplay> Areas { get; } = new();
         public ObservableCollection<string> ValidationIssues { get; } = new();
         public ObservableCollection<string> ActivityLog { get; } = new();
 
         private GraphNodeDisplay? _selectedNode;
         private GraphEdgeDisplay? _selectedEdge;
         private GraphRouteDisplay? _selectedRoute;
+        private GraphAreaDisplay? _selectedArea;
         private bool _hasValidationErrors;
         private bool _hasValidationWarnings;
         private bool _isPathRunning;
@@ -119,6 +136,7 @@ namespace MESharp.ViewModels
         public GraphNodeDisplay? SelectedNode { get => _selectedNode; set { if (SetProperty(ref _selectedNode, value)) RefreshCommandStates(); } }
         public GraphEdgeDisplay? SelectedEdge { get => _selectedEdge; set { if (SetProperty(ref _selectedEdge, value)) RefreshCommandStates(); } }
         public GraphRouteDisplay? SelectedRoute { get => _selectedRoute; set { if (SetProperty(ref _selectedRoute, value)) { if (value != null) NewEdgeRouteId = value.Id; RefreshCommandStates(); } } }
+        public GraphAreaDisplay? SelectedArea { get => _selectedArea; set { if (SetProperty(ref _selectedArea, value)) RefreshCommandStates(); } }
         public bool HasValidationErrors { get => _hasValidationErrors; set => SetProperty(ref _hasValidationErrors, value); }
         public bool HasValidationWarnings { get => _hasValidationWarnings; set => SetProperty(ref _hasValidationWarnings, value); }
         public bool IsPathRunning { get => _isPathRunning; set { SetProperty(ref _isPathRunning, value); RefreshCommandStates(); } }
@@ -193,6 +211,8 @@ namespace MESharp.ViewModels
         public ICommand UseSelectedNodeAsFromCommand { get; }
         public ICommand UseSelectedNodeAsToCommand { get; }
         public ICommand ShowNodeOnMapCommand { get; }
+        public ICommand DeleteSelectedAreaCommand { get; }
+        public ICommand ShowAreaOnMapCommand { get; }
         public ICommand UseSelectedRouteForEdgeCommand { get; }
         public ICommand ValidateSelectedRouteCommand { get; }
         public ICommand LoadSelectedEdgeCommand { get; }
@@ -226,6 +246,12 @@ namespace MESharp.ViewModels
                 if (SelectedNode is { } n)
                     Services.CoverageMapServer.RequestFocus(new WorldPoint(n.X, n.Y, n.Z));
             }, _ => SelectedNode != null);
+            DeleteSelectedAreaCommand = new RelayCommand(_ => DeleteSelectedArea(), _ => SelectedArea != null);
+            ShowAreaOnMapCommand = new RelayCommand(_ =>
+            {
+                if (SelectedArea is { } ar)
+                    Services.CoverageMapServer.RequestFocus(new WorldPoint(ar.CenterX, ar.CenterY, ar.Z));
+            }, _ => SelectedArea != null);
             UseSelectedRouteForEdgeCommand = new RelayCommand(_ => UseSelectedRouteForEdge(), _ => SelectedRoute != null);
             ValidateSelectedRouteCommand = new RelayCommand(_ => ValidateSelectedRoute(), _ => SelectedRoute != null);
             LoadSelectedEdgeCommand = new RelayCommand(_ => LoadSelectedEdge(), _ => SelectedEdge != null);
@@ -790,7 +816,52 @@ namespace MESharp.ViewModels
             }
             SelectedEdge = string.IsNullOrWhiteSpace(selectedEdgeId) ? null : Edges.FirstOrDefault(e => string.Equals(e.Id, selectedEdgeId, StringComparison.OrdinalIgnoreCase));
 
-            LastStatus = $"Graph: {Nodes.Count} nodes, {Edges.Count} edges. Store: {WebwalkGraph.GetGraphStorePath()}";
+            var selectedAreaId = SelectedArea?.Id;
+            Areas.Clear();
+            foreach (var a in graph.Areas.OrderBy(a => a.Name))
+            {
+                int minX, minY, maxX, maxY;
+                if (a.IsPolygon)
+                {
+                    minX = a.Polygon!.Min(v => v.X); maxX = a.Polygon!.Max(v => v.X);
+                    minY = a.Polygon!.Min(v => v.Y); maxY = a.Polygon!.Max(v => v.Y);
+                }
+                else { minX = a.MinX; maxX = a.MaxX; minY = a.MinY; maxY = a.MaxY; }
+
+                Areas.Add(new GraphAreaDisplay
+                {
+                    Id = a.Id,
+                    Name = a.Name,
+                    Z = a.Z,
+                    Shape = a.IsPolygon ? $"polygon ({a.Polygon!.Count})" : "rect",
+                    Bounds = $"({minX},{minY})–({maxX},{maxY})",
+                    Tags = string.Join(", ", a.Tags ?? new()),
+                    Source = a.Source ?? string.Empty,
+                    Enabled = a.Enabled,
+                    CenterX = (minX + maxX) / 2,
+                    CenterY = (minY + maxY) / 2
+                });
+            }
+            SelectedArea = string.IsNullOrWhiteSpace(selectedAreaId) ? null : Areas.FirstOrDefault(a => string.Equals(a.Id, selectedAreaId, StringComparison.OrdinalIgnoreCase));
+
+            LastStatus = $"Graph: {Nodes.Count} nodes, {Edges.Count} edges, {Areas.Count} areas. Store: {WebwalkGraph.GetGraphStorePath()}";
+        }
+
+        private void DeleteSelectedArea()
+        {
+            if (SelectedArea == null) return;
+            var areaId = SelectedArea.Id;
+            if (WebwalkGraph.TryDeleteArea(areaId, out var error))
+            {
+                LastStatus = $"Deleted area '{areaId}'.";
+                AddLog(LastStatus);
+                RefreshGraph();
+            }
+            else
+            {
+                LastStatus = $"Area delete failed: {error}";
+                AddLog(LastStatus);
+            }
         }
 
         private void RefreshRoutes()

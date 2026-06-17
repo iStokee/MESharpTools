@@ -109,6 +109,11 @@ namespace csharp_interop.McpTools
         // ── Shared state ──────────────────────────────────────────────────────
         private readonly TextBlock _statusBar = new() { FontSize = 11 };
         private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
+        // Overview config (settings file, server path, connect snippet, game version) is near-static
+        // but resolving it touches the filesystem (File.Exists + ReadAllText + JSON parse). Refresh it
+        // only every Nth tick instead of every second so the UI thread isn't doing per-second disk I/O.
+        private const int ConfigRefreshEveryTicks = 10;
+        private int _configTickCounter;
 
         private static readonly object BridgeSync = new();
         private static McpRuntimeService? _dashboardOwnedBridge;
@@ -135,7 +140,9 @@ namespace csharp_interop.McpTools
             {
                 if (_autoRefreshCheck.IsChecked == true)
                 {
-                    RefreshAll();
+                    // Cheap dynamic refresh every tick; throttle the filesystem-backed config refresh.
+                    var refreshConfig = _configTickCounter++ % ConfigRefreshEveryTicks == 0;
+                    RefreshAll(refreshConfig);
                 }
             };
 
@@ -676,12 +683,16 @@ namespace csharp_interop.McpTools
         //  Refresh logic
         // ═══════════════════════════════════════════════════════════════════════
 
-        private void RefreshAll()
+        private void RefreshAll(bool refreshConfig = true)
         {
             var snapshot = McpDiagnostics.GetSnapshot();
             RefreshHeader(snapshot);
             RefreshCards(snapshot);
-            RefreshOverview(snapshot);
+            RefreshOverviewDynamic(snapshot);
+            if (refreshConfig)
+            {
+                RefreshOverviewConfig();
+            }
             RefreshActivity();
             RefreshLogs();
         }
@@ -739,7 +750,8 @@ namespace csharp_interop.McpTools
                 : null;
         }
 
-        private void RefreshOverview(McpBridgeSnapshot snapshot)
+        // Per-tick overview rows: anything that tracks live bridge/client state.
+        private void RefreshOverviewDynamic(McpBridgeSnapshot snapshot)
         {
             _pipeValue.Text = snapshot.PipeName ?? $"MESharpMcpBridge.{Environment.ProcessId} (expected)";
             _pidValue.Text = Environment.ProcessId.ToString();
@@ -778,7 +790,12 @@ namespace csharp_interop.McpTools
                     : "never connected";
                 _clientValue.Foreground = new SolidColorBrush(TextDim);
             }
+        }
 
+        // Near-static overview rows: settings/server paths, connect snippet, game/catalog info.
+        // These touch the filesystem, so this is throttled rather than run every tick.
+        private void RefreshOverviewConfig()
+        {
             try
             {
                 var autostart = ServiceRegistry.GetMcpAutoStartEnabled();
@@ -798,7 +815,13 @@ namespace csharp_interop.McpTools
                     _serverPathValue.Foreground = new SolidColorBrush(AccentGreen);
                 }
 
-                _connectSnippetBox.Text = BuildConnectSnippet(serverPath);
+                // Only reassign when the value actually changed; setting Text resets any selection,
+                // which would fight the user trying to drag-select the snippet to copy it.
+                var snippet = BuildConnectSnippet(serverPath);
+                if (!string.Equals(_connectSnippetBox.Text, snippet, StringComparison.Ordinal))
+                {
+                    _connectSnippetBox.Text = snippet;
+                }
             }
             catch (Exception ex)
             {

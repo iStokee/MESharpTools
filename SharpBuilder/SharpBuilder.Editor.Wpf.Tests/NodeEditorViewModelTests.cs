@@ -32,16 +32,30 @@ public class NodeEditorViewModelTests
 	}
 
 	[Fact]
-	public void FilteredDefinitions_ExcludesNotImplementedPaletteItems()
+	public void FilteredDefinitions_ExcludesNotImplementedAndAdvancedPaletteItemsByDefault()
 	{
 		using var vm = CreateViewModel();
 		vm.SelectedCategory = vm.Categories.Single(c => c.Id == "actions");
 
 		var definitions = vm.FilteredDefinitions.ToList();
 
-		Assert.Contains(definitions, d => d.Id == "actions.interaction");
+		Assert.DoesNotContain(definitions, d => d.Id == "actions.interaction");
 		Assert.DoesNotContain(definitions, d => d.Id == "actions.shop");
 		Assert.All(definitions, d => Assert.True(d.IsImplemented));
+		Assert.All(definitions, d => Assert.Equal(NodeMaturity.Stable, d.Maturity));
+	}
+
+	[Fact]
+	public void FilteredDefinitions_CanShowAdvancedPaletteItems()
+	{
+		using var vm = CreateViewModel();
+		vm.SelectedCategory = vm.Categories.Single(c => c.Id == "actions");
+		vm.ShowAdvancedNodes = true;
+
+		var definitions = vm.FilteredDefinitions.ToList();
+
+		Assert.Contains(definitions, d => d.Id == "actions.interaction");
+		Assert.DoesNotContain(definitions, d => d.Id == "actions.shop");
 	}
 
 	[Fact]
@@ -60,6 +74,19 @@ public class NodeEditorViewModelTests
 		Assert.Contains(node.Parameters, p => p.Key == "items" && p.AllowMultiple);
 		Assert.Contains(node.Parameters, p => p.Key == "quantity" && p.Type == NodeParamType.Enum);
 		Assert.True(vm.IsDirty);
+	}
+
+	[Fact]
+	public void ExplainGraphCommand_PopulatesDryRunPanel()
+	{
+		using var vm = CreateViewModel();
+
+		vm.ExplainGraphCommand.Execute(null);
+
+		Assert.True(vm.IsGraphExplanationOpen);
+		Assert.Contains("nodes", vm.GraphExplanationSummary);
+		Assert.Contains(vm.GraphExplanationLines, line => line.Contains("Requires in-game API"));
+		Assert.Contains(vm.GraphExplanationLines, line => line.Contains("inventoryFull"));
 	}
 
 	[Fact]
@@ -103,14 +130,16 @@ public class NodeEditorViewModelTests
 		var definition = vm.Definitions.Single(d => d.Id == "npcs.interact");
 		vm.CreateNodeFromDefinitionCommand.Execute(definition);
 
-		// Opcode + route are now primary inputs so the interact node is generic across activities.
-		Assert.Contains(vm.ParameterBindings, b => b.Definition.Key == "actionIndex");
-		Assert.Contains(vm.ParameterBindings, b => b.Definition.Key == "offset");
-		Assert.Contains(vm.ParameterBindings, b => b.Definition.Key == "target");
+		// Keep the stable NPC interaction node simple by default; native capture details
+		// are still available under Advanced when an activity needs opcode/route tuning.
+		Assert.Contains(vm.ParameterBindings, b => b.Definition.Key == "name");
+		Assert.Contains(vm.ParameterBindings, b => b.Definition.Key == "id");
 		// Niche tuning knobs still route to the Advanced list.
 		Assert.True(vm.HasAdvancedParameters);
-		Assert.Contains(vm.AdvancedParameterBindings, b => b.Definition.Key == "minHealth");
-		Assert.DoesNotContain(vm.AdvancedParameterBindings, b => b.Definition.Key == "actionIndex");
+		Assert.Contains(vm.AdvancedParameterBindings, b => b.Definition.Key == "actionIndex");
+		Assert.Contains(vm.AdvancedParameterBindings, b => b.Definition.Key == "offset");
+		Assert.Contains(vm.AdvancedParameterBindings, b => b.Definition.Key == "maxDistance");
+		Assert.DoesNotContain(vm.ParameterBindings, b => b.Definition.Key == "actionIndex");
 	}
 
 	[Fact]
@@ -184,6 +213,97 @@ public class NodeEditorViewModelTests
 
 		Assert.DoesNotContain(node, vm.Script.Nodes);
 		Assert.DoesNotContain(vm.Script.Nodes.SelectMany(n => n.Transitions), t => t.ToNodeId == node.Id || t.FromNodeId == node.Id);
+		Assert.True(vm.IsDirty);
+	}
+
+	[Fact]
+	public void TransitionPropertyChange_MarksDocumentDirty()
+	{
+		using var vm = CreateViewModel();
+		var transition = vm.Script.Nodes.SelectMany(n => n.Transitions).First();
+
+		transition.Label = "Renamed edge";
+
+		Assert.True(vm.IsDirty);
+	}
+
+	[Fact]
+	public void AddTransitionCommand_UsesAvailableTargetAndDoesNotDuplicate()
+	{
+		using var vm = CreateViewModel();
+		var source = vm.Script.Nodes[0];
+		vm.SelectedNode = source;
+		var existingTargets = source.Transitions.Select(t => t.ToNodeId).ToHashSet();
+
+		vm.AddTransitionCommand.Execute(null);
+
+		Assert.Equal(source.Transitions.Count, source.Transitions.Select(t => t.ToNodeId).Distinct().Count());
+		Assert.Contains(source.Transitions, t => !existingTargets.Contains(t.ToNodeId));
+	}
+
+	[Fact]
+	public void UndoRedo_RestoresAddedNode()
+	{
+		using var vm = CreateViewModel();
+		var initialCount = vm.Script.Nodes.Count;
+		var definition = vm.Definitions.Single(d => d.Id == "traversal.wait");
+
+		vm.CreateNodeFromDefinitionCommand.Execute(definition);
+		Assert.Equal(initialCount + 1, vm.Script.Nodes.Count);
+		Assert.True(vm.CanUndo);
+
+		vm.UndoCommand.Execute(null);
+		Assert.Equal(initialCount, vm.Script.Nodes.Count);
+		Assert.True(vm.CanRedo);
+
+		vm.RedoCommand.Execute(null);
+		Assert.Equal(initialCount + 1, vm.Script.Nodes.Count);
+	}
+
+	[Fact]
+	public void GraphEditBatch_UndoesMultiNodeMoveAsSingleEdit()
+	{
+		using var vm = CreateViewModel();
+		var first = vm.Script.Nodes[0];
+		var second = vm.Script.Nodes[1];
+		var firstOriginal = (X: first.X, Y: first.Y);
+		var secondOriginal = (X: second.X, Y: second.Y);
+
+		vm.BeginGraphEditBatch("Move nodes");
+		first.X += 40;
+		first.Y += 20;
+		second.X += 40;
+		second.Y += 20;
+		vm.CommitGraphEditBatch();
+
+		Assert.True(vm.CanUndo);
+
+		vm.UndoCommand.Execute(null);
+
+		var restoredFirst = vm.Script.Nodes.Single(n => n.Id == first.Id);
+		var restoredSecond = vm.Script.Nodes.Single(n => n.Id == second.Id);
+		Assert.Equal(firstOriginal.X, restoredFirst.X);
+		Assert.Equal(firstOriginal.Y, restoredFirst.Y);
+		Assert.Equal(secondOriginal.X, restoredSecond.X);
+		Assert.Equal(secondOriginal.Y, restoredSecond.Y);
+	}
+
+	[Fact]
+	public void DeleteTransitionsIntersectingLine_RemovesCrossedTransition()
+	{
+		using var vm = CreateViewModel();
+		var a = new NodeModel { Title = "A", DefinitionId = "traversal.wait", X = 20, Y = 20 };
+		var b = new NodeModel { Title = "B", DefinitionId = "traversal.wait", X = 260, Y = 20 };
+		var graph = new GraphModel { Name = "cut test", StartNodeId = a.Id };
+		graph.Nodes.Add(a);
+		graph.Nodes.Add(b);
+		a.Transitions.Add(new TransitionModel { FromNodeId = a.Id, ToNodeId = b.Id });
+		vm.LoadGraph(graph);
+
+		var removed = vm.DeleteTransitionsIntersectingLine(new System.Windows.Point(255, 0), new System.Windows.Point(255, 180));
+
+		Assert.Equal(1, removed);
+		Assert.Empty(a.Transitions);
 		Assert.True(vm.IsDirty);
 	}
 

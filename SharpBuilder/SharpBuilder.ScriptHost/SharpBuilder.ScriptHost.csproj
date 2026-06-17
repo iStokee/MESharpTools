@@ -6,6 +6,10 @@
     <UseWPF>true</UseWPF>
     <OutputType>Library</OutputType>
     <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>SharpBuilder.ScriptHost</AssemblyName>
+    <!-- Self-registration for ToolRelease.ps1 auto-discovery + the umbrella manifest. -->
+    <IsMESharpTool>true</IsMESharpTool>
+    <MESharpToolDisplayName>SharpBuilder</MESharpToolDisplayName>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <!--  English-only: keeps satellite resource folders out of the bin so the xcopy deploy stays clean.  -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

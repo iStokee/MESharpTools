@@ -26,10 +26,19 @@
     <DataTemplate DataType="{x:Type vm:WebwalkGraphViewModel}">
         <views:WebwalkGraphView />
     </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:NavHealthViewModel}">
+        <views:NavHealthView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:VerificationDeskViewModel}">
+        <views:VerificationDeskView />
+    </DataTemplate>
 
     <Style x:Key="Hub.Card" TargetType="Border">
         <Setter Property="Padding" Value="10" />
         <Setter Property="Background" Value="{DynamicResource App.CardBrush}" />
+        <!-- Hairline border so cards delineate on the dark background, matching the MCP dashboard cards. -->
+        <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="6" />
         <Setter Property="Margin" Value="0,0,0,8" />
     </Style>
@@ -50,12 +59,12 @@
         <Setter Property="Foreground" Value="{DynamicResource App.ForegroundBrush}" />
     </Style>
 
-    <!-- Header above a group of fields inside a card -->
+    <!-- Header above a group of fields inside a card. Accent-blue like the MCP dashboard's section titles. -->
     <Style x:Key="Hub.SectionHeader" TargetType="TextBlock">
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Margin" Value="0,0,0,6" />
-        <Setter Property="Foreground" Value="{DynamicResource App.ForegroundBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
     </Style>
 
     <Style x:Key="Hub.HintText" TargetType="TextBlock">

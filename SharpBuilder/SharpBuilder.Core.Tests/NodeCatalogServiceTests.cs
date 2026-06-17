@@ -48,6 +48,22 @@ public class NodeCatalogServiceTests
 		Assert.Equal("inventory.drop", definition.Id);
 	}
 
+	[Fact]
+	public void InteractionCatalog_KeepsSimpleNpcInteractAndMarksNativeCaptureNodesAdvanced()
+	{
+		var npcInteract = _catalog.GetDefinition("npcs.interact");
+		Assert.NotNull(npcInteract);
+		Assert.Equal(NodeMaturity.Stable, npcInteract.Maturity);
+		Assert.Contains(npcInteract.Parameters, p => p.Key == "name" && !p.IsAdvanced);
+		Assert.Contains(npcInteract.Parameters, p => p.Key == "actionIndex" && p.IsAdvanced);
+		Assert.Contains(npcInteract.Parameters, p => p.Key == "offset" && p.IsAdvanced);
+
+		Assert.Equal(NodeMaturity.Advanced, _catalog.GetDefinition("npcs.attack")?.Maturity);
+		Assert.Equal(NodeMaturity.Advanced, _catalog.GetDefinition("objects.interact")?.Maturity);
+		Assert.Equal(NodeMaturity.Advanced, _catalog.GetDefinition("objects.interactHighlighted")?.Maturity);
+		Assert.Equal(NodeMaturity.Advanced, _catalog.GetDefinition("actions.interaction")?.Maturity);
+	}
+
 	[Theory]
 	[InlineData(NodeType.Start, NodeCatalogDefaults.StartId)]
 	[InlineData(NodeType.Terminal, NodeCatalogDefaults.TerminalId)]

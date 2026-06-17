@@ -126,6 +126,8 @@ public class NodeModel : ObservableObject
 	private NodeType _type = NodeType.Action;
 	private double _x = 60;
 	private double _y = 60;
+	private double _dashboardWidth = 520;
+	private double _dashboardHeight = 430;
 	private int _dwellMilliseconds = 300;
 	private string _actionText = string.Empty;
 	private bool _isActive;
@@ -187,6 +189,20 @@ public class NodeModel : ObservableObject
 	{
 		get => _y;
 		set => SetProperty(ref _y, value);
+	}
+
+	/// <summary>Width of the on-canvas dashboard card (ui.scriptDashboard nodes only); user-resizable.</summary>
+	public double DashboardWidth
+	{
+		get => _dashboardWidth;
+		set => SetProperty(ref _dashboardWidth, Math.Max(360, value));
+	}
+
+	/// <summary>Height of the on-canvas dashboard card (ui.scriptDashboard nodes only); user-resizable.</summary>
+	public double DashboardHeight
+	{
+		get => _dashboardHeight;
+		set => SetProperty(ref _dashboardHeight, Math.Max(240, value));
 	}
 
 	/// <summary>

@@ -15,6 +15,14 @@ public partial class MainWindow : MetroWindow
     {
         InitializeComponent();
 
+        // Load persisted preferences first. Editor startup prefs (panel collapse, mini-map mode) must
+        // be applied before the workspace is constructed because it creates its first canvas — and that
+        // canvas's view-model reads these at construction time.
+        var settings = UserSettingsStore.Load();
+        EditorPreferences.StartLeftCollapsed = settings.StartLeftCollapsed;
+        EditorPreferences.StartRightCollapsed = settings.StartRightCollapsed;
+        EditorPreferences.MiniMapAlwaysVisible = settings.MiniMapAlwaysVisible;
+
         // Catalog and script loader are stateless, so all canvases share them; each canvas spins up
         // its own editor + execution engine inside the workspace.
         var catalog = new NodeCatalogService();
@@ -24,7 +32,6 @@ public partial class MainWindow : MetroWindow
         DataContext = _workspace;
 
         // Restore the persisted window size before the window is shown so it opens at the saved size.
-        var settings = UserSettingsStore.Load();
         if (settings.WindowWidth >= MinWidth && settings.WindowHeight >= MinHeight)
         {
             Width = settings.WindowWidth;
@@ -59,7 +66,10 @@ public partial class MainWindow : MetroWindow
         UserSettingsStore.Save(new UserSettings
         {
             WindowWidth = WindowState == WindowState.Normal ? ActualWidth : Width,
-            WindowHeight = WindowState == WindowState.Normal ? ActualHeight : Height
+            WindowHeight = WindowState == WindowState.Normal ? ActualHeight : Height,
+            StartLeftCollapsed = EditorPreferences.StartLeftCollapsed,
+            StartRightCollapsed = EditorPreferences.StartRightCollapsed,
+            MiniMapAlwaysVisible = EditorPreferences.MiniMapAlwaysVisible
         });
 
         _workspace.WindowSizeRequested -= OnWindowSizeRequested;

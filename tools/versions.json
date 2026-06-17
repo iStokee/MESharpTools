@@ -1,0 +1,15 @@
+{
+  "_comment": "Single source of truth for MESharp tool versions, keyed by tool Id (== AssemblyName == release asset stem). Bump a value, then `pwsh tools/ToolRelease.ps1` (menu) or `-Publish` to cut one umbrella `tools-vN` release bundling every ACTIVE discovered tool + a manifest. A tool missing from this map defaults to 1.0.0. Ids listed in _exclude are omitted from the build/release (toggle them in the menu); everything else ships.",
+  "_exclude": [
+    "MESharpMcpTool",
+    "MESharpKnowledgeTool",
+    "MESharpCacheTool"
+  ],
+  "MESharpApiTool": "1.0.0",
+  "MESharpMcpTool": "1.0.0",
+  "MESharpNavTool": "1.0.0",
+  "MESharpKnowledgeTool": "1.0.0",
+  "MESharpDoActionTool": "1.0.0",
+  "MESharpCacheTool": "1.0.0",
+  "SharpBuilder.ScriptHost": "1.0.0"
+}

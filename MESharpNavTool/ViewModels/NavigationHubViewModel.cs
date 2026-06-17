@@ -13,7 +13,9 @@ namespace MESharp.ViewModels
         Map,
         Travel,
         Routes,
-        Graph
+        Graph,
+        Verify,
+        Status
     }
 
     /// <summary>
@@ -30,6 +32,8 @@ namespace MESharp.ViewModels
         private NavigationViewModel? _travel;
         private WebwalkingViewModel? _routes;
         private WebwalkGraphViewModel? _graph;
+        private VerificationDeskViewModel? _verify;
+        private NavHealthViewModel? _status;
 
         private NavigationHubSection _currentSection = NavigationHubSection.Map;
         private object? _currentDetailViewModel;
@@ -56,6 +60,8 @@ namespace MESharp.ViewModels
         private NavigationViewModel Travel => _travel ??= new NavigationViewModel();
         private WebwalkingViewModel Routes => _routes ??= new WebwalkingViewModel();
         private WebwalkGraphViewModel Graph => _graph ??= new WebwalkGraphViewModel();
+        private VerificationDeskViewModel Verify => _verify ??= new VerificationDeskViewModel();
+        private NavHealthViewModel Status => _status ??= new NavHealthViewModel();
 
         public NavigationHubSection CurrentSection
         {
@@ -68,6 +74,8 @@ namespace MESharp.ViewModels
                     RaisePropertyChanged(nameof(IsTravelSelected));
                     RaisePropertyChanged(nameof(IsRoutesSelected));
                     RaisePropertyChanged(nameof(IsGraphSelected));
+                    RaisePropertyChanged(nameof(IsVerifySelected));
+                    RaisePropertyChanged(nameof(IsStatusSelected));
                     RaisePropertyChanged(nameof(MapVisibility));
                     RaisePropertyChanged(nameof(DetailVisibility));
                 }
@@ -78,6 +86,8 @@ namespace MESharp.ViewModels
         public bool IsTravelSelected => CurrentSection == NavigationHubSection.Travel;
         public bool IsRoutesSelected => CurrentSection == NavigationHubSection.Routes;
         public bool IsGraphSelected => CurrentSection == NavigationHubSection.Graph;
+        public bool IsVerifySelected => CurrentSection == NavigationHubSection.Verify;
+        public bool IsStatusSelected => CurrentSection == NavigationHubSection.Status;
 
         /// <summary>The map view stays alive (hidden, not destroyed) across section switches so WebView2 keeps its pan/zoom.</summary>
         public Visibility MapVisibility => IsMapSelected ? Visibility.Visible : Visibility.Collapsed;
@@ -106,6 +116,8 @@ namespace MESharp.ViewModels
         public ICommand ShowTravelCommand { get; }
         public ICommand ShowRoutesCommand { get; }
         public ICommand ShowGraphCommand { get; }
+        public ICommand ShowVerifyCommand { get; }
+        public ICommand ShowStatusCommand { get; }
         public ICommand RefreshValidationCommand { get; }
 
         public NavigationHubViewModel()
@@ -114,6 +126,8 @@ namespace MESharp.ViewModels
             ShowTravelCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Travel));
             ShowRoutesCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Routes));
             ShowGraphCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Graph));
+            ShowVerifyCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Verify));
+            ShowStatusCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Status));
             RefreshValidationCommand = new RelayCommand(_ => RunValidation());
 
             // "Show on map" from the Routes/Graph panes: flip to the map; the page
@@ -144,6 +158,8 @@ namespace MESharp.ViewModels
                 NavigationHubSection.Travel => Travel,
                 NavigationHubSection.Routes => Routes,
                 NavigationHubSection.Graph => Graph,
+                NavigationHubSection.Verify => Verify,
+                NavigationHubSection.Status => Status,
                 _ => null
             };
             var next = ActiveChild();
@@ -371,7 +387,7 @@ namespace MESharp.ViewModels
             Services.CoverageMapServer.FocusRequested -= OnMapFocusRequested;
             _statusTimer?.Stop();
 
-            foreach (var child in new object?[] { _map, _travel, _routes, _graph })
+            foreach (var child in new object?[] { _map, _travel, _routes, _graph, _verify, _status })
             {
                 SafeDeactivate(child);
                 if (child is IDisposable d)

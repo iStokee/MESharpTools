@@ -17,6 +17,7 @@ using MESharp.API;
 using Microsoft.Win32;
 using SharpBuilder.Core.Models;
 using SharpBuilder.Core.Services;
+using SharpBuilder.Editor.Wpf.Services;
 using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
@@ -28,12 +29,17 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 /// Backing view model for the SharpBuilder node editor. Handles script persistence, runtime execution,
 /// and light-weight visual state (selection, active trail).
 /// </summary>
-public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
+public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 {
 	private readonly GraphScriptService _scriptService;
 	private readonly GraphExecutionEngine _engine;
 	private readonly NodeCatalogService _catalogService;
 	private readonly GraphValidator _validator;
+	private readonly GraphConnectionRules _connectionRules = new();
+	private readonly GraphEditHistory _editHistory = new();
+	private readonly GraphExplainService _explainService;
+	private readonly CaptureCalibrationService _captureCalibrationService = new();
+	private readonly DashboardRefreshService _dashboardRefreshService = new();
 	private NodeModel? _currentRunNode;
 	private CancellationTokenSource? _runCts;
 	private Task? _runTask;
@@ -55,6 +61,7 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private NodeCategory? _selectedCategory;
 	private string _catalogSearchText = string.Empty;
 	private CatalogSortMode _catalogSortMode = CatalogSortMode.Category;
+	private bool _showAdvancedNodes;
 	private bool _isLeftCollapsed;
 	private bool _isRightCollapsed;
 	private double _expandedLeftWidth = 320;
@@ -67,11 +74,18 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private bool _isDirty;
 	private bool _suppressDirty;
 	private bool _transitionsRefreshQueued;
+	private IDisposable? _activeGraphEditBatch;
 	private readonly Services.WindowSizeOption _customWindowSize = new("Custom", 1400, 900, isCustom: true);
 	private Services.WindowSizeOption? _selectedWindowSize;
 	private bool _suppressWindowSizeRequest;
 	private bool _isSettingsOpen;
-	private readonly DateTime _dashboardStartedUtc = DateTime.UtcNow;
+	private bool _isGraphExplanationOpen;
+	private string _graphExplanationSummary = "Graph not explained yet";
+	private readonly DateTime _builderOpenedUtc = DateTime.UtcNow;
+	private DateTime _dashboardStartedUtc = DateTime.UtcNow;
+	// Graph runtime is accumulated across runs; while running we add the live span on top.
+	private TimeSpan _graphRunAccumulated = TimeSpan.Zero;
+	private DateTime? _graphRunStartedUtc;
 	private readonly DispatcherTimer _dashboardTimer;
 	private SkillSession? _dashboardSkillSession;
 	private readonly ItemTracker _itemTracker;
@@ -81,6 +95,7 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private long _dashboardItemsGpPerHour;
 	private int _dashboardItemsActiveCount;
 	private string _dashboardRuntime = "00:00:00";
+	private string _dashboardUptime = "00:00:00";
 	private string _dashboardCurrentNode = "None";
 	private string _dashboardRunMode = "Idle";
 	private string _dashboardGraphSummary = "0 nodes / 0 transitions";
@@ -109,6 +124,7 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		_engine = engine ?? throw new ArgumentNullException(nameof(engine));
 		_catalogService = catalogService ?? throw new ArgumentNullException(nameof(catalogService));
 		_validator = new GraphValidator(catalogService);
+		_explainService = new GraphExplainService(catalogService);
 
 		Categories = new ObservableCollection<NodeCategory>(_catalogService.Categories);
 		Definitions = new ObservableCollection<NodeDefinition>(_catalogService.Definitions);
@@ -135,6 +151,8 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		SetAsStartCommand = new RelayCommand(SetSelectedAsStart, () => SelectedNode != null);
 		ClearTrailCommand = new RelayCommand(ClearTrail);
 		DeleteSelectedCommand = new RelayCommand(DeleteSelection);
+		UndoCommand = new RelayCommand(UndoGraphEdit, () => _editHistory.CanUndo);
+		RedoCommand = new RelayCommand(RedoGraphEdit, () => _editHistory.CanRedo);
 		ToggleLeftPanelCommand = new RelayCommand(() => IsLeftCollapsed = !IsLeftCollapsed);
 		ToggleRightPanelCommand = new RelayCommand(() => IsRightCollapsed = !IsRightCollapsed);
 
@@ -147,11 +165,22 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		StartCommand = new AsyncRelayCommand(async () => await StartRunAsync(_isLooping));
 		StepCommand = new AsyncRelayCommand(async () => await StartRunAsync(false));
 		StopCommand = new RelayCommand(StopRun, () => IsRunning);
+		ExplainGraphCommand = new RelayCommand(ExplainGraph);
 		AddListItemCommand = new RelayCommand<NodeParamBinding?>(AddListEntry);
 		RemoveListItemCommand = new RelayCommand<(NodeParamBinding binding, string value)?>(RemoveListEntry);
 		CloseNodeInfoCommand = new RelayCommand(() => IsNodeInfoOpen = false);
 		ShowDefinitionInfoCommand = new RelayCommand<NodeDefinition?>(ShowDefinitionInfo);
 		CaptureFromGameCommand = new RelayCommand(CaptureFromGame, () => CanCaptureSelectedNode);
+		ResetTimerCommand = new RelayCommand(ResetGraphRuntime);
+		ResetXpCommand = new RelayCommand(ResetXpTracker);
+		ResetItemsCommand = new RelayCommand(ResetItemTracker);
+		_editHistory.Changed += (_, _) =>
+		{
+			OnPropertyChanged(nameof(CanUndo));
+			OnPropertyChanged(nameof(CanRedo));
+			UndoCommand.NotifyCanExecuteChanged();
+			RedoCommand.NotifyCanExecuteChanged();
+		};
 
 		// Turn on ME's native DoAction capture + drain pump so "Capture from game" can read
 		// real in-game clicks. Refcounted and no-throw when the game bridge is absent.
@@ -181,14 +210,22 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 
 		_script = _scriptService.CreatePowerFishingTemplate();
 		AttachScript(_script);
+		_editHistory.Clear();
 		RefreshSignals();
 		RefreshDashboard();
+
+		// Seed initial panel collapse state from the persisted startup preferences.
+		if (Services.EditorPreferences.StartLeftCollapsed)
+			IsLeftCollapsed = true;
+		if (Services.EditorPreferences.StartRightCollapsed)
+			IsRightCollapsed = true;
 	}
 
 	public event PropertyChangedEventHandler? PropertyChanged;
 
 	public ObservableCollection<RuntimeSignal> Signals { get; } = new();
 	public ObservableCollection<string> SignalSuggestions { get; } = new();
+	public ObservableCollection<string> GraphExplanationLines { get; } = new();
 	public ObservableCollection<NodeCategory> Categories { get; }
 	public ObservableCollection<NodeDefinition> Definitions { get; }
 	public ObservableCollection<NodeParamBinding> ParameterBindings { get; } = new();
@@ -300,140 +337,6 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		}
 	}
 
-	public void SelectNode(NodeModel node, bool toggle)
-	{
-		if (node == null) return;
-
-		// Drop any transition selection that doesn't belong to the new selection,
-		// otherwise Delete removes a stale edge instead of the selected node.
-		if (_selectedTransition != null && !node.Transitions.Contains(_selectedTransition))
-		{
-			SelectedTransition = null;
-		}
-
-		if (toggle)
-		{
-			if (_selectedNodes.Contains(node))
-			{
-				node.IsSelected = false;
-				_selectedNodes.Remove(node);
-			}
-			else
-			{
-				node.IsSelected = true;
-				_selectedNodes.Add(node);
-			}
-
-			_selectedNode = _selectedNodes.LastOrDefault();
-		}
-		else
-		{
-			foreach (var existing in _selectedNodes.ToList())
-			{
-				existing.IsSelected = false;
-				_selectedNodes.Remove(existing);
-			}
-
-			node.IsSelected = true;
-			_selectedNodes.Add(node);
-			_selectedNode = node;
-		}
-
-		SelectedNodeDefinition = _selectedNode == null
-			? null
-			: _catalogService.GetDefinition(_selectedNode.DefinitionId);
-
-		OnPropertyChanged(nameof(SelectedNode));
-		OnPropertyChanged(nameof(SelectedNodes));
-		OnPropertyChanged(nameof(CanEditNode));
-		OnPropertyChanged(nameof(CanEditTransitions));
-		RemoveNodeCommand.NotifyCanExecuteChanged();
-		AddTransitionCommand.NotifyCanExecuteChanged();
-		SetAsStartCommand.NotifyCanExecuteChanged();
-		RemoveTransitionCommand.NotifyCanExecuteChanged();
-		RefreshParameterBindings();
-		IsNodeInfoOpen = false;
-	}
-
-	/// <summary>
-	/// Clears all selected nodes.
-	/// </summary>
-	public void ClearSelection()
-	{
-		foreach (var node in _selectedNodes.ToList())
-		{
-			node.IsSelected = false;
-			_selectedNodes.Remove(node);
-		}
-
-		_selectedNode = null;
-		SelectedNodeDefinition = null;
-		SelectedTransition = null;
-
-		OnPropertyChanged(nameof(SelectedNode));
-		OnPropertyChanged(nameof(SelectedNodes));
-		OnPropertyChanged(nameof(CanEditNode));
-		OnPropertyChanged(nameof(CanEditTransitions));
-		RemoveNodeCommand.NotifyCanExecuteChanged();
-		AddTransitionCommand.NotifyCanExecuteChanged();
-		SetAsStartCommand.NotifyCanExecuteChanged();
-		RemoveTransitionCommand.NotifyCanExecuteChanged();
-		RefreshParameterBindings();
-		IsNodeInfoOpen = false;
-	}
-
-	/// <summary>
-	/// Selects all nodes within the specified bounds (for box/marquee selection).
-	/// </summary>
-	/// <param name="bounds">The selection rectangle in canvas coordinates.</param>
-	public void SelectNodesInBounds(Rect bounds)
-	{
-		foreach (var node in Script.Nodes)
-		{
-			var nodeRect = Converters.NodeConnectorConverter.GetNodeBounds(node);
-			if (bounds.IntersectsWith(nodeRect))
-			{
-				if (!_selectedNodes.Contains(node))
-				{
-					node.IsSelected = true;
-					_selectedNodes.Add(node);
-				}
-			}
-		}
-
-		_selectedNode = _selectedNodes.LastOrDefault();
-		SelectedNodeDefinition = _selectedNode == null
-			? null
-			: _catalogService.GetDefinition(_selectedNode.DefinitionId);
-
-		OnPropertyChanged(nameof(SelectedNode));
-		OnPropertyChanged(nameof(SelectedNodes));
-		OnPropertyChanged(nameof(CanEditNode));
-		OnPropertyChanged(nameof(CanEditTransitions));
-		RemoveNodeCommand.NotifyCanExecuteChanged();
-		AddTransitionCommand.NotifyCanExecuteChanged();
-		SetAsStartCommand.NotifyCanExecuteChanged();
-		RemoveTransitionCommand.NotifyCanExecuteChanged();
-		RefreshParameterBindings();
-	}
-
-	private void UpdatePrimarySelection(NodeModel? node)
-	{
-		foreach (var existing in _selectedNodes.ToList())
-		{
-			existing.IsSelected = false;
-			_selectedNodes.Remove(existing);
-		}
-
-		_selectedNode = node;
-
-		if (_selectedNode != null)
-		{
-			_selectedNode.IsSelected = true;
-			_selectedNodes.Add(_selectedNode);
-		}
-	}
-
 	public TransitionModel? SelectedTransition
 	{
 		get => _selectedTransition;
@@ -455,10 +358,25 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		{
 			if (_isRunning == value) return;
 			_isRunning = value;
+			if (value)
+			{
+				// Start (or resume) the graph runtime clock.
+				_graphRunStartedUtc = DateTime.UtcNow;
+			}
+			else if (_graphRunStartedUtc is { } startedUtc)
+			{
+				// Fold the just-finished span into the running total.
+				_graphRunAccumulated += DateTime.UtcNow - startedUtc;
+				_graphRunStartedUtc = null;
+			}
 			OnPropertyChanged();
 			StopCommand.NotifyCanExecuteChanged();
 		}
 	}
+
+	/// <summary>Total wall-clock time the graph has spent running this session (live while running).</summary>
+	private TimeSpan GraphRunElapsed =>
+		_graphRunAccumulated + (_graphRunStartedUtc is { } s ? DateTime.UtcNow - s : TimeSpan.Zero);
 
 	public bool IsLooping
 	{
@@ -489,6 +407,17 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		{
 			if (_dashboardRuntime == value) return;
 			_dashboardRuntime = value;
+			OnPropertyChanged();
+		}
+	}
+
+	public string DashboardUptime
+	{
+		get => _dashboardUptime;
+		private set
+		{
+			if (_dashboardUptime == value) return;
+			_dashboardUptime = value;
 			OnPropertyChanged();
 		}
 	}
@@ -690,6 +619,43 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		}
 	}
 
+	// --- Startup / mini-map preferences (gear menu). Backed by the process-wide store so they
+	//     persist across sessions and seed every new canvas. ---
+
+	public bool StartLeftCollapsed
+	{
+		get => Services.EditorPreferences.StartLeftCollapsed;
+		set
+		{
+			if (Services.EditorPreferences.StartLeftCollapsed == value) return;
+			Services.EditorPreferences.StartLeftCollapsed = value;
+			OnPropertyChanged();
+		}
+	}
+
+	public bool StartRightCollapsed
+	{
+		get => Services.EditorPreferences.StartRightCollapsed;
+		set
+		{
+			if (Services.EditorPreferences.StartRightCollapsed == value) return;
+			Services.EditorPreferences.StartRightCollapsed = value;
+			OnPropertyChanged();
+		}
+	}
+
+	/// <summary>When true the mini-map is always shown; when false it auto-hides after panning.</summary>
+	public bool MiniMapAlwaysVisible
+	{
+		get => Services.EditorPreferences.MiniMapAlwaysVisible;
+		set
+		{
+			if (Services.EditorPreferences.MiniMapAlwaysVisible == value) return;
+			Services.EditorPreferences.MiniMapAlwaysVisible = value;
+			OnPropertyChanged();
+		}
+	}
+
 	/// <summary>
 	/// Reports the window's live size so the "Custom" option mirrors manual resizes. Snaps the
 	/// selection to a matching preset (or the custom entry) without re-requesting a resize, which
@@ -756,6 +722,20 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		}
 	}
 
+	public bool ShowAdvancedNodes
+	{
+		get => _showAdvancedNodes;
+		set
+		{
+			if (_showAdvancedNodes == value)
+				return;
+
+			_showAdvancedNodes = value;
+			OnPropertyChanged();
+			OnPropertyChanged(nameof(FilteredDefinitions));
+		}
+	}
+
 	public IEnumerable<NodeDefinition> FilteredDefinitions
 	{
 		get
@@ -763,7 +743,8 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 			var source = (SelectedCategory == null || string.Equals(SelectedCategory.Id, "all", StringComparison.OrdinalIgnoreCase)
 					? Definitions
 					: Definitions.Where(d => string.Equals(d.CategoryId, SelectedCategory.Id, StringComparison.OrdinalIgnoreCase)))
-				.Where(d => d.IsImplemented);
+				.Where(d => d.IsImplemented)
+				.Where(d => ShowAdvancedNodes || d.Maturity == NodeMaturity.Stable);
 
 			var search = _catalogSearchText?.Trim();
 			if (!string.IsNullOrEmpty(search))
@@ -809,6 +790,28 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 				LeftColumnWidth = new GridLength(Math.Max(220, _expandedLeftWidth));
 			}
 
+			OnPropertyChanged();
+		}
+	}
+
+	public bool IsGraphExplanationOpen
+	{
+		get => _isGraphExplanationOpen;
+		set
+		{
+			if (_isGraphExplanationOpen == value) return;
+			_isGraphExplanationOpen = value;
+			OnPropertyChanged();
+		}
+	}
+
+	public string GraphExplanationSummary
+	{
+		get => _graphExplanationSummary;
+		set
+		{
+			if (string.Equals(_graphExplanationSummary, value, StringComparison.Ordinal)) return;
+			_graphExplanationSummary = value ?? string.Empty;
 			OnPropertyChanged();
 		}
 	}
@@ -891,6 +894,10 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 
 	public bool CanEditTransitions => SelectedNode != null && Script.Nodes.Count > 1;
 
+	public bool CanUndo => _editHistory.CanUndo;
+
+	public bool CanRedo => _editHistory.CanRedo;
+
 	// ─── In-game capture (calibrate an interaction node from a real DoAction click) ──────
 
 	private string _captureStatus = "Click the target in-game, then Capture to fill this node.";
@@ -912,123 +919,14 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	/// <summary>True for interaction node types (objects/NPCs/loot) that can be calibrated from a click.</summary>
 	public bool CanCaptureSelectedNode
 	{
-		get
-		{
-			var def = SelectedNodeDefinition;
-			if (def == null) return false;
-			return string.Equals(def.CategoryId, "npcs", StringComparison.OrdinalIgnoreCase)
-				|| string.Equals(def.CategoryId, "objects", StringComparison.OrdinalIgnoreCase)
-				|| string.Equals(def.Id, "loot.pickup", StringComparison.OrdinalIgnoreCase);
-		}
-	}
-
-	private static string DesiredCaptureKind(NodeDefinition def)
-	{
-		if (string.Equals(def.CategoryId, "npcs", StringComparison.OrdinalIgnoreCase)) return "NPC";
-		if (string.Equals(def.Id, "loot.pickup", StringComparison.OrdinalIgnoreCase)) return "GroundItem";
-		return "Object";
+		get => _captureCalibrationService.CanCapture(SelectedNodeDefinition);
 	}
 
 	private void CaptureFromGame()
 	{
-		var node = SelectedNode;
-		var def = SelectedNodeDefinition;
-		if (node == null || def == null || !CanCaptureSelectedNode)
-		{
-			CaptureStatus = "Select an Object/NPC interaction node first.";
-			CaptureDriftState = "none";
-			return;
-		}
-
-		var kind = DesiredCaptureKind(def);
-		var cap = DoActionDebugSignals.LatestCapture(kind) ?? DoActionDebugSignals.LatestCapture();
-		if (cap == null)
-		{
-			CaptureStatus = "No in-game click captured yet — click the target in the game, then Capture.";
-			CaptureDriftState = "none";
-			return;
-		}
-
-		// Remember the existing opcode/offset so we can report match vs drift after filling.
-		var oldAction = FindParamValue(node, "actionIndex");
-		var oldOffset = FindParamValue(node, "offset");
-
-		var filledAny = false;
-		filledAny |= SetParamRaw(node, def, "id", cap.Id > 0 ? cap.Id.ToString() : null);
-		// No dedicated id field (e.g. NPC interact / highlighted object) — steer the captured
-		// id into the node's primary target/list field instead.
-		if (cap.Id > 0 && GetParamType(def, "id") == null)
-		{
-			foreach (var listKey in new[] { "target", "name", "objectIds" })
-				if (SetParamRaw(node, def, listKey, cap.Id.ToString())) { filledAny = true; break; }
-		}
-		// Only fill actionIndex when it is a free numeric opcode; skip click-mode enums
-		// (objects.interactHighlighted uses a 0/1/3 mouse mode, not an opcode).
-		if (GetParamType(def, "actionIndex") == NodeParamType.Number)
-			filledAny |= SetParamRaw(node, def, "actionIndex", cap.ActionOpcode.ToString());
-		filledAny |= SetParamRaw(node, def, "offset", cap.Offset.ToString());
-		if (cap.Distance > 0)
-			filledAny |= SetParamRaw(node, def, "maxDistance", cap.Distance.ToString());
-
-		if (!filledAny)
-		{
-			CaptureStatus = $"Captured {kind} (id {cap.Id}, action {cap.ActionOpcode}, offset {cap.Offset}) but this node has no matching fields.";
-			CaptureDriftState = "none";
-			return;
-		}
-
-		var hadValues = !string.IsNullOrWhiteSpace(oldAction) || !string.IsNullOrWhiteSpace(oldOffset);
-		var matched = NumbersEqual(oldAction, cap.ActionOpcode.ToString()) && NumbersEqual(oldOffset, cap.Offset.ToString());
-		CaptureDriftState = !hadValues ? "filled" : matched ? "match" : "drift";
-		CaptureStatus = CaptureDriftState switch
-		{
-			"match" => $"Match — {kind} action {cap.ActionOpcode}, offset {cap.Offset} (id {cap.Id}).",
-			"drift" => $"Drift — updated to action {cap.ActionOpcode}, offset {cap.Offset} (id {cap.Id}).",
-			_ => $"Filled from {kind} click — action {cap.ActionOpcode}, offset {cap.Offset} (id {cap.Id})."
-		};
-	}
-
-	private static NodeParamType? GetParamType(NodeDefinition def, string key)
-		=> def.Parameters.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase))?.Type;
-
-	private static string? FindParamValue(NodeModel node, string key)
-		=> node.Parameters.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase))?.RawValue;
-
-	private bool SetParamRaw(NodeModel node, NodeDefinition def, string key, string? value)
-	{
-		if (value == null) return false;
-		var pdef = def.Parameters.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase));
-		if (pdef == null) return false;
-		var pv = node.Parameters.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase));
-		if (pv == null) return false;
-
-		// For enum params, prefer the catalog entry whose trailing value matches so the dropdown
-		// stays populated; otherwise store the raw numeric (ToInt parses both at execution time).
-		if (pdef.Type == NodeParamType.Enum && pdef.EnumValues != null && int.TryParse(value, out var numeric))
-		{
-			var match = pdef.EnumValues.FirstOrDefault(e => ParseTrailingInt(e) == numeric);
-			pv.RawValue = match ?? value;
-		}
-		else
-		{
-			pv.RawValue = value;
-		}
-		return true;
-	}
-
-	private static bool NumbersEqual(string? a, string? b)
-	{
-		var pa = ParseTrailingInt(a);
-		var pb = ParseTrailingInt(b);
-		return pa.HasValue && pb.HasValue && pa.Value == pb.Value;
-	}
-
-	private static int? ParseTrailingInt(string? text)
-	{
-		if (string.IsNullOrWhiteSpace(text)) return null;
-		if (int.TryParse(text.Trim(), out var n)) return n;
-		var eq = text.LastIndexOf('=');
-		return eq >= 0 && int.TryParse(text[(eq + 1)..].Trim(), out n) ? n : null;
+		var result = _captureCalibrationService.Capture(SelectedNode, SelectedNodeDefinition);
+		CaptureStatus = result.Status;
+		CaptureDriftState = result.DriftState;
 	}
 
 	public IRelayCommand AddNodeCommand { get; }
@@ -1041,6 +939,8 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public IRelayCommand SetAsStartCommand { get; }
 	public IRelayCommand ClearTrailCommand { get; }
 	public IRelayCommand DeleteSelectedCommand { get; }
+	public IRelayCommand UndoCommand { get; }
+	public IRelayCommand RedoCommand { get; }
 	public IRelayCommand ToggleLeftPanelCommand { get; }
 	public IRelayCommand ToggleRightPanelCommand { get; }
 
@@ -1053,11 +953,15 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public IAsyncRelayCommand StartCommand { get; }
 	public IAsyncRelayCommand StepCommand { get; }
 	public IRelayCommand StopCommand { get; }
+	public IRelayCommand ExplainGraphCommand { get; }
 	public IRelayCommand<NodeParamBinding?> AddListItemCommand { get; }
 	public IRelayCommand<(NodeParamBinding binding, string value)?> RemoveListItemCommand { get; }
 	public IRelayCommand CloseNodeInfoCommand { get; }
 	public IRelayCommand<NodeDefinition?> ShowDefinitionInfoCommand { get; }
 	public IRelayCommand CaptureFromGameCommand { get; }
+	public IRelayCommand ResetTimerCommand { get; }
+	public IRelayCommand ResetXpCommand { get; }
+	public IRelayCommand ResetItemsCommand { get; }
 
 	public void Dispose()
 	{
@@ -1074,994 +978,78 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		_engine.Faulted -= OnEngineFaulted;
 	}
 
-	private void AttachScript(GraphModel script)
+	public GraphConnectionRuleResult PreviewConnect(NodeModel? source, NodeModel? target)
+		=> _connectionRules.CanConnect(Script, source, target);
+
+	public GraphConnectionRuleResult PreviewRetarget(TransitionModel? transition, NodeModel? target)
+		=> _connectionRules.CanRetarget(Script, transition, target);
+
+	public void BeginGraphEditBatch(string label)
 	{
-		_suppressDirty = true;
-		try
-		{
-			script.PropertyChanged += OnScriptPropertyChanged;
-			script.Nodes.CollectionChanged += OnNodesChanged;
-			foreach (var node in script.Nodes)
-			{
-				EnsureDefinition(node);
-				node.PropertyChanged += OnNodePropertyChanged;
-				node.Transitions.CollectionChanged += OnTransitionsChanged;
-				node.Parameters.CollectionChanged += OnParametersChanged;
-				foreach (var param in node.Parameters)
-				{
-					param.PropertyChanged += OnParameterPropertyChanged;
-				}
-			}
-
-			SelectedNode = script.Nodes.FirstOrDefault();
-			Status = $"Loaded \"{script.Name}\"";
-		}
-		finally
-		{
-			_suppressDirty = false;
-		}
-
-		IsDirty = false;
-		OnPropertyChanged(nameof(IsCanvasEmpty));
+		_activeGraphEditBatch ??= _editHistory.Batch(label, Script);
 	}
 
-	private void DetachScript()
+	public void CommitGraphEditBatch()
 	{
-		_script.PropertyChanged -= OnScriptPropertyChanged;
-		_script.Nodes.CollectionChanged -= OnNodesChanged;
-		foreach (var node in _script.Nodes)
-		{
-			node.PropertyChanged -= OnNodePropertyChanged;
-			node.Transitions.CollectionChanged -= OnTransitionsChanged;
-			node.Parameters.CollectionChanged -= OnParametersChanged;
-			foreach (var param in node.Parameters)
-			{
-				param.PropertyChanged -= OnParameterPropertyChanged;
-			}
-		}
-	}
+		if (_activeGraphEditBatch == null)
+			return;
 
-	private void OnNodesChanged(object? sender, NotifyCollectionChangedEventArgs e)
-	{
-		if (e.NewItems != null)
-		{
-			foreach (NodeModel node in e.NewItems)
-			{
-				EnsureDefinition(node);
-				node.PropertyChanged += OnNodePropertyChanged;
-				node.Transitions.CollectionChanged += OnTransitionsChanged;
-				node.Parameters.CollectionChanged += OnParametersChanged;
-				foreach (var param in node.Parameters)
-				{
-					param.PropertyChanged += OnParameterPropertyChanged;
-				}
-			}
-		}
-
-		if (e.OldItems != null)
-		{
-			foreach (NodeModel node in e.OldItems)
-			{
-				node.PropertyChanged -= OnNodePropertyChanged;
-				node.Transitions.CollectionChanged -= OnTransitionsChanged;
-				node.Parameters.CollectionChanged -= OnParametersChanged;
-				foreach (var param in node.Parameters)
-				{
-					param.PropertyChanged -= OnParameterPropertyChanged;
-				}
-				_selectedNodes.Remove(node);
-			}
-		}
-
-		RefreshSignals();
-		OnPropertyChanged(nameof(AllTransitions));
-		OnPropertyChanged(nameof(IsCanvasEmpty));
-		AddTransitionCommand.NotifyCanExecuteChanged();
-		RefreshDashboard();
-		MarkDirty();
-	}
-
-	private void OnTransitionsChanged(object? sender, NotifyCollectionChangedEventArgs e)
-	{
-		RefreshSignals();
-		OnPropertyChanged(nameof(AllTransitions));
-		RefreshDashboard();
-		MarkDirty();
-	}
-
-	private void OnParametersChanged(object? sender, NotifyCollectionChangedEventArgs e)
-	{
-		if (e.NewItems != null)
-		{
-			foreach (NodeParameterValue param in e.NewItems)
-			{
-				param.PropertyChanged += OnParameterPropertyChanged;
-			}
-		}
-
-		if (e.OldItems != null)
-		{
-			foreach (NodeParameterValue param in e.OldItems)
-			{
-				param.PropertyChanged -= OnParameterPropertyChanged;
-			}
-		}
-
-		RefreshSignals();
-		RefreshParameterBindings();
-		RefreshDashboard();
-		MarkDirty();
-	}
-
-	private void OnParameterPropertyChanged(object? sender, PropertyChangedEventArgs e)
-	{
-		if (string.Equals(e.PropertyName, nameof(NodeParameterValue.RawValue), StringComparison.OrdinalIgnoreCase) ||
-		    string.Equals(e.PropertyName, nameof(NodeParameterValue.BoolValue), StringComparison.OrdinalIgnoreCase))
-		{
-			RefreshSignals();
-			RefreshDashboard();
-			MarkDirty();
-		}
-	}
-
-	private void OnScriptPropertyChanged(object? sender, PropertyChangedEventArgs e)
-	{
-		// Metadata edits count as document changes; UpdatedAt is touched by saving itself.
-		if (e.PropertyName is nameof(GraphModel.Name) or nameof(GraphModel.Description)
-		    or nameof(GraphModel.Author) or nameof(GraphModel.StartNodeId))
-		{
-			MarkDirty();
-		}
-	}
-
-	private void MarkDirty()
-	{
-		if (!_suppressDirty)
+		_activeGraphEditBatch.Dispose();
+		_activeGraphEditBatch = null;
+		var beforeCanUndo = _editHistory.CanUndo;
+		_editHistory.CommitBatch(Script);
+		if (_editHistory.CanUndo != beforeCanUndo || IsDirty)
 		{
 			IsDirty = true;
 		}
 	}
 
-	private void AddNode()
+	private void RecordGraphEdit(string label, GraphModel before)
 	{
-		var defaultDefinition = _catalogService.GetDefaultDefinitionForType(Script.Nodes.Count == 0 ? NodeType.Start : NodeType.Action);
-		AddNodeFromDefinition(defaultDefinition);
-	}
-
-	private void AddNodeFromDefinition(NodeDefinition? definition)
-	{
-		if (definition == null)
+		if (_editHistory.IsApplying)
 			return;
 
-		// Cascade placement, wrapping every 12 nodes so big graphs don't march off-canvas.
-		var offset = (Script.Nodes.Count % 12) * 30;
-		var node = new NodeModel
+		var hadUndo = _editHistory.CanUndo;
+		_editHistory.Record(label, before, Script);
+		if (_editHistory.CanUndo || hadUndo)
 		{
-			Title = definition.Title,
-			Description = definition.ShortDescription,
-			DefinitionId = definition.Id,
-			DefinitionTitle = definition.Title,
-			Type = ResolveNodeType(definition),
-			X = 80 + offset,
-			Y = 80 + offset,
-			DwellMilliseconds = 250
-		};
-
-		EnsureNodeParameters(node, definition);
-
-		Script.Nodes.Add(node);
-		// First node on an empty canvas becomes the start regardless of its definition;
-		// the engine can start anywhere, so we honor the user's pick instead of swapping it.
-		if (!Script.StartNodeId.HasValue || node.Type == NodeType.Start)
-		{
-			Script.StartNodeId = node.Id;
-		}
-
-		SelectedNode = node;
-		Status = $"Added {node.Title}";
-	}
-
-	private void RemoveSelectedNode()
-	{
-		if (SelectedNode == null)
-			return;
-
-		var targetId = SelectedNode.Id;
-
-		foreach (var node in Script.Nodes.ToList())
-		{
-			var toRemove = node.Transitions.Where(t => t.FromNodeId == targetId || t.ToNodeId == targetId).ToList();
-			foreach (var edge in toRemove)
-			{
-				node.Transitions.Remove(edge);
-			}
-		}
-
-		Script.Nodes.Remove(SelectedNode);
-		_selectedNodes.Remove(SelectedNode);
-
-		if (Script.StartNodeId == targetId)
-		{
-			Script.StartNodeId = Script.Nodes.FirstOrDefault()?.Id;
-		}
-
-		SelectedNode = Script.Nodes.FirstOrDefault();
-		SelectedTransition = null;
-
-		Status = "Removed node";
-	}
-
-	private void AddTransition()
-	{
-		if (SelectedNode == null || Script.Nodes.Count < 2)
-			return;
-
-		var target = Script.Nodes.First(n => n.Id != SelectedNode.Id);
-
-		var transition = new TransitionModel
-		{
-			FromNodeId = SelectedNode.Id,
-			ToNodeId = target.Id,
-			Label = "Next",
-			IsFallback = !SelectedNode.Transitions.Any()
-		};
-
-		SelectedNode.Transitions.Add(transition);
-		SelectedTransition = transition;
-		Status = "Added transition";
-	}
-
-	/// <summary>
-	/// Creates a transition between two nodes, used by the canvas port drag-to-connect gesture.
-	/// Selects the existing edge instead of duplicating when one already targets the same node.
-	/// </summary>
-	public void ConnectNodes(NodeModel from, NodeModel to)
-	{
-		if (from == null || to == null || from.Id == to.Id)
-			return;
-
-		var existing = from.Transitions.FirstOrDefault(t => t.ToNodeId == to.Id);
-		if (existing != null)
-		{
-			SelectedNode = from;
-			SelectedTransition = existing;
-			Status = $"{from.Title} already links to {to.Title}";
-			return;
-		}
-
-		var transition = new TransitionModel
-		{
-			FromNodeId = from.Id,
-			ToNodeId = to.Id,
-			Label = "Next",
-			IsFallback = !from.Transitions.Any()
-		};
-
-		from.Transitions.Add(transition);
-		SelectedNode = from;
-		SelectedTransition = transition;
-		Status = $"Connected {from.Title} → {to.Title}";
-	}
-
-	/// <summary>
-	/// Points an existing transition at a different target node, used by the canvas
-	/// port drag gesture. No-ops when another edge on the same node already targets it.
-	/// </summary>
-	public void RetargetTransition(TransitionModel transition, NodeModel target)
-	{
-		if (transition == null || target == null || transition.ToNodeId == target.Id)
-			return;
-
-		var source = Script.Nodes.FirstOrDefault(n => n.Transitions.Contains(transition));
-		if (source == null || source.Id == target.Id)
-			return;
-
-		if (source.Transitions.Any(t => !ReferenceEquals(t, transition) && t.ToNodeId == target.Id))
-		{
-			Status = $"{source.Title} already links to {target.Title}";
-			return;
-		}
-
-		transition.ToNodeId = target.Id;
-		SelectedNode = source;
-		SelectedTransition = transition;
-		Status = $"Retargeted transition to {target.Title}";
-	}
-
-	/// <summary>
-	/// Moves a transition within its node's list. Order matters: the engine evaluates
-	/// transitions top to bottom, so this is the priority control.
-	/// </summary>
-	private void MoveTransition(TransitionModel? transition, int direction)
-	{
-		if (transition == null)
-			return;
-
-		var source = Script.Nodes.FirstOrDefault(n => n.Transitions.Contains(transition));
-		if (source == null)
-			return;
-
-		var index = source.Transitions.IndexOf(transition);
-		var newIndex = index + direction;
-		if (index < 0 || newIndex < 0 || newIndex >= source.Transitions.Count)
-			return;
-
-		source.Transitions.Move(index, newIndex);
-		SelectedTransition = transition;
-		Status = $"Moved transition {(direction < 0 ? "up" : "down")}";
-	}
-
-	private void RemoveTransition(TransitionModel? transition)
-	{
-		if (SelectedNode == null || transition == null)
-			return;
-
-		SelectedNode.Transitions.Remove(transition);
-		if (ReferenceEquals(SelectedTransition, transition))
-		{
-			SelectedTransition = SelectedNode.Transitions.FirstOrDefault();
-		}
-
-		Status = "Removed transition";
-	}
-
-	private void SetSelectedAsStart()
-	{
-		if (SelectedNode == null)
-			return;
-
-		Script.StartNodeId = SelectedNode.Id;
-		Status = $"{SelectedNode.Title} marked as start";
-	}
-
-	private void ClearTrail()
-	{
-		_currentRunNode = null;
-
-		foreach (var node in Script.Nodes)
-		{
-			node.IsActive = false;
-			node.IsCurrent = false;
-			node.LastRunStatus = NodeRunStatus.None;
-		}
-
-		foreach (var transition in AllTransitions)
-		{
-			transition.IsActive = false;
+			IsDirty = true;
 		}
 	}
 
-	private void DeleteSelection()
+	private void UndoGraphEdit()
 	{
-		if (SelectedTransition != null && SelectedNode != null)
-		{
-			RemoveTransition(SelectedTransition);
-			return;
-		}
-
-		if (_selectedNodes.Count == 0)
+		var graph = _editHistory.Undo(Script);
+		if (graph == null)
 			return;
 
-		foreach (var node in _selectedNodes.ToList())
-		{
-			SelectedNode = node;
-			RemoveSelectedNode();
-		}
-	}
-
-	private bool ConfirmDiscardUnsavedChanges()
-	{
-		if (!IsDirty)
-			return true;
-
-		var result = MessageBox.Show(
-			$"\"{Script.Name}\" has unsaved changes. Discard them?",
-			"Unsaved changes",
-			MessageBoxButton.YesNo,
-			MessageBoxImage.Warning);
-		return result == MessageBoxResult.Yes;
-	}
-
-	private void CreateBlankScript()
-	{
-		if (!ConfirmDiscardUnsavedChanges())
-			return;
-
-		StopRun();
-		Script = _scriptService.CreateNew("New graph");
-		CurrentFilePath = null;
-		RefreshSignals();
-	}
-
-	private void LoadTemplate()
-	{
-		if (!ConfirmDiscardUnsavedChanges())
-			return;
-
-		StopRun();
-		Script = _scriptService.CreatePowerFishingTemplate();
-		CurrentFilePath = null;
-		RefreshSignals();
-	}
-
-	/// <summary>
-	/// Replaces the current graph with a pre-built one (e.g. a workspace demo canvas). Unlike the
-	/// file/template commands this does not prompt to discard changes — the caller owns that choice,
-	/// since a freshly created canvas has nothing to lose.
-	/// </summary>
-	public void LoadGraph(GraphModel graph, string? filePath = null)
-	{
-		if (graph == null) throw new ArgumentNullException(nameof(graph));
-
-		StopRun();
 		Script = graph;
-		CurrentFilePath = filePath;
-		RefreshSignals();
+		IsDirty = true;
+		Status = "Undid graph edit";
 	}
 
-	private async Task LoadScriptAsync()
+	private void RedoGraphEdit()
 	{
-		if (!ConfirmDiscardUnsavedChanges())
+		var graph = _editHistory.Redo();
+		if (graph == null)
 			return;
 
-		var dialog = new OpenFileDialog
-		{
-			Title = "Open SharpBuilder graph",
-			Filter = "SharpBuilder graph (*.orbitfsm.json)|*.orbitfsm.json|JSON (*.json)|*.json|All files|*.*",
-			InitialDirectory = _scriptService.ScriptsDirectory
-		};
-
-		if (dialog.ShowDialog() != true)
-			return;
-
-		var (loaded, error) = await _scriptService.TryLoadAsync(dialog.FileName);
-		if (loaded == null)
-		{
-			MessageBox.Show($"Unable to load the selected graph.\n\n{error}", "Load failed", MessageBoxButton.OK, MessageBoxImage.Error);
-			return;
-		}
-
-		StopRun();
-		Script = loaded;
-		CurrentFilePath = dialog.FileName;
-		RefreshSignals();
+		Script = graph;
+		IsDirty = true;
+		Status = "Redid graph edit";
 	}
 
-	private async Task SaveScriptAsync()
+	private void ExplainGraph()
 	{
-		if (string.IsNullOrWhiteSpace(CurrentFilePath))
-		{
-			var dialog = new SaveFileDialog
-			{
-				Title = "Save SharpBuilder graph",
-				Filter = "SharpBuilder graph (*.orbitfsm.json)|*.orbitfsm.json|JSON (*.json)|*.json|All files|*.*",
-				FileName = $"{Script.Name}.orbitfsm.json",
-				InitialDirectory = _scriptService.ScriptsDirectory
-			};
-
-			if (dialog.ShowDialog() != true)
-				return;
-
-			CurrentFilePath = dialog.FileName;
-		}
-
-		await _scriptService.SaveAsync(Script, CurrentFilePath);
-		IsDirty = false;
-		Status = $"Saved to {CurrentFilePath}";
-	}
-
-	private async Task ExportScriptAsync()
-	{
-		var dialog = new SaveFileDialog
-		{
-			Title = "Export / share SharpBuilder graph",
-			Filter = "SharpBuilder graph (*.orbitfsm.json)|*.orbitfsm.json|JSON (*.json)|*.json|All files|*.*",
-			FileName = $"{Script.Name}.orbitfsm.json",
-			InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
-		};
-
-		if (dialog.ShowDialog() != true)
-			return;
-
-		await _scriptService.SaveAsync(Script, dialog.FileName);
-		Status = $"Exported to {dialog.FileName}";
-	}
-
-	private async Task StartRunAsync(bool loop)
-	{
-		if (IsRunning)
-			return;
-
-		// A previous run may still be unwinding after Stop; wait for the engine to
-		// actually finish, otherwise its already-running guard throws.
-		if (_runTask is { IsCompleted: false })
-		{
-			try
-			{
-				await _runTask;
-			}
-			catch
-			{
-				// Failures of the previous run were already surfaced via Faulted.
-			}
-		}
-
-		var issues = _validator.Validate(Script, GameRuntime.IsGameApiAvailable);
-		var errors = issues.Where(i => i.Severity == ValidationSeverity.Error).ToList();
-		if (errors.Count > 0)
-		{
-			Status = errors.Any(e => e.Message.Contains("in-game API"))
-				? "Design mode: game-backed nodes need the in-game script host"
-				: $"Validation failed ({errors.Count} error(s))";
-			MessageBox.Show(
-				string.Join(Environment.NewLine, issues.Select(i => i.ToString())),
-				"Cannot run script",
-				MessageBoxButton.OK,
-				MessageBoxImage.Warning);
-			return;
-		}
-
-		if (issues.Count > 0)
-		{
-			Status = $"Running with {issues.Count} warning(s)";
-		}
-
-		var signals = BuildSignalMap();
-		if (signals == null)
-			return;
-
-		IsRunning = true;
-		IsLooping = loop;
-		Status = loop ? "Running (loop)" : "Running once";
-
-		ClearTrail();
-
-		_runCts?.Dispose();
-		_runCts = new CancellationTokenSource();
-		var token = _runCts.Token;
-		try
-		{
-			_runTask = Task.Run(() => _engine.RunAsync(Script, signals, loop, token), token);
-			await _runTask;
-		}
-		finally
-		{
-			// Only here, when the engine has genuinely finished, does the run end.
-			IsRunning = false;
-			if (token.IsCancellationRequested)
-			{
-				Status = "Stopped";
-			}
-		}
-	}
-
-	private void StopRun()
-	{
-		if (!IsRunning)
-			return;
-
-		// Signal cancellation; IsRunning resets when the engine task actually completes.
-		_runCts?.Cancel();
-		Status = "Stopping…";
-	}
-
-	private IReadOnlyDictionary<string, bool>? BuildSignalMap()
-	{
-		try
-		{
-			return Signals
-				.Where(s => !string.IsNullOrWhiteSpace(s.Key))
-				.GroupBy(s => s.Key, StringComparer.OrdinalIgnoreCase)
-				.ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.OrdinalIgnoreCase);
-		}
-		catch (Exception ex)
-		{
-			Status = $"Signal error: {ex.Message}";
-			return null;
-		}
-	}
-
-	private void RefreshSignals()
-	{
-		var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-		foreach (var transition in Script.Nodes.SelectMany(n => n.Transitions).Where(t => t.HasCondition))
-		{
-			var key = transition.ConditionKey.Trim();
-			if (!string.IsNullOrWhiteSpace(key))
-				keys.Add(key);
-		}
-
-		foreach (var node in Script.Nodes)
-		{
-			foreach (var param in node.Parameters.Where(p => string.Equals(p.Key, "signal", StringComparison.OrdinalIgnoreCase)))
-			{
-				foreach (var value in param.SplitValues())
-				{
-					keys.Add(value);
-				}
-
-				if (!param.AllowMultiple && !string.IsNullOrWhiteSpace(param.RawValue))
-				{
-					keys.Add(param.RawValue.Trim());
-				}
-			}
-		}
-
-		// Remove stale signals
-		for (var i = Signals.Count - 1; i >= 0; i--)
-		{
-			if (!keys.Contains(Signals[i].Key, StringComparer.OrdinalIgnoreCase))
-			{
-				Signals.RemoveAt(i);
-			}
-		}
-
-		// Add missing signals (default false)
-		foreach (var key in keys)
-		{
-			if (!Signals.Any(s => string.Equals(s.Key, key, StringComparison.OrdinalIgnoreCase)))
-			{
-				Signals.Add(new RuntimeSignal { Key = key, Value = false });
-			}
-		}
-
-		SignalSuggestions.Clear();
-		foreach (var key in keys.OrderBy(k => k))
-		{
-			SignalSuggestions.Add(key);
-		}
-
-		OnPropertyChanged(nameof(Signals));
-		OnPropertyChanged(nameof(SignalSuggestions));
-	}
-
-	private void RefreshDashboard()
-	{
-		var elapsed = DateTime.UtcNow - _dashboardStartedUtc;
-		DashboardRuntime = elapsed.ToString(@"hh\:mm\:ss");
-		DashboardCurrentNode = _currentRunNode?.Title ?? "None";
-		DashboardRunMode = IsRunning ? (IsLooping ? "Running loop" : "Running once") : Status;
-		DashboardGraphSummary = $"{Script.Nodes.Count} nodes / {AllTransitions.Count()} transitions";
-		DashboardSignalSummary = $"{Signals.Count} signal{(Signals.Count == 1 ? string.Empty : "s")}";
-		DashboardLastUpdated = DateTime.Now.ToString("HH:mm:ss");
-
-		DashboardSkillsView.Refresh();
-
-		if (!GameRuntime.IsGameApiAvailable)
-		{
-			DashboardXpStatus = "XP unavailable outside the injected game runtime";
-			DashboardItemsStatus = "Items unavailable outside the injected game runtime";
-			return;
-		}
-
-		RefreshItemTracker();
-
-		try
-		{
-			_dashboardSkillSession ??= new SkillSession();
-		}
-		catch (Exception ex)
-		{
-			DashboardXpStatus = $"XP tracker unavailable: {ex.Message}";
-			_dashboardSkillSession = null;
-			return;
-		}
-
-		var updated = 0;
-		string? error = null;
-		foreach (var row in DashboardSkills)
-		{
-			if (row.TryUpdate(_dashboardSkillSession, out error))
-			{
-				updated++;
-			}
-			else
-			{
-				break;
-			}
-		}
-
-		if (updated == DashboardSkills.Count)
-		{
-			DashboardActiveSkillCount = DashboardSkills.Count(s => s.IsActive);
-			DashboardTotalXpGained = DashboardSkills.Sum(s => s.XpGained);
-			DashboardXpStatus = DashboardActiveSkillCount == 0
-				? "XP tracker ready; no gains this session"
-				: $"{DashboardActiveSkillCount} active skill{(DashboardActiveSkillCount == 1 ? string.Empty : "s")}";
-			DashboardSkillsView.Refresh();
-		}
-		else
-		{
-			DashboardXpStatus = $"XP refresh failed: {error}";
-		}
-	}
-
-	private void RefreshItemTracker()
-	{
-		if (_itemTracker.TryUpdate(out var error))
-		{
-			DashboardItemsGpPerHour = _itemTracker.TotalGpPerHour;
-			DashboardItemsActiveCount = _itemTracker.ActiveCount;
-			DashboardItemsStatus = _itemTracker.ActiveCount == 0
-				? "Item tracker ready; no item flow yet"
-				: $"{_itemTracker.ActiveCount} item{(_itemTracker.ActiveCount == 1 ? string.Empty : "s")} tracked";
-			DashboardItemsView.Refresh();
-		}
-		else
-		{
-			DashboardItemsStatus = $"Item tracker failed: {error}";
-		}
-	}
-
-	private bool FilterDashboardSkill(object obj)
-	{
-		if (obj is not DashboardSkillRow row)
-			return false;
-
-		var activeOnly = _dashboardXpActiveOnly || DashboardShowOnlyActiveXp;
-		return !activeOnly || row.IsActive;
-	}
-
-	private bool FilterDashboardItem(object obj)
-	{
-		if (obj is not DashboardItemRow row)
-			return false;
-
-		return !_dashboardItemsActiveOnly || row.IsActive;
-	}
-
-	private bool DashboardShowOnlyActiveXp =>
-		_script?.Nodes
-			.Where(n => string.Equals(n.DefinitionId, NodeCatalogDefaults.ScriptDashboardId, StringComparison.OrdinalIgnoreCase))
-			.SelectMany(n => n.Parameters)
-			.FirstOrDefault(p => string.Equals(p.Key, "showOnlyActiveXp", StringComparison.OrdinalIgnoreCase))
-			?.BoolValue == true;
-
-	/// <summary>
-	/// A node drag fires X and Y changes many times per second, and each
-	/// <see cref="AllTransitions"/> invalidation rebuilds every connector path. Coalesce them so the
-	/// edges still follow the node live, but the rebuild runs at most once per render frame
-	/// (and once total for a whole multi-node drag tick) instead of twice per node per delta.
-	/// </summary>
-	private void QueueTransitionsRefresh()
-	{
-		var dispatcher = Application.Current?.Dispatcher;
-		if (dispatcher == null)
-		{
-			// No UI thread (e.g. unit tests): keep the original synchronous behavior.
-			OnPropertyChanged(nameof(AllTransitions));
-			return;
-		}
-
-		if (_transitionsRefreshQueued)
-			return;
-
-		_transitionsRefreshQueued = true;
-		dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
-		{
-			_transitionsRefreshQueued = false;
-			OnPropertyChanged(nameof(AllTransitions));
-		});
-	}
-
-	private void OnNodePropertyChanged(object? sender, PropertyChangedEventArgs e)
-	{
-		if (e.PropertyName == nameof(NodeModel.X) || e.PropertyName == nameof(NodeModel.Y))
-		{
-			QueueTransitionsRefresh();
-		}
-
-		// Run/selection feedback is visual-only state; everything else is a document edit.
-		if (e.PropertyName is not (nameof(NodeModel.IsActive) or nameof(NodeModel.IsCurrent)
-		    or nameof(NodeModel.IsSelected) or nameof(NodeModel.LastRunStatus)))
-		{
-			MarkDirty();
-		}
-	}
-
-	private void EnsureDefinition(NodeModel node)
-	{
-		var definition = _catalogService.GetDefinition(node.DefinitionId) ?? _catalogService.GetDefaultDefinitionForType(node.Type);
-		node.DefinitionId = definition.Id;
-		node.DefinitionTitle = definition.Title;
-		EnsureNodeParameters(node, definition);
-	}
-
-	private static NodeType ResolveNodeType(NodeDefinition definition)
-	{
-		if (string.Equals(definition.Id, NodeCatalogDefaults.StartId, StringComparison.OrdinalIgnoreCase))
-			return NodeType.Start;
-		if (string.Equals(definition.Id, NodeCatalogDefaults.TerminalId, StringComparison.OrdinalIgnoreCase))
-			return NodeType.Terminal;
-		if (string.Equals(definition.CategoryId, "conditions", StringComparison.OrdinalIgnoreCase))
-			return NodeType.Condition;
-
-		return NodeType.Action;
-	}
-
-	private void EnsureNodeParameters(NodeModel node, NodeDefinition definition)
-	{
-		if (definition.Parameters == null)
-			return;
-
-		foreach (var parameter in definition.Parameters)
-		{
-			var existing = node.Parameters.FirstOrDefault(p => string.Equals(p.Key, parameter.Key, StringComparison.OrdinalIgnoreCase));
-			if (existing == null)
-			{
-					node.Parameters.Add(new NodeParameterValue
-					{
-						Key = parameter.Key,
-						Type = parameter.Type,
-						AllowMultiple = parameter.AllowMultiple,
-						RawValue = parameter.DefaultValue ?? string.Empty
-					});
-			}
-			else
-			{
-				existing.Type = parameter.Type;
-				existing.AllowMultiple = parameter.AllowMultiple;
-			}
-		}
-
-		for (var i = node.Parameters.Count - 1; i >= 0; i--)
-		{
-			if (definition.Parameters.All(p => !string.Equals(p.Key, node.Parameters[i].Key, StringComparison.OrdinalIgnoreCase)))
-			{
-				node.Parameters.RemoveAt(i);
-			}
-		}
-	}
-
-	private void ApplyDefinitionToNode(NodeModel node, NodeDefinition definition)
-	{
-		node.DefinitionId = definition.Id;
-		node.DefinitionTitle = definition.Title;
-		node.Type = ResolveNodeType(definition);
-		EnsureNodeParameters(node, definition);
-		RefreshSignals();
-	}
-
-	private void RefreshParameterBindings()
-	{
-		ParameterBindings.Clear();
-		AdvancedParameterBindings.Clear();
-
-		if (SelectedNode == null)
-		{
-			OnPropertyChanged(nameof(HasAdvancedParameters));
-			return;
-		}
-
-		var definition = SelectedNodeDefinition ?? _catalogService.GetDefinition(SelectedNode.DefinitionId);
-		if (definition?.Parameters == null)
-		{
-			OnPropertyChanged(nameof(HasAdvancedParameters));
-			return;
-		}
-
-		EnsureNodeParameters(SelectedNode, definition);
-
-		// One binding per parameter key (so owners can resolve their inline companions).
-		var bindings = new Dictionary<string, NodeParamBinding>(StringComparer.OrdinalIgnoreCase);
-		foreach (var parameter in definition.Parameters)
-		{
-			var value = SelectedNode.Parameters.FirstOrDefault(p => string.Equals(p.Key, parameter.Key, StringComparison.OrdinalIgnoreCase));
-			if (value != null)
-			{
-				bindings[parameter.Key] = new NodeParamBinding(parameter, value);
-			}
-		}
-
-		// Keys that are rendered inline beside another control are dropped from the main list.
-		var inlineCompanionKeys = new HashSet<string>(
-			definition.Parameters
-				.Where(p => !string.IsNullOrEmpty(p.InlineCompanionKey))
-				.Select(p => p.InlineCompanionKey!),
-			StringComparer.OrdinalIgnoreCase);
-
-		foreach (var parameter in definition.Parameters)
-		{
-			if (!bindings.TryGetValue(parameter.Key, out var binding))
-				continue;
-
-			if (inlineCompanionKeys.Contains(parameter.Key))
-				continue; // rendered inline by its owning parameter
-
-			if (!string.IsNullOrEmpty(parameter.InlineCompanionKey) &&
-			    bindings.TryGetValue(parameter.InlineCompanionKey!, out var companion))
-			{
-				binding.InlineCompanion = companion;
-			}
-
-			if (parameter.IsAdvanced)
-				AdvancedParameterBindings.Add(binding);
-			else
-				ParameterBindings.Add(binding);
-		}
-
-		OnPropertyChanged(nameof(ParameterBindings));
-		OnPropertyChanged(nameof(AdvancedParameterBindings));
-		OnPropertyChanged(nameof(HasAdvancedParameters));
-	}
-
-	private void AddListEntry(NodeParamBinding? binding)
-	{
-		if (binding == null)
-			return;
-
-		if (!string.IsNullOrWhiteSpace(binding.Value.RawValue))
-		{
-			binding.Value.RawValue += Environment.NewLine;
-		}
-	}
-
-	public void ShowNodeInfo(NodeModel? node)
-	{
-		if (node == null)
-		{
-			IsNodeInfoOpen = false;
-			return;
-		}
-
-		var definition = _catalogService.GetDefinition(node.DefinitionId);
-		NodeInfoTitle = definition?.Title ?? node.Title;
-		NodeInfoDescription = definition?.ShortDescription ?? node.Description;
-
-		NodeInfoUsageTips.Clear();
-		if (definition?.Parameters != null)
-		{
-			foreach (var parameter in definition.Parameters)
-			{
-				var requirement = parameter.IsRequired ? "required" : "optional";
-				var example = string.IsNullOrWhiteSpace(parameter.Placeholder)
-					? "Provide a value."
-					: parameter.Placeholder;
-
-				NodeInfoUsageTips.Add($"{parameter.Label} [{parameter.Type}, {requirement}] - {example}");
-			}
-		}
-
-		if (NodeInfoUsageTips.Count == 0)
-		{
-			NodeInfoUsageTips.Add("No parameters needed. Connect transitions and run.");
-		}
-
-		IsNodeInfoOpen = true;
-	}
-
-	private void ShowDefinitionInfo(NodeDefinition? definition)
-	{
-		if (definition == null)
-		{
-			IsNodeInfoOpen = false;
-			return;
-		}
-
-		NodeInfoTitle = definition.Title;
-		NodeInfoDescription = definition.ShortDescription;
-		NodeInfoUsageTips.Clear();
-
-		if (definition.Parameters != null)
-		{
-			foreach (var parameter in definition.Parameters)
-			{
-				var requirement = parameter.IsRequired ? "required" : "optional";
-				var example = string.IsNullOrWhiteSpace(parameter.Placeholder)
-					? "Provide a value."
-					: parameter.Placeholder;
-
-				NodeInfoUsageTips.Add($"{parameter.Label} [{parameter.Type}, {requirement}] - {example}");
-			}
-		}
-
-		if (NodeInfoUsageTips.Count == 0)
-		{
-			NodeInfoUsageTips.Add("No parameters needed. Add it to the canvas and connect transitions.");
-		}
-
-		IsNodeInfoOpen = true;
+		var explanation = _explainService.Explain(Script, GameRuntime.IsGameApiAvailable);
+		var presentation = GraphExplanationPresenter.Present(explanation);
+		GraphExplanationLines.Clear();
+		foreach (var line in presentation.Lines)
+			GraphExplanationLines.Add(line);
+
+		GraphExplanationSummary = presentation.Summary;
+		IsGraphExplanationOpen = true;
+		Status = $"Explained graph: {GraphExplanationSummary}";
 	}
 
 	private static double ExtractWidth(GridLength width, double fallback)
@@ -2070,112 +1058,6 @@ public class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 			return width.Value;
 
 		return fallback;
-	}
-
-	private void RemoveListEntry((NodeParamBinding binding, string value)? args)
-	{
-		if (args == null)
-			return;
-
-		var (binding, value) = args.Value;
-		var filtered = binding.Value.SplitValues()
-			.Where(v => !string.Equals(v, value, StringComparison.OrdinalIgnoreCase))
-			.ToList();
-		binding.Value.RawValue = string.Join(Environment.NewLine, filtered);
-	}
-
-	private void OnNodeEntered(object? sender, NodeModel node)
-	{
-		RunOnUi(() =>
-		{
-			if (_currentRunNode != null && !ReferenceEquals(_currentRunNode, node))
-			{
-				_currentRunNode.IsCurrent = false;
-			}
-
-			_currentRunNode = node;
-			node.IsCurrent = true;
-			node.IsActive = true;
-			Status = $"Entered {node.Title}";
-			RefreshDashboard();
-		});
-	}
-
-	private void OnNodeCompleted(object? sender, (NodeModel Node, NodeExecutionResult Result) e)
-	{
-		RunOnUi(() =>
-		{
-			e.Node.LastRunStatus = e.Result.Status == NodeExecutionStatus.Fail
-				? NodeRunStatus.Fail
-				: NodeRunStatus.Success;
-
-			// Mirror executor outputs into the Signals panel so it reflects the live run.
-			if (e.Result.Outputs != null)
-			{
-				foreach (var kv in e.Result.Outputs)
-				{
-					var existing = Signals.FirstOrDefault(s => string.Equals(s.Key, kv.Key, StringComparison.OrdinalIgnoreCase));
-					if (existing != null)
-					{
-						existing.Value = kv.Value;
-					}
-					else
-					{
-						Signals.Add(new RuntimeSignal { Key = kv.Key, Value = kv.Value });
-					}
-				}
-			}
-			RefreshDashboard();
-		});
-	}
-
-	private void OnTransitionTaken(object? sender, TransitionModel transition)
-	{
-		RunOnUi(() =>
-		{
-			transition.IsActive = true;
-			RefreshDashboard();
-		});
-	}
-
-	private void OnEngineCompleted(object? sender, EventArgs e)
-	{
-		RunOnUi(() =>
-		{
-			IsRunning = false;
-			Status = "Cycle complete";
-			RefreshDashboard();
-		});
-	}
-
-	private void OnEngineFaulted(object? sender, Exception ex)
-	{
-		RunOnUi(() =>
-		{
-			IsRunning = false;
-			Status = $"Error: {ex.Message}";
-			RefreshDashboard();
-			MessageBox.Show($"SharpBuilder engine failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-		});
-	}
-
-	private static void RunOnUi(Action action)
-	{
-		if (Application.Current?.Dispatcher != null)
-		{
-			if (Application.Current.Dispatcher.CheckAccess())
-			{
-				action();
-			}
-			else
-			{
-				Application.Current.Dispatcher.Invoke(action);
-			}
-		}
-		else
-		{
-			action();
-		}
 	}
 
 	protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)

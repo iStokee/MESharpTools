@@ -98,6 +98,8 @@ public class NodeConnectorConverter : IMultiValueConverter
 
 	public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
 	{
-		throw new NotImplementedException();
+		var results = new object[targetTypes.Length];
+		Array.Fill(results, Binding.DoNothing);
+		return results;
 	}
 }

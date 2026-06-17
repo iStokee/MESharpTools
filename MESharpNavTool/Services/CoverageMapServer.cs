@@ -122,6 +122,21 @@ namespace MESharp.Services
                             contentType = "application/json";
                             break;
 
+                        case "/presence.json":
+                            body = JsonSerializer.SerializeToUtf8Bytes(GetPresenceState(), JsonOptions);
+                            contentType = "application/json";
+                            break;
+
+                        case "/coverage.json":
+                            body = JsonSerializer.SerializeToUtf8Bytes(GetCoverageState(), JsonOptions);
+                            contentType = "application/json";
+                            break;
+
+                        case "/survey.json":
+                            body = JsonSerializer.SerializeToUtf8Bytes(GetSurveyState(ParseQuery(requestLine)), JsonOptions);
+                            contentType = "application/json";
+                            break;
+
                         case "/":
                         case "/index.html":
                             var html = LoadIndexHtml();
@@ -228,9 +243,163 @@ namespace MESharp.Services
             }
         }
 
+        // ── Multi-session presence + world-knowledge coverage ────────────────────
+
+        /// <summary>All characters that have checked in recently, across every running session.</summary>
+        private static object GetPresenceState()
+        {
+            try
+            {
+                var self = PresenceStore.SessionId;
+                var now = DateTime.UtcNow;
+                var sessions = PresenceStore.ReadAll()
+                    .Where(p => p.LoggedIn)
+                    .Select(p => new
+                    {
+                        sessionId = p.SessionId,
+                        character = string.IsNullOrWhiteSpace(p.Character) ? "(unknown)" : p.Character,
+                        x = p.X,
+                        y = p.Y,
+                        z = p.Z,
+                        self = p.SessionId == self,
+                        ageMs = (long)Math.Max(0, (now - p.LastSeenUtc).TotalMilliseconds)
+                    })
+                    .ToArray();
+                return new { available = true, sessions };
+            }
+            catch
+            {
+                return new { available = false, sessions = Array.Empty<object>() };
+            }
+        }
+
+        /// <summary>
+        /// The survey-coverage raster within the requested tile bbox: green(clear)/red(blocked) tiles
+        /// pulses have swept. Bbox-bounded + area-capped so a zoomed-out map can't request the world.
+        /// </summary>
+        private static object GetSurveyState(System.Collections.Generic.Dictionary<string, string> q)
+        {
+            try
+            {
+                var plane = QInt(q, "plane", 0);
+                var minX = QInt(q, "minX", int.MinValue);
+                var maxX = QInt(q, "maxX", int.MinValue);
+                var minY = QInt(q, "minY", int.MinValue);
+                var maxY = QInt(q, "maxY", int.MinValue);
+                if (minX == int.MinValue || maxX == int.MinValue || minY == int.MinValue || maxY == int.MinValue)
+                    return new { available = true, tiles = Array.Empty<object>(), note = "bbox required" };
+
+                // Downsample factor: at navigation zoom the viewport spans far more than 40k tiles, so
+                // the client asks for a coarser `step` (NxN blocks). We aggregate tiles into blocks so
+                // the payload + render count stay bounded at any zoom — coverage stays visible when
+                // zoomed out, just chunkier. step=1 is full per-tile resolution.
+                var step = Math.Clamp(QInt(q, "step", 1), 1, 64);
+
+                var area = (long)(maxX - minX + 1) * (maxY - minY + 1);
+                if (area <= 0 || area > 4_000_000L)
+                    return new { available = true, step, tiles = Array.Empty<object>(), note = "zoom in" };
+
+                long blocks = ((maxX - minX) / step + 1L) * ((maxY - minY) / step + 1L);
+                if (blocks > 25_000)
+                    return new { available = true, step, tiles = Array.Empty<object>(), note = "zoom in" };
+
+                var tiles = PulseStoreSurvey(plane, minX, minY, maxX, maxY, step);
+                return new { available = true, step, tiles };
+            }
+            catch
+            {
+                return new { available = false, tiles = Array.Empty<object>() };
+            }
+        }
+
+        private static object[] PulseStoreSurvey(int plane, int minX, int minY, int maxX, int maxY, int step)
+        {
+            var cells = SurveyStore.Default.TilesInBounds(plane, minX, minY, maxX, maxY);
+            if (step <= 1)
+                return cells.Select(c => (object)new { x = c.X, y = c.Y, s = (int)c.Status }).ToArray();
+
+            // Aggregate into step×step blocks; a block is "blocked" (red) if it contains ANY blocked
+            // tile (barriers stay visible when zoomed out), otherwise "clear" (green) if any clear tile.
+            var blockStatus = new System.Collections.Generic.Dictionary<(int X, int Y), int>();
+            foreach (var c in cells)
+            {
+                var bx = FloorDiv(c.X, step) * step;
+                var by = FloorDiv(c.Y, step) * step;
+                var s = (int)c.Status;
+                if (!blockStatus.TryGetValue((bx, by), out var cur) || s > cur)
+                    blockStatus[(bx, by)] = s; // Blocked(2) > Clear(1) > Unscanned(0)
+            }
+            return blockStatus.Select(kv => (object)new { x = kv.Key.X, y = kv.Key.Y, s = kv.Value }).ToArray();
+        }
+
+        private static int FloorDiv(int a, int b) => (int)Math.Floor(a / (double)b);
+
+        private static int QInt(System.Collections.Generic.Dictionary<string, string> q, string key, int fallback)
+            => q.TryGetValue(key, out var v) && int.TryParse(v, out var n) ? n : fallback;
+
+        private static System.Collections.Generic.Dictionary<string, string> ParseQuery(string requestLine)
+        {
+            var dict = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var parts = requestLine.Split(' ');
+                if (parts.Length < 2) return dict;
+                var target = parts[1];
+                var q = target.IndexOf('?');
+                if (q < 0) return dict;
+                foreach (var kv in target[(q + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var eq = kv.IndexOf('=');
+                    if (eq > 0) dict[Uri.UnescapeDataString(kv[..eq])] = Uri.UnescapeDataString(kv[(eq + 1)..]);
+                }
+            }
+            catch { }
+            return dict;
+        }
+
+        /// <summary>The observed world-knowledge layer: every obstacle prior pulses have surveyed.</summary>
+        private static object GetCoverageState()
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+                var obstacles = PulseStore.Default.AllKnown()
+                    .Select(o => new
+                    {
+                        x = o.X,
+                        y = o.Y,
+                        z = o.Z,
+                        name = string.IsNullOrWhiteSpace(o.Name) ? o.Class.ToString() : o.Name,
+                        @class = o.Class.ToString(),
+                        verb = o.Verb,
+                        count = o.ObservationCount,
+                        confidence = Math.Round(PulseConfidence.Compute(o, now), 2)
+                    })
+                    .ToArray();
+                return new
+                {
+                    available = true,
+                    gridsAvailable = CollisionPathfinder.IsAvailable(),
+                    obstacles
+                };
+            }
+            catch
+            {
+                return new { available = false, obstacles = Array.Empty<object>() };
+            }
+        }
+
         // ── Authoring + route factory API (R2-B, R7) ─────────────────────────────
 
         private static CancellationTokenSource? _travelCts;
+
+        // Click-distance slider bounds (tiles). Default mirrors CollisionPathfinder.CreateDraftRoute's
+        // own default; the max is one map square — a generous upper bound on a single reliable click.
+        internal const int DefaultMaxStrideTiles = 22;
+        internal const int MinMaxStrideTiles = 4;
+        internal const int MaxMaxStrideTiles = 64;
+
+        private static int ClampStride(int value) => Math.Clamp(value, MinMaxStrideTiles, MaxMaxStrideTiles);
 
         private static object HandleApiPost(string path, string body)
         {
@@ -278,14 +447,55 @@ namespace MESharp.Services
                         return new { succeeded = ok, error, edgeId = edge.Id };
                     }
 
+                    case "/api/area":
+                    {
+                        var area = new WebwalkArea
+                        {
+                            Id = GetString(payload, "id") ?? string.Empty,
+                            Name = GetString(payload, "name") ?? string.Empty,
+                            Z = GetInt(payload, "z"),
+                            MinX = GetInt(payload, "minX"),
+                            MinY = GetInt(payload, "minY"),
+                            MaxX = GetInt(payload, "maxX"),
+                            MaxY = GetInt(payload, "maxY"),
+                            Tags = (GetString(payload, "tags") ?? string.Empty)
+                                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                                .ToList()
+                        };
+                        if (payload.TryGetProperty("polygon", out var polyEl) && polyEl.ValueKind == JsonValueKind.Array)
+                        {
+                            var verts = new List<AreaVertex>();
+                            foreach (var v in polyEl.EnumerateArray())
+                                verts.Add(new AreaVertex(GetInt(v, "x"), GetInt(v, "y")));
+                            if (verts.Count >= 3) area.Polygon = verts;
+                        }
+                        if (string.IsNullOrWhiteSpace(area.Id) && !string.IsNullOrWhiteSpace(area.Name))
+                            area.Id = "area." + area.Name.Trim().ToLowerInvariant().Replace(' ', '.');
+                        var ok = WebwalkGraph.TrySaveArea(area, out var error, source: "human");
+                        return new { succeeded = ok, error, areaId = area.Id };
+                    }
+
+                    case "/api/area_delete":
+                    {
+                        var id = GetString(payload, "id") ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(id))
+                            return new { succeeded = false, error = "id required." };
+                        var deleted = WebwalkGraph.TryDeleteArea(id, out var error);
+                        return new { succeeded = deleted, error, areaId = id };
+                    }
+
+                    case "/api/codegen":
+                        return GenerateCsharp(payload);
+
                     case "/api/generate_route":
                     {
                         var from = new WorldPoint(GetInt(payload, "fromX"), GetInt(payload, "fromY"), GetInt(payload, "fromZ"));
                         var to = new WorldPoint(GetInt(payload, "toX"), GetInt(payload, "toY"), GetInt(payload, "toZ"));
                         var name = GetString(payload, "name") ?? $"generated {from.X},{from.Y} to {to.X},{to.Y}";
                         var save = payload.TryGetProperty("save", out var s) && s.ValueKind == JsonValueKind.True;
+                        var maxStride = ClampStride(GetInt(payload, "maxStride", DefaultMaxStrideTiles));
 
-                        var route = CollisionPathfinder.CreateDraftRoute(name, from, to, out var error);
+                        var route = CollisionPathfinder.CreateDraftRoute(name, from, to, out var error, maxStrideTiles: maxStride);
                         if (route == null)
                             return new { succeeded = false, error, gridsAvailable = CollisionPathfinder.IsAvailable() };
 
@@ -302,19 +512,105 @@ namespace MESharp.Services
                         };
                     }
 
+                    case "/api/plan":
+                    {
+                        // Multi-plane plan preview: the graph planner stitches per-plane collision
+                        // walk legs to transport edges (teleport/route/shortcut/stairs), so it can
+                        // cross planes where the raw collision pathfinder can't. Returns the ordered
+                        // legs with geometry for the map to draw; /api/travel runs the equivalent plan.
+                        var from = new WorldPoint(GetInt(payload, "fromX"), GetInt(payload, "fromY"), GetInt(payload, "fromZ"));
+                        var to = new WorldPoint(GetInt(payload, "toX"), GetInt(payload, "toY"), GetInt(payload, "toZ"));
+                        // Live profile so the preview reflects what THIS account can actually use —
+                        // a charged glory, the standard spellbook, agility shortcuts at level, etc.
+                        // Degrades to empty (lodestones + walking) when no game session is attached.
+                        var plan = WebwalkGraph.FindPath(from, to, WebwalkProfile.FromGameState());
+                        if (plan == null)
+                            return new
+                            {
+                                succeeded = false,
+                                error = $"No plan from {from} to {to} — no route/transport connects them.",
+                                gridsAvailable = CollisionPathfinder.IsAvailable()
+                            };
+                        return new { succeeded = true, totalCostMs = plan.TotalCostMs, legs = BuildPlanLegs(from, to, plan) };
+                    }
+
                     case "/api/travel":
                     {
                         var to = new WorldPoint(GetInt(payload, "x"), GetInt(payload, "y"), GetInt(payload, "z"));
                         _travelCts?.Cancel();
                         _travelCts = new CancellationTokenSource();
                         var ct = _travelCts.Token;
-                        _ = Task.Run(() => Navigation.TravelToAsync(to, cancellationToken: ct), ct);
+                        // Same live profile as /api/plan so the run uses the previewed teleports
+                        // (and skips any the account can't currently afford, e.g. a depleted glory).
+                        var travelProfile = WebwalkProfile.FromGameState();
+                        _ = Task.Run(() => Navigation.TravelToAsync(to, travelProfile, ct), ct);
                         return new { succeeded = true, message = $"Travel to {to} started." };
+                    }
+
+                    case "/api/travel_area":
+                    {
+                        var areaId = GetString(payload, "areaId") ?? GetString(payload, "id") ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(areaId))
+                            return new { succeeded = false, message = "areaId required." };
+                        _travelCts?.Cancel();
+                        _travelCts = new CancellationTokenSource();
+                        var ct = _travelCts.Token;
+                        var areaProfile = WebwalkProfile.FromGameState();
+                        _ = Task.Run(() => Navigation.TravelToAreaAsync(areaId, areaProfile, ct), ct);
+                        return new { succeeded = true, message = $"Travel into area '{areaId}' started." };
                     }
 
                     case "/api/travel_stop":
                         _travelCts?.Cancel();
                         return new { succeeded = true, message = "Travel cancelled." };
+
+                    case "/api/walk_route":
+                    {
+                        // Walk an explicit waypoint list — what the collision preview shows IS what runs
+                        // (no graph re-plan / teleport detour). Same-plane; runs on the shared travel CTS
+                        // so /api/travel_stop cancels it.
+                        if (!payload.TryGetProperty("waypoints", out var wpEl) || wpEl.ValueKind != JsonValueKind.Array)
+                            return new { succeeded = false, error = "waypoints[] required." };
+                        var pts = new List<WorldPoint>();
+                        foreach (var w in wpEl.EnumerateArray())
+                            pts.Add(new WorldPoint(GetInt(w, "x"), GetInt(w, "y"), GetInt(w, "z")));
+                        if (pts.Count == 0)
+                            return new { succeeded = false, error = "waypoints[] empty." };
+
+                        _travelCts?.Cancel();
+                        _travelCts = new CancellationTokenSource();
+                        var ct = _travelCts.Token;
+                        _ = Task.Run(() => Traversal.WalkPathAsync(
+                            pts, waypointDistance: 2, timeoutMs: Math.Max(30000, pts.Count * 12000), cancellationToken: ct), ct);
+                        return new { succeeded = true, message = $"Walking {pts.Count} previewed waypoint(s)." };
+                    }
+
+                    case "/api/scan":
+                    {
+                        // Ad-hoc scan: pulse the player's current spot (or an explicit tile) and fold
+                        // it into the world model, even while standing still.
+                        WorldPoint center;
+                        if (payload.TryGetProperty("x", out _))
+                            center = new WorldPoint(GetInt(payload, "x"), GetInt(payload, "y"), GetInt(payload, "z"));
+                        else
+                            center = Traversal.GetCurrentPosition();
+                        if (center.X <= 0 && center.Y <= 0)
+                            return new { succeeded = false, error = "No player position to scan (not logged in?)." };
+                        var snap = PulseSnapshot.ScanAndRecord(center, surveyRadius: GetInt(payload, "radius", 14));
+                        return new
+                        {
+                            succeeded = true,
+                            center = new { x = center.X, y = center.Y, z = center.Z },
+                            obstacles = snap.Obstacles.Count
+                        };
+                    }
+
+                    case "/api/scan_mode":
+                    {
+                        // Toggle continuous "scanning mode" (capture-as-you-move). Defaults to ON.
+                        PulseStore.CaptureEnabled = !(payload.TryGetProperty("on", out var on) && on.ValueKind == JsonValueKind.False);
+                        return new { succeeded = true, scanning = PulseStore.CaptureEnabled };
+                    }
 
                     // ── Record-from-map (R2-C) ───────────────────────────────────
                     case "/api/record_start":
@@ -338,6 +634,74 @@ namespace MESharp.Services
             {
                 return new { succeeded = false, error = ex.Message };
             }
+        }
+
+        /// <summary>
+        /// Turn a graph plan into ordered, drawable legs. Each leg carries its kind, resolved
+        /// from/to tiles, a planeChange flag, and (for walk/route legs) the waypoint polyline —
+        /// walk legs are traced through real collision tiles, route legs use the route's own
+        /// waypoints (sliced/reversed exactly as the plan will run them). Teleport/transport legs
+        /// have no polyline; the map draws them as a labelled jump / plane-change marker.
+        /// </summary>
+        private static object[] BuildPlanLegs(WorldPoint from, WorldPoint to, WebwalkGraphPath path)
+        {
+            var nodes = WebwalkGraph.GetGraph().Nodes
+                .GroupBy(n => n.Id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            WorldPoint? NodePos(string id) => nodes.TryGetValue(id, out var n) ? n.Position : null;
+
+            var legs = new List<object>();
+            var cursor = from;
+            foreach (var e in path.Edges)
+            {
+                var kind = string.IsNullOrWhiteSpace(e.Kind) ? "route" : e.Kind.ToLowerInvariant();
+                var fromPos = cursor;
+                WorldPoint toPos;
+                List<WorldPoint>? waypoints = null;
+
+                if (kind == "route" && !string.IsNullOrWhiteSpace(e.RouteId) &&
+                    Webwalking.TryGetRoute(e.RouteId!, out var route) && route.Waypoints.Count > 0)
+                {
+                    var wp = route.Waypoints.Select(w => w.Point).ToList();
+                    if (e.IsTrailSubRange)
+                    {
+                        var s = Math.Clamp(e.SubRangeStart!.Value, 0, wp.Count - 1);
+                        var en = Math.Clamp(e.SubRangeEnd!.Value, 0, wp.Count - 1);
+                        if (s <= en) wp = wp.GetRange(s, en - s + 1);
+                    }
+                    if (e.IsReversedTraversal) wp.Reverse();
+                    waypoints = wp;
+                    fromPos = wp[0];
+                    toPos = wp[^1];
+                }
+                else
+                {
+                    toPos = string.Equals(e.ToNodeId, WebwalkGraph.VirtualDestNodeId, StringComparison.Ordinal)
+                        ? to
+                        : NodePos(e.ToNodeId) ?? e.SyntheticWalkTarget ?? to;
+
+                    // Same-plane walk legs: trace the actual collision tiles so the line hugs geometry.
+                    if (kind == "walk" && fromPos.Z == toPos.Z)
+                    {
+                        var r = CollisionPathfinder.FindPath(fromPos, toPos, maxExpansions: 60_000);
+                        if (r.Succeeded && r.Tiles.Count > 0) waypoints = r.Tiles.ToList();
+                    }
+                }
+
+                legs.Add(new
+                {
+                    kind,
+                    routeId = e.RouteId,
+                    costMs = e.EffectiveCostMs,
+                    planeChange = fromPos.Z != toPos.Z,
+                    from = new { x = fromPos.X, y = fromPos.Y, z = fromPos.Z },
+                    to = new { x = toPos.X, y = toPos.Y, z = toPos.Z },
+                    waypoints = waypoints?.Select(w => new { x = w.X, y = w.Y, z = w.Z }).ToArray()
+                });
+                cursor = toPos;
+            }
+            return legs.ToArray();
         }
 
         // ── Record-from-map (R2-C) ───────────────────────────────────────────────
@@ -529,6 +893,80 @@ namespace MESharp.Services
 
         private static int GetInt(JsonElement payload, string name, int fallback = 0) =>
             payload.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number ? el.GetInt32() : fallback;
+
+        // ── Map → C# code generation (Explv-style "copy as code") ────────────────────
+        // Turns a map selection into paste-ready MESharp C#. kind:
+        //   "travel"  {x,y,z}                     → Navigation.TravelToAsync(...)
+        //   "path"    {waypoints:[{x,y,z}], name} → WorldPoint[] + Traversal.WalkPathAsync + route author
+        //   "area"    {minX..maxY|polygon, name}  → WebwalkArea def + TrySaveArea + TravelToArea
+        private static object GenerateCsharp(JsonElement payload)
+        {
+            var kind = (GetString(payload, "kind") ?? string.Empty).Trim().ToLowerInvariant();
+            var name = GetString(payload, "name");
+            var snippets = new List<object>();
+            void Add(string label, string code) => snippets.Add(new { label, language = "csharp", code });
+
+            static string Id(string? n, string prefix) =>
+                string.IsNullOrWhiteSpace(n) ? prefix + "1" : prefix + n!.Trim().ToLowerInvariant().Replace(' ', '.');
+
+            switch (kind)
+            {
+                case "travel":
+                {
+                    var x = GetInt(payload, "x"); var y = GetInt(payload, "y"); var z = GetInt(payload, "z");
+                    Add("Travel to tile (planner: teleports + walk)",
+                        $"await Navigation.TravelToAsync(new WorldPoint({x}, {y}, {z}), WebwalkProfile.FromGameState());");
+                    Add("Walk only (no teleports)",
+                        $"await Traversal.SmartWalkToAsync(new WorldPoint({x}, {y}, {z}), arrivalDistance: 3);");
+                    break;
+                }
+                case "path":
+                {
+                    if (!payload.TryGetProperty("waypoints", out var wp) || wp.ValueKind != JsonValueKind.Array)
+                        return new { succeeded = false, error = "path codegen needs waypoints[]." };
+                    var pts = wp.EnumerateArray()
+                        .Select(w => new WorldPoint(GetInt(w, "x"), GetInt(w, "y"), GetInt(w, "z"))).ToList();
+                    if (pts.Count == 0) return new { succeeded = false, error = "waypoints[] empty." };
+
+                    var arr = string.Join(",\n    ", pts.Select(p => $"new WorldPoint({p.X}, {p.Y}, {p.Z})"));
+                    Add("Walk an explicit waypoint list",
+                        $"var waypoints = new[]\n{{\n    {arr}\n}};\nawait Traversal.WalkPathAsync(waypoints, waypointDistance: 2);");
+
+                    var routeId = Id(name, "route.");
+                    var wpAuthor = string.Join(",\n        ",
+                        pts.Select(p => $"new WebwalkingWaypoint {{ Point = new WorldPoint({p.X}, {p.Y}, {p.Z}) }}"));
+                    Add("Author as a reusable route",
+                        $"var route = new WebwalkingRoute\n{{\n    Id = \"{routeId}\",\n    Name = \"{name ?? routeId}\",\n    Waypoints = new List<WebwalkingWaypoint>\n    {{\n        {wpAuthor}\n    }}\n}};\nWebwalking.TrySaveRoute(route, out _);");
+                    break;
+                }
+                case "area":
+                {
+                    var areaId = Id(name, "area.");
+                    var hasPoly = payload.TryGetProperty("polygon", out var polyEl) && polyEl.ValueKind == JsonValueKind.Array
+                                  && polyEl.GetArrayLength() >= 3;
+                    string body;
+                    if (hasPoly)
+                    {
+                        var verts = string.Join(",\n        ",
+                            polyEl.EnumerateArray().Select(v => $"new AreaVertex({GetInt(v, "x")}, {GetInt(v, "y")})"));
+                        body = $"    Z = {GetInt(payload, "z")},\n    Polygon = new()\n    {{\n        {verts}\n    }}";
+                    }
+                    else
+                    {
+                        body = $"    Z = {GetInt(payload, "z")},\n    MinX = {GetInt(payload, "minX")}, MinY = {GetInt(payload, "minY")},\n    MaxX = {GetInt(payload, "maxX")}, MaxY = {GetInt(payload, "maxY")}";
+                    }
+                    Add("Define + save the area",
+                        $"var area = new WebwalkArea\n{{\n    Id = \"{areaId}\",\n    Name = \"{name ?? areaId}\",\n{body}\n}};\nWebwalkGraph.TrySaveArea(area, out _, \"human\");");
+                    Add("Travel into the area / membership check",
+                        $"await Navigation.TravelToAreaAsync(\"{areaId}\");\nbool inside = WebwalkGraph.FindAreasContaining(LocalPlayer.GetTileWorldPoint()).Any(a => a.Id == \"{areaId}\");");
+                    break;
+                }
+                default:
+                    return new { succeeded = false, error = $"Unknown codegen kind '{kind}'. Use travel|path|area." };
+            }
+
+            return new { succeeded = true, kind, snippets = snippets.ToArray() };
+        }
 
         /// <summary>Consumes headers and returns the request body (POST) using Content-Length.</summary>
         private static string ReadHeadersAndBody(NetworkStream stream)

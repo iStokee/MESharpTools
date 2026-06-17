@@ -1,0 +1,224 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Shared building blocks for the KOS service desk. Brushes come from the merged MahApps dark
+        theme (MahApps.Brushes.*) so the tool reads as one dark dashboard surface like the others.
+    -->
+
+    <Style x:Key="Desk.Card" TargetType="Border">
+        <Setter Property="Padding" Value="12" />
+        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Gray10}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray6}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+
+    <Style x:Key="Desk.PageTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}" />
+    </Style>
+
+    <Style x:Key="Desk.SectionHeader" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="0,0,0,6" />
+        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}" />
+    </Style>
+
+    <Style x:Key="Desk.Hint" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style x:Key="Desk.CaseLabel" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Accent}" />
+    </Style>
+
+    <!--  Small pill for signal-type / tier / state chips  -->
+    <Style x:Key="Desk.Chip" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.ThemeBackground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray6}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="6,1" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!--  Metric tile (header KPI)  -->
+    <Style x:Key="Desk.MetricCard" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.ThemeBackground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray6}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="14,8" />
+        <Setter Property="Margin" Value="0,0,8,0" />
+        <Setter Property="MinWidth" Value="92" />
+    </Style>
+    <Style x:Key="Desk.MetricValue" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}" />
+    </Style>
+    <Style x:Key="Desk.MetricLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="Margin" Value="0,2,0,0" />
+        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray}" />
+    </Style>
+
+    <!--  Monospace block for the evidence viewer  -->
+    <Style x:Key="Desk.Mono" TargetType="TextBox">
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="IsReadOnly" Value="True" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.ThemeBackground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray6}" />
+        <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+    </Style>
+
+    <!--  ── Centralized semantic status palette (one source of truth for state colour) ──  -->
+    <Color x:Key="Desk.Color.Open">#9E9E9E</Color>
+    <Color x:Key="Desk.Color.Claimed">#42A5F5</Color>
+    <Color x:Key="Desk.Color.Staged">#FFB300</Color>
+    <Color x:Key="Desk.Color.Resolved">#4CAF50</Color>
+    <Color x:Key="Desk.Color.Closed">#6E6E6E</Color>
+
+    <SolidColorBrush x:Key="Desk.Open.Brush" Color="{StaticResource Desk.Color.Open}" />
+    <SolidColorBrush x:Key="Desk.Claimed.Brush" Color="{StaticResource Desk.Color.Claimed}" />
+    <SolidColorBrush x:Key="Desk.Staged.Brush" Color="{StaticResource Desk.Color.Staged}" />
+    <SolidColorBrush x:Key="Desk.Resolved.Brush" Color="{StaticResource Desk.Color.Resolved}" />
+    <SolidColorBrush x:Key="Desk.Closed.Brush" Color="{StaticResource Desk.Color.Closed}" />
+    <SolidColorBrush x:Key="Desk.Open.Soft" Color="{StaticResource Desk.Color.Open}" Opacity="0.18" />
+    <SolidColorBrush x:Key="Desk.Claimed.Soft" Color="{StaticResource Desk.Color.Claimed}" Opacity="0.18" />
+    <SolidColorBrush x:Key="Desk.Staged.Soft" Color="{StaticResource Desk.Color.Staged}" Opacity="0.18" />
+    <SolidColorBrush x:Key="Desk.Resolved.Soft" Color="{StaticResource Desk.Color.Resolved}" Opacity="0.18" />
+    <SolidColorBrush x:Key="Desk.Closed.Soft" Color="{StaticResource Desk.Color.Closed}" Opacity="0.18" />
+
+    <!--  Status pill — bind the element's Tag to the case state (open|claimed|staged|resolved|closed)  -->
+    <Style x:Key="Desk.StatusPill" TargetType="Border">
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Padding" Value="9,2" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Background" Value="{StaticResource Desk.Open.Soft}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Desk.Open.Brush}" />
+        <Style.Triggers>
+            <Trigger Property="Tag" Value="claimed">
+                <Setter Property="Background" Value="{StaticResource Desk.Claimed.Soft}" /><Setter Property="BorderBrush" Value="{StaticResource Desk.Claimed.Brush}" />
+            </Trigger>
+            <Trigger Property="Tag" Value="staged">
+                <Setter Property="Background" Value="{StaticResource Desk.Staged.Soft}" /><Setter Property="BorderBrush" Value="{StaticResource Desk.Staged.Brush}" />
+            </Trigger>
+            <Trigger Property="Tag" Value="resolved">
+                <Setter Property="Background" Value="{StaticResource Desk.Resolved.Soft}" /><Setter Property="BorderBrush" Value="{StaticResource Desk.Resolved.Brush}" />
+            </Trigger>
+            <Trigger Property="Tag" Value="closed">
+                <Setter Property="Background" Value="{StaticResource Desk.Closed.Soft}" /><Setter Property="BorderBrush" Value="{StaticResource Desk.Closed.Brush}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!--  Primary (accent) action button — larger, for the main CTA  -->
+    <Style x:Key="Desk.PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Accent}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="16,10" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!--  Secondary action button — roomy, left-aligned for the action bar  -->
+    <Style x:Key="Desk.ActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Padding" Value="14,9" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+    </Style>
+
+    <!--  Left-nav rail item: big, left-aligned, accent highlight when active  -->
+    <Style x:Key="Desk.NavButton" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+        <Setter Property="Margin" Value="6,2" />
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Text}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="bd" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource MahApps.Brushes.Gray10}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Desk.Claimed.Soft}" />
+                            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.ThemeForeground}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--  Generic small status dot — bind the element's Tag to a state string (ok|busy|warn|off)  -->
+    <Style x:Key="Desk.StatusDot" TargetType="Ellipse">
+        <Setter Property="Width" Value="9" />
+        <Setter Property="Height" Value="9" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="Fill" Value="#5A5A5A" />
+        <Style.Triggers>
+            <Trigger Property="Tag" Value="ok"><Setter Property="Fill" Value="#4CAF50" /></Trigger>
+            <Trigger Property="Tag" Value="busy"><Setter Property="Fill" Value="#42A5F5" /></Trigger>
+            <Trigger Property="Tag" Value="warn"><Setter Property="Fill" Value="#FFC107" /></Trigger>
+            <Trigger Property="Tag" Value="off"><Setter Property="Fill" Value="#5A5A5A" /></Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!--  Ticket list item: strip default chrome so the card DataTemplate owns all visuals/selection  -->
+    <Style x:Key="Desk.TicketItem" TargetType="ListBoxItem">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <ContentPresenter />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--  Status dot colour by lifecycle bucket (ServiceDeskTaskRow.StateDot)  -->
+    <Style x:Key="Desk.TaskDot" TargetType="Ellipse">
+        <Setter Property="Width" Value="11" />
+        <Setter Property="Height" Value="11" />
+        <Setter Property="Margin" Value="0,3,8,0" />
+        <Setter Property="VerticalAlignment" Value="Top" />
+        <Setter Property="Fill" Value="#9E9E9E" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding StateDot}" Value="ok">
+                <Setter Property="Fill" Value="#4CAF50" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StateDot}" Value="warn">
+                <Setter Property="Fill" Value="#FFC107" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StateDot}" Value="busy">
+                <Setter Property="Fill" Value="#42A5F5" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StateDot}" Value="off">
+                <Setter Property="Fill" Value="#5A5A5A" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+</ResourceDictionary>

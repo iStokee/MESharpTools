@@ -8,6 +8,9 @@
     <PlatformTarget>x64</PlatformTarget>
     <AssemblyName>MESharpApiTool</AssemblyName>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <!-- Self-registration for ToolRelease.ps1 auto-discovery + the umbrella manifest. -->
+    <IsMESharpTool>true</IsMESharpTool>
+    <MESharpToolDisplayName>API Browser</MESharpToolDisplayName>
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <!-- English-only keeps satellite resource folders out of bin so the xcopy deploy stays clean. -->

@@ -69,11 +69,13 @@ namespace MESharp
             EnsureResource(app, "AcrylicBackgroundColor", () => acrylicColor);
             EnsureResource(app, "AcrylicBackgroundBrush", () => CreateFrozenBrush(acrylicColor));
 
-            var primaryColor = Color.FromArgb(0xFF, 0x3F, 0x51, 0xB5);
+            // MCP-dashboard accent blue (#42A5F5). ThemeManager re-applies the saved accent at runtime;
+            // seeding the same family here avoids an indigo flash before that runs.
+            var primaryColor = Color.FromArgb(0xFF, 0x42, 0xA5, 0xF5);
             EnsureResource(app, "PrimaryColor", () => primaryColor);
             EnsureResource(app, "PrimaryBrush", () => CreateFrozenBrush(primaryColor));
             EnsureResource(app, "PrimaryForegroundBrush", () => CreateFrozenBrush(Colors.White));
-            EnsureResource(app, "PrimarySoftBrush", () => CreateFrozenBrush(Color.FromArgb(0x33, 0x3F, 0x51, 0xB5)));
+            EnsureResource(app, "PrimarySoftBrush", () => CreateFrozenBrush(Color.FromArgb(0x33, 0x42, 0xA5, 0xF5)));
         }
 
         private static SolidColorBrush CreateFrozenBrush(Color color)

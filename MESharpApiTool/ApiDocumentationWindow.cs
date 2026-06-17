@@ -1,4 +1,6 @@
+using System;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace csharp_interop.Documentation
 {
@@ -9,6 +11,11 @@ namespace csharp_interop.Documentation
     {
         private readonly ApiDocumentationSettings _settings;
         private readonly ApiDocumentationBrowser _browser;
+
+        // SizeChanged fires continuously while the user drags the window border. Writing the settings
+        // JSON to disk on every event was a per-frame I/O storm on the UI thread; debounce so the live
+        // size still tracks the browser layout but the disk write only happens once the drag settles.
+        private readonly DispatcherTimer _saveDebounce = new() { Interval = TimeSpan.FromMilliseconds(600) };
 
         public ApiDocumentationWindow()
         {
@@ -23,8 +30,19 @@ namespace csharp_interop.Documentation
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Content = _browser;
 
+            _saveDebounce.Tick += (_, _) =>
+            {
+                _saveDebounce.Stop();
+                _settings.Save();
+            };
+
             SizeChanged += OnSizeChanged;
-            Closing += (_, _) => SaveCurrentSize();
+            Closing += (_, _) =>
+            {
+                _saveDebounce.Stop();
+                CaptureCurrentSize();
+                _settings.Save();
+            };
             Loaded += (_, _) => _browser.UpdateCurrentWindowSize(ActualWidth, ActualHeight);
         }
 
@@ -35,11 +53,15 @@ namespace csharp_interop.Documentation
                 return;
             }
 
-            SaveCurrentSize();
+            CaptureCurrentSize();
             _browser.UpdateCurrentWindowSize(ActualWidth, ActualHeight);
+
+            // Coalesce rapid resize events into a single disk write after the drag stops.
+            _saveDebounce.Stop();
+            _saveDebounce.Start();
         }
 
-        private void SaveCurrentSize()
+        private void CaptureCurrentSize()
         {
             if (WindowState != WindowState.Normal)
             {
@@ -48,7 +70,6 @@ namespace csharp_interop.Documentation
 
             _settings.Width = ActualWidth > 0 ? ActualWidth : Width;
             _settings.Height = ActualHeight > 0 ? ActualHeight : Height;
-            _settings.Save();
         }
     }
 }

@@ -13,12 +13,22 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 /// </summary>
 public sealed class ItemTracker
 {
-	private readonly DateTime _startUtc;
+	private DateTime _startUtc;
 	private readonly Dictionary<int, DashboardItemRow> _byId = new();
 
 	public ItemTracker(DateTime startUtc)
 	{
 		_startUtc = startUtc;
+	}
+
+	/// <summary>Clears all tracked items and re-baselines the session clock to <paramref name="startUtc"/>.</summary>
+	public void Reset(DateTime startUtc)
+	{
+		_startUtc = startUtc;
+		_byId.Clear();
+		Rows.Clear();
+		TotalGpPerHour = 0;
+		ActiveCount = 0;
 	}
 
 	public ObservableCollection<DashboardItemRow> Rows { get; } = new();

@@ -12,6 +12,15 @@ public sealed class UserSettings
 {
 	public double WindowWidth { get; set; }
 	public double WindowHeight { get; set; }
+
+	/// <summary>Open new canvases with the catalog (left) panel collapsed.</summary>
+	public bool StartLeftCollapsed { get; set; }
+
+	/// <summary>Open new canvases with the inspector (right) panel collapsed.</summary>
+	public bool StartRightCollapsed { get; set; }
+
+	/// <summary>Keep the mini-map always visible (otherwise it auto-hides after panning).</summary>
+	public bool MiniMapAlwaysVisible { get; set; } = true;
 }
 
 /// <summary>

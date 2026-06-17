@@ -21,6 +21,13 @@ public enum NodeParamType
 	Area
 }
 
+public enum NodeMaturity
+{
+	Stable,
+	Advanced,
+	Experimental
+}
+
 public class NodeCategory
 {
 	public string Id { get; init; } = string.Empty;
@@ -85,9 +92,31 @@ public class NodeDefinition
 	public bool IsImplemented { get; init; } = true;
 
 	/// <summary>
+	/// Stable nodes are shown in the default palette. Advanced nodes are supported but hidden
+	/// unless the editor opts into expert-level controls.
+	/// </summary>
+	public NodeMaturity Maturity { get; init; } = NodeMaturity.Stable;
+
+	/// <summary>
 	/// True when the executor P/Invokes the injected game client; such nodes can only run inside the game process.
 	/// </summary>
 	public bool RequiresGameApi { get; init; } = true;
+
+	/// <summary>
+	/// Signal key this node always publishes when it runs, if any.
+	/// </summary>
+	public string? PublishedSignalKey { get; init; }
+
+	/// <summary>
+	/// Parameter key whose value names the signal this node publishes. When the parameter is empty,
+	/// <see cref="DefaultPublishedSignalKey"/> is used.
+	/// </summary>
+	public string? PublishedSignalParameterKey { get; init; }
+
+	/// <summary>
+	/// Default signal key used by nodes whose published signal can be overridden by a parameter.
+	/// </summary>
+	public string? DefaultPublishedSignalKey { get; init; }
 
 	public IReadOnlyList<NodeParam> Parameters { get; init; } = Array.Empty<NodeParam>();
 }

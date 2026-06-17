@@ -23,6 +23,7 @@ public record ValidationIssue(ValidationSeverity Severity, string Message, Guid?
 public class GraphValidator
 {
 	private readonly NodeCatalogService _catalogService;
+	private readonly GraphConnectionRules _connectionRules = new();
 
 	public GraphValidator(NodeCatalogService catalogService)
 	{
@@ -74,6 +75,14 @@ public class GraphValidator
 					issues.Add(new ValidationIssue(
 						ValidationSeverity.Warning,
 						$"Node '{node.Title}' ({definition.Title}) is not implemented yet and will always fail.",
+						node.Id));
+				}
+
+				if (definition.Maturity == NodeMaturity.Advanced)
+				{
+					issues.Add(new ValidationIssue(
+						ValidationSeverity.Warning,
+						$"Node '{node.Title}' ({definition.Title}) is an advanced native-capture node. Prefer stable typed nodes unless this graph needs captured opcode/offset tuning.",
 						node.Id));
 				}
 
@@ -142,6 +151,33 @@ public class GraphValidator
 					$"Node '{node.Title}' has multiple fallback transitions; only the first (top-most) is used.",
 					node.Id));
 			}
+
+			foreach (var duplicate in node.Transitions
+				.GroupBy(t => t.ToNodeId)
+				.Where(g => g.Count() > 1))
+			{
+				var target = script.Nodes.FirstOrDefault(n => n.Id == duplicate.Key)?.Title ?? duplicate.Key.ToString();
+				issues.Add(new ValidationIssue(
+					ValidationSeverity.Warning,
+					$"Node '{node.Title}' has duplicate transitions to '{target}'; only the first matching edge can be useful.",
+					node.Id));
+			}
+
+			foreach (var transition in node.Transitions)
+			{
+				var target = script.Nodes.FirstOrDefault(n => n.Id == transition.ToNodeId);
+				if (target == null)
+					continue;
+
+				var rule = _connectionRules.CanRetarget(script, transition, target);
+				if (!rule.CanConnect && !ReferenceEquals(rule.ExistingTransition, transition))
+				{
+					issues.Add(new ValidationIssue(
+						ValidationSeverity.Warning,
+						$"Transition '{transition.Label}' on node '{node.Title}' violates connection rules: {rule.Message}.",
+						node.Id));
+				}
+			}
 		}
 
 		foreach (var issue in FindUnpublishedSignalReads(script))
@@ -160,50 +196,30 @@ public class GraphValidator
 		return issues;
 	}
 
-	// Definitions whose executors always publish a fixed signal key.
-	private static readonly Dictionary<string, string> FixedSignalPublishers = new(StringComparer.OrdinalIgnoreCase)
-	{
-		["conditions.inventoryFull"] = "inventoryFull",
-		["conditions.inCombat"] = "inCombat",
-		["inventory.contains"] = "inventory.contains",
-		["inventory.count"] = "inventory.count.met",
-		["equipment.contains"] = "equipment.contains",
-		["objects.exists"] = "objects.exists"
-	};
-
-	// Definitions whose executors publish the node's "signal" parameter (with a default when empty).
-	private static readonly Dictionary<string, string?> SignalParamPublishers = new(StringComparer.OrdinalIgnoreCase)
-	{
-		["actions.setSignal"] = null,
-		["npcs.find"] = "npcs.found",
-		["objects.find"] = "objects.found",
-		["conditions.locationRadius"] = "insideAnchor",
-		["conditions.healthPercent"] = "healthLow",
-		["conditions.prayerPercent"] = "prayerLow",
-		["conditions.cooldown"] = "cooldownReady",
-		["familiar.check"] = "hasFamiliar"
-	};
-
 	/// <summary>
 	/// Warns when a condition edge or boolean-condition node reads a signal that no node in the
 	/// graph ever publishes — such signals silently stay false unless set externally.
 	/// </summary>
-	private static IEnumerable<ValidationIssue> FindUnpublishedSignalReads(GraphModel script)
+	private IEnumerable<ValidationIssue> FindUnpublishedSignalReads(GraphModel script)
 	{
 		var published = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 		foreach (var node in script.Nodes)
 		{
-			if (FixedSignalPublishers.TryGetValue(node.DefinitionId, out var fixedKey))
+			var definition = _catalogService.GetDefinition(node.DefinitionId);
+			if (definition == null)
+				continue;
+
+			if (!string.IsNullOrWhiteSpace(definition.PublishedSignalKey))
 			{
-				published.Add(fixedKey);
+				published.Add(definition.PublishedSignalKey);
 			}
 
-			if (SignalParamPublishers.TryGetValue(node.DefinitionId, out var defaultKey))
+			if (!string.IsNullOrWhiteSpace(definition.PublishedSignalParameterKey))
 			{
 				var signalParam = node.Parameters.FirstOrDefault(p =>
-					string.Equals(p.Key, "signal", StringComparison.OrdinalIgnoreCase))?.RawValue;
-				var key = string.IsNullOrWhiteSpace(signalParam) ? defaultKey : signalParam.Trim();
+					string.Equals(p.Key, definition.PublishedSignalParameterKey, StringComparison.OrdinalIgnoreCase))?.RawValue;
+				var key = string.IsNullOrWhiteSpace(signalParam) ? definition.DefaultPublishedSignalKey : signalParam.Trim();
 				if (!string.IsNullOrWhiteSpace(key))
 				{
 					published.Add(key);

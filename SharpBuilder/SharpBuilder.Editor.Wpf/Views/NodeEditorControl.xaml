@@ -25,6 +25,8 @@
         <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding ExportScriptCommand}" />
         <KeyBinding Key="N" Modifiers="Control" Command="{Binding NewScriptCommand}" />
         <KeyBinding Key="O" Modifiers="Control" Command="{Binding LoadScriptCommand}" />
+        <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}" />
+        <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}" />
         <KeyBinding Key="F5" Command="{Binding StartCommand}" />
         <KeyBinding Key="F5" Modifiers="Control" Command="{Binding StepCommand}" />
         <KeyBinding Key="F5" Modifiers="Shift" Command="{Binding StopCommand}" />
@@ -40,6 +42,7 @@
         <converters:EqualityToVisibilityConverter x:Key="EqualityToVisibilityConverter" />
         <converters:AccentBrushConverter x:Key="AccentBrushConverter" />
         <converters:CatalogSortModeLabelConverter x:Key="CatalogSortModeLabelConverter" />
+        <converters:MiniMapCoordinateConverter x:Key="MiniMapCoordinateConverter" />
         <SolidColorBrush x:Key="EditorPrimaryBrush" Color="#FF4AB6FF" />
         <SolidColorBrush x:Key="EditorPrimaryMutedBrush" Color="#334AB6FF" />
         <SolidColorBrush x:Key="EditorPrimarySurfaceBrush" Color="#1C4AB6FF" />
@@ -212,17 +215,23 @@
             <Border
                 Margin="0,0,0,8"
                 Padding="8"
+                HorizontalAlignment="Stretch"
                 Background="{DynamicResource MahApps.Brushes.Gray9}"
                 CornerRadius="8">
                 <StackPanel>
-                    <DockPanel>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
                         <TextBlock
                             FontWeight="SemiBold"
                             Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
-                            Text="{Binding Definition.Label}" />
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            Text="{Binding Definition.Label}"
+                            TextWrapping="Wrap" />
+                        <WrapPanel Grid.Row="1" Margin="0,4,0,0">
                             <Border
-                                Margin="6,0,0,0"
+                                Margin="0,0,6,4"
                                 Padding="5,1"
                                 Background="{DynamicResource MahApps.Brushes.Gray8}"
                                 CornerRadius="4">
@@ -233,7 +242,7 @@
                                     Text="{Binding Definition.Key}" />
                             </Border>
                             <Border
-                                Margin="6,0,0,0"
+                                Margin="0,0,6,4"
                                 Padding="5,1"
                                 Background="{DynamicResource MahApps.Brushes.Gray8}"
                                 CornerRadius="4">
@@ -243,8 +252,8 @@
                                     Opacity="0.82"
                                     Text="{Binding Definition.Type}" />
                             </Border>
-                        </StackPanel>
-                    </DockPanel>
+                        </WrapPanel>
+                    </Grid>
                     <TextBlock
                         FontSize="12"
                         Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
@@ -314,7 +323,8 @@
             <Setter Property="Background" Value="#FF1E2838" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="FontSize" Value="11.5" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="SnapsToDevicePixels" Value="True" />
@@ -385,6 +395,31 @@
             TargetType="Button">
             <Setter Property="Background" Value="#33A83A3A" />
             <Setter Property="BorderBrush" Value="#66E86E6E" />
+        </Style>
+
+        <!--  Slim file-operation buttons used in the inspector Script controls  -->
+        <Style
+            x:Key="ScriptControlButton"
+            BasedOn="{StaticResource ToolbarButton}"
+            TargetType="Button">
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="MinWidth" Value="58" />
+            <Setter Property="Padding" Value="6,3" />
+        </Style>
+
+        <Style
+            x:Key="ScriptControlSaveButton"
+            BasedOn="{StaticResource ScriptControlButton}"
+            TargetType="Button">
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Offset="0" Color="#FF2E6FB0" />
+                        <GradientStop Offset="1" Color="#FF1C3A57" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="BorderBrush" Value="{StaticResource EditorPrimaryBrush}" />
         </Style>
 
         <Style x:Key="EditorColumnHeader" TargetType="Border">
@@ -493,17 +528,17 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid Margin="18">
+    <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
         <Border
-            Padding="16,12"
+            Padding="12,8"
             BorderBrush="{StaticResource PanelBorderBrush}"
             BorderThickness="1"
-            CornerRadius="14">
+            CornerRadius="12">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                     <GradientStop Offset="0" Color="#FF1B2738" />
@@ -513,10 +548,10 @@
             </Border.Background>
             <Border.Effect>
                 <DropShadowEffect
-                    BlurRadius="22"
+                    BlurRadius="14"
                     Direction="270"
-                    Opacity="0.34"
-                    ShadowDepth="3"
+                    Opacity="0.24"
+                    ShadowDepth="2"
                     Color="#000000" />
             </Border.Effect>
             <Grid>
@@ -528,11 +563,11 @@
 
                 <!--  Accent logo tile  -->
                 <Border
-                    Width="46"
-                    Height="46"
+                    Width="38"
+                    Height="38"
                     BorderBrush="{StaticResource EditorPrimaryBrush}"
                     BorderThickness="1.5"
-                    CornerRadius="12">
+                    CornerRadius="10">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                             <GradientStop Offset="0" Color="#FF2E6FB0" />
@@ -540,8 +575,8 @@
                         </LinearGradientBrush>
                     </Border.Background>
                     <iconPacks:PackIconMaterial
-                        Width="26"
-                        Height="26"
+                        Width="22"
+                        Height="22"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
@@ -550,35 +585,36 @@
 
                 <StackPanel
                     Grid.Column="1"
-                    Margin="14,0,0,0"
+                    Margin="10,0,0,0"
                     VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock
-                            FontSize="22"
+                            FontSize="18"
                             FontWeight="Bold"
                             Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
                             Text="SharpBuilder" />
                         <Border
-                            Margin="10,2,0,0"
-                            Padding="7,2"
+                            Margin="8,1,0,0"
+                            Padding="6,1"
                             VerticalAlignment="Center"
                             Background="{StaticResource EditorPrimaryMutedBrush}"
                             BorderBrush="{StaticResource EditorPrimaryBrush}"
                             BorderThickness="1"
-                            CornerRadius="8">
+                            CornerRadius="6">
                             <TextBlock
-                                FontSize="10"
+                                FontSize="9"
                                 FontWeight="SemiBold"
                                 Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
                                 Text="STUDIO" />
                         </Border>
                     </StackPanel>
                     <TextBlock
-                        Margin="0,2,0,0"
-                        FontSize="12"
+                        Margin="0,1,0,0"
+                        FontSize="11"
                         Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
                         Opacity="0.78"
-                        Text="Visual automation studio — design, validate, and run no-code flows in-game, in Orbit, or headless." />
+                        Text="Design, validate, and run automation flows."
+                        TextTrimming="CharacterEllipsis" />
                 </StackPanel>
 
                 <!--  Run-target hint chips  -->
@@ -587,68 +623,68 @@
                     VerticalAlignment="Center"
                     Orientation="Horizontal">
                     <Border
-                        Margin="0,0,8,0"
-                        Padding="9,5"
+                        Margin="0,0,6,0"
+                        Padding="7,4"
                         Background="#1AFFFFFF"
                         BorderBrush="{StaticResource PanelBorderBrush}"
                         BorderThickness="1"
                         CornerRadius="9">
                         <StackPanel Orientation="Horizontal">
                             <iconPacks:PackIconMaterial
-                                Width="13"
-                                Height="13"
+                                Width="12"
+                                Height="12"
                                 VerticalAlignment="Center"
                                 Foreground="{DynamicResource MahApps.Brushes.Accent}"
                                 Kind="Sword" />
                             <TextBlock
-                                Margin="6,0,0,0"
+                                Margin="5,0,0,0"
                                 VerticalAlignment="Center"
-                                FontSize="11"
+                                FontSize="10.5"
                                 Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
                                 Opacity="0.82"
-                                Text="In-game" />
+                                Text="Game" />
                         </StackPanel>
                     </Border>
                     <Border
-                        Margin="0,0,8,0"
-                        Padding="9,5"
+                        Margin="0,0,6,0"
+                        Padding="7,4"
                         Background="#1AFFFFFF"
                         BorderBrush="{StaticResource PanelBorderBrush}"
                         BorderThickness="1"
                         CornerRadius="9">
                         <StackPanel Orientation="Horizontal">
                             <iconPacks:PackIconMaterial
-                                Width="13"
-                                Height="13"
+                                Width="12"
+                                Height="12"
                                 VerticalAlignment="Center"
                                 Foreground="{DynamicResource MahApps.Brushes.Accent}"
                                 Kind="Orbit" />
                             <TextBlock
-                                Margin="6,0,0,0"
+                                Margin="5,0,0,0"
                                 VerticalAlignment="Center"
-                                FontSize="11"
+                                FontSize="10.5"
                                 Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
                                 Opacity="0.82"
                                 Text="Orbit" />
                         </StackPanel>
                     </Border>
                     <Border
-                        Padding="9,5"
+                        Padding="7,4"
                         Background="#1AFFFFFF"
                         BorderBrush="{StaticResource PanelBorderBrush}"
                         BorderThickness="1"
                         CornerRadius="9">
                         <StackPanel Orientation="Horizontal">
                             <iconPacks:PackIconMaterial
-                                Width="13"
-                                Height="13"
+                                Width="12"
+                                Height="12"
                                 VerticalAlignment="Center"
                                 Foreground="{DynamicResource MahApps.Brushes.Accent}"
                                 Kind="Console" />
                             <TextBlock
-                                Margin="6,0,0,0"
+                                Margin="5,0,0,0"
                                 VerticalAlignment="Center"
-                                FontSize="11"
+                                FontSize="10.5"
                                 Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
                                 Opacity="0.82"
                                 Text="Headless" />
@@ -658,7 +694,7 @@
                     <!--  Settings gear  -->
                     <ToggleButton
                         x:Name="SettingsButton"
-                        Margin="12,0,0,0"
+                        Margin="8,0,0,0"
                         VerticalAlignment="Center"
                         IsChecked="{Binding IsSettingsOpen, Mode=TwoWay}"
                         Style="{StaticResource RailToggleButton}"
@@ -723,6 +759,69 @@
                                     Foreground="{DynamicResource MahApps.Brushes.Gray7}"
                                     Text="Saved automatically and restored next session. Drag the window edges for a custom size."
                                     TextWrapping="Wrap" />
+
+                                <Border
+                                    Margin="0,14,0,0"
+                                    BorderBrush="{StaticResource PanelBorderBrush}"
+                                    BorderThickness="0,1,0,0" />
+                                <TextBlock
+                                    Margin="0,12,0,0"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                    Opacity="0.85"
+                                    Text="Workspace" />
+                                <mahApps:ToggleSwitch
+                                    Margin="0,8,0,0"
+                                    Header="Start with catalog collapsed"
+                                    IsOn="{Binding StartLeftCollapsed, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                                <mahApps:ToggleSwitch
+                                    Margin="0,4,0,0"
+                                    Header="Start with inspector collapsed"
+                                    IsOn="{Binding StartRightCollapsed, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                                <mahApps:ToggleSwitch
+                                    Margin="0,4,0,0"
+                                    Header="Mini-map always visible"
+                                    IsOn="{Binding MiniMapAlwaysVisible, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                                <TextBlock
+                                    Margin="0,4,0,0"
+                                    FontSize="11"
+                                    Foreground="{DynamicResource MahApps.Brushes.Gray7}"
+                                    Text="When off, the mini-map only appears while panning and fades out after a short countdown."
+                                    TextWrapping="Wrap" />
+
+                                <Border
+                                    Margin="0,14,0,0"
+                                    BorderBrush="{StaticResource PanelBorderBrush}"
+                                    BorderThickness="0,1,0,0" />
+                                <TextBlock
+                                    Margin="0,12,0,0"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                    Opacity="0.85"
+                                    Text="Templates" />
+                                <Button
+                                    Margin="0,6,0,0"
+                                    HorizontalContentAlignment="Left"
+                                    Command="{Binding LoadTemplateCommand}"
+                                    Style="{StaticResource ScriptControlButton}"
+                                    ToolTip="Replace the current graph with the power-fishing starter template">
+                                    <StackPanel Orientation="Horizontal">
+                                        <iconPacks:PackIconMaterial
+                                            Width="12"
+                                            Height="12"
+                                            VerticalAlignment="Center"
+                                            Kind="FileDocumentMultipleOutline" />
+                                        <TextBlock Margin="6,0,0,0" Text="Load power fishing template" />
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </Border>
                     </Popup>
@@ -730,7 +829,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" Margin="0,16,0,0">
+        <Grid Grid.Row="1" Margin="0,10,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{Binding DataContext.LeftColumnWidth, ElementName=Root, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MinWidth="56" />
                 <ColumnDefinition Width="6" />
@@ -815,17 +914,23 @@
 
                         <!--  Pinned search + sort bar  -->
                         <Grid Grid.Row="0" Margin="16,12,16,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBox
+                                Grid.Row="0"
                                 Grid.Column="0"
                                 VerticalContentAlignment="Center"
                                 mahApps:TextBoxHelper.ClearTextButton="True"
                                 mahApps:TextBoxHelper.Watermark="Search nodes…"
                                 Text="{Binding CatalogSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             <ComboBox
+                                Grid.Row="0"
                                 Grid.Column="1"
                                 Width="124"
                                 Margin="6,0,0,0"
@@ -838,65 +943,150 @@
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
+                            <CheckBox
+                                Grid.Row="1"
+                                Grid.ColumnSpan="2"
+                                Margin="0,8,0,0"
+                                Content="Show advanced nodes"
+                                IsChecked="{Binding ShowAdvancedNodes, Mode=TwoWay}"
+                                ToolTip="Shows low-level native capture nodes for expert graphs." />
                         </Grid>
 
-                        <ScrollViewer
+                        <Grid
                             Grid.Row="1"
                             Margin="16,12,16,16"
-                            VerticalScrollBarVisibility="Auto"
                             Visibility="{Binding IsLeftCollapsed, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Inverted}">
-                            <StackPanel>
-                                <ListBox
-                                    Margin="0,0,0,10"
-                                    BorderThickness="0"
-                                    ItemsSource="{Binding Categories}"
-                                    ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                    SelectedItem="{Binding SelectedCategory, Mode=TwoWay}">
-                                    <ListBox.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel />
-                                        </ItemsPanelTemplate>
-                                    </ListBox.ItemsPanel>
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border
-                                                Margin="0,6,6,6"
-                                                Padding="8,6"
-                                                Background="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}, ConverterParameter=Surface}"
-                                                BorderBrush="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}, ConverterParameter=Muted}"
-                                                BorderThickness="1"
-                                                CornerRadius="6">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Ellipse
-                                                        Width="8"
-                                                        Height="8"
-                                                        Margin="0,0,6,0"
-                                                        VerticalAlignment="Center"
-                                                        Fill="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}}" />
-                                                    <TextBlock
-                                                        FontWeight="SemiBold"
-                                                        Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
-                                                        Text="{Binding Title}" />
-                                                </StackPanel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
+                            <Grid.RowDefinitions>
+                                <RowDefinition x:Name="CategoryRow" Height="132" MinHeight="44" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" MinHeight="120" />
+                            </Grid.RowDefinitions>
+
+                            <!--  Categories: bounded + vertically resizable so they never crowd out the node list  -->
+                            <Border
+                                Grid.Row="0"
+                                Background="#14000000"
+                                BorderBrush="{StaticResource PanelBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                                <ScrollViewer
+                                    Padding="6,4"
+                                    HorizontalScrollBarVisibility="Disabled"
+                                    VerticalScrollBarVisibility="Auto">
+                                    <ListBox
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        HorizontalContentAlignment="Stretch"
+                                        ItemsSource="{Binding Categories}"
+                                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                        ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                        SelectedItem="{Binding SelectedCategory, Mode=TwoWay}">
+                                        <ListBox.ItemContainerStyle>
+                                            <!--  Strip the default square bright-blue selection chrome; the chip draws its own.  -->
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Margin" Value="0" />
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="ListBoxItem">
+                                                            <ContentPresenter />
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border
+                                                    Margin="0,4,5,4"
+                                                    Padding="8,5"
+                                                    CornerRadius="11">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}, ConverterParameter=Surface}" />
+                                                            <Setter Property="BorderBrush" Value="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}, ConverterParameter=Muted}" />
+                                                            <Setter Property="BorderThickness" Value="1" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                                    <Setter Property="Background" Value="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}, ConverterParameter=Muted}" />
+                                                                    <Setter Property="BorderBrush" Value="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}}" />
+                                                                    <Setter Property="BorderThickness" Value="1.5" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Ellipse
+                                                            Width="8"
+                                                            Height="8"
+                                                            Margin="0,0,6,0"
+                                                            VerticalAlignment="Center"
+                                                            Fill="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}}" />
+                                                        <TextBlock
+                                                            FontSize="11.5"
+                                                            FontWeight="SemiBold"
+                                                            Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                                            Text="{Binding Title}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </ScrollViewer>
+                            </Border>
+
+                            <GridSplitter
+                                Grid.Row="1"
+                                Height="6"
+                                Margin="0,3"
+                                HorizontalAlignment="Stretch"
+                                Background="{StaticResource EditorPrimaryMutedBrush}"
+                                ResizeBehavior="PreviousAndNext"
+                                ResizeDirection="Rows"
+                                ShowsPreview="True"
+                                ToolTip="Drag to resize the category list" />
+
+                            <ScrollViewer
+                                x:Name="CatalogScrollViewer"
+                                Grid.Row="2"
+                                HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Auto">
                                 <ItemsControl ItemsSource="{Binding FilteredDefinitions}">
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border
                                                 Margin="0,0,0,10"
                                                 Padding="10"
+                                                HorizontalAlignment="Stretch"
                                                 Background="{DynamicResource MahApps.Brushes.Gray9}"
                                                 BorderBrush="{DynamicResource MahApps.Brushes.Gray7}"
                                                 BorderThickness="1"
                                                 Cursor="Hand"
                                                 MouseLeftButtonUp="PaletteDefinitionCard_MouseLeftButtonUp"
+                                                PreviewMouseLeftButtonDown="PaletteDefinitionCard_PreviewMouseLeftButtonDown"
+                                                MouseMove="PaletteDefinitionCard_MouseMove"
+                                                ToolTip="Click for info, or drag onto the canvas to add this node"
                                                 CornerRadius="10">
                                                 <StackPanel>
-                                                    <StackPanel Orientation="Horizontal">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
                                                         <Border
+                                                            Grid.Column="0"
                                                             Width="22"
                                                             Height="22"
                                                             Margin="0,0,8,0"
@@ -911,11 +1101,14 @@
                                                                 Kind="{Binding Id, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Icon}" />
                                                         </Border>
                                                         <TextBlock
+                                                            Grid.Column="1"
                                                             VerticalAlignment="Center"
                                                             FontWeight="SemiBold"
                                                             Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
-                                                            Text="{Binding Title}" />
+                                                            Text="{Binding Title}"
+                                                            TextTrimming="CharacterEllipsis" />
                                                         <Border
+                                                            Grid.Column="2"
                                                             Margin="8,0,0,0"
                                                             Padding="6,2"
                                                             Background="{DynamicResource MahApps.Brushes.Accent}"
@@ -927,7 +1120,7 @@
                                                                 Foreground="{DynamicResource MahApps.Brushes.AccentForeground}"
                                                                 Text="Query" />
                                                         </Border>
-                                                    </StackPanel>
+                                                    </Grid>
                                                     <TextBlock
                                                         MaxHeight="54"
                                                         Margin="0,4,0,6"
@@ -936,23 +1129,24 @@
                                                         Text="{Binding ShortDescription}"
                                                         TextTrimming="CharacterEllipsis"
                                                         TextWrapping="Wrap" />
-                                                    <StackPanel Orientation="Horizontal">
+                                                    <WrapPanel>
                                                         <Button
+                                                            Margin="0,0,6,6"
                                                             Command="{Binding DataContext.CreateNodeFromDefinitionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding}"
                                                             Content="Add node" />
                                                         <Button
-                                                            Margin="6,0,0,0"
+                                                            Margin="0,0,6,6"
                                                             Click="PaletteDefinitionInfoButton_Click"
                                                             Content="Info" />
-                                                    </StackPanel>
+                                                    </WrapPanel>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                            </StackPanel>
-                        </ScrollViewer>
+                            </ScrollViewer>
+                        </Grid>
 
                         <Popup
                             x:Name="NodeInfoPopup"
@@ -1138,36 +1332,10 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Orientation="Horizontal">
-                                <Border
-                                    Width="28"
-                                    Height="28"
-                                    Background="{StaticResource EditorPrimaryMutedBrush}"
-                                    CornerRadius="6">
-                                    <iconPacks:PackIconMaterial
-                                        Width="18"
-                                        Height="18"
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Center"
-                                        Foreground="{DynamicResource MahApps.Brushes.Accent}"
-                                        Kind="Graph" />
-                                </Border>
-                                <StackPanel Margin="8,0,0,0">
-                                    <TextBlock
-                                        FontSize="16"
-                                        FontWeight="SemiBold"
-                                        Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
-                                        Text="Canvas" />
-                                    <TextBlock
-                                        FontSize="11"
-                                        Foreground="{DynamicResource MahApps.Brushes.Gray7}"
-                                        Text="Run, step, or edit nodes inline" />
-                                </StackPanel>
-                            </StackPanel>
 
+                            <!--  Transport / run controls (left-aligned)  -->
                             <StackPanel
-                                Grid.Column="1"
-                                Margin="12,0,0,0"
+                                Grid.Column="0"
                                 VerticalAlignment="Center"
                                 Orientation="Horizontal">
                                 <!--  Transport group  -->
@@ -1222,6 +1390,21 @@
                                                 </StackPanel>
                                             </Button.Content>
                                         </Button>
+                                        <Button
+                                            Margin="4,0,0,0"
+                                            Command="{Binding ExplainGraphCommand}"
+                                            Style="{StaticResource ToolbarButton}"
+                                            ToolTip="Explain graph requirements, warnings, signals, and advanced-node use without running it">
+                                            <Button.Content>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial
+                                                        Width="14"
+                                                        Height="14"
+                                                        Kind="FileSearchOutline" />
+                                                    <TextBlock Margin="6,0,0,0" Text="Explain" />
+                                                </StackPanel>
+                                            </Button.Content>
+                                        </Button>
                                     </StackPanel>
                                 </Border>
 
@@ -1242,13 +1425,14 @@
                                 </Button>
 
                                 <Border
-                                    Margin="8,0,0,0"
-                                    Padding="8,3"
+                                    Margin="6,0,0,0"
+                                    Padding="6,1"
                                     Background="#22000000"
                                     BorderBrush="{StaticResource PanelBorderBrush}"
                                     BorderThickness="1"
-                                    CornerRadius="9">
+                                    CornerRadius="8">
                                     <controls:ToggleSwitch
+                                        Padding="0"
                                         VerticalAlignment="Center"
                                         Header="Loop"
                                         IsOn="{Binding IsLooping}"
@@ -1261,47 +1445,41 @@
                                 Grid.Column="2"
                                 VerticalAlignment="Center"
                                 Orientation="Horizontal">
+                                <!--  Merged pan + zoom strip  -->
                                 <Border
-                                    Margin="0,0,8,0"
-                                    Padding="6,2"
-                                    Background="{StaticResource EditorPrimaryMutedBrush}"
-                                    CornerRadius="4"
-                                    ToolTip="Hold Space or Middle Mouse to pan the canvas">
-                                    <StackPanel Orientation="Horizontal">
+                                    Padding="4,2"
+                                    Background="#22000000"
+                                    BorderBrush="{StaticResource PanelBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="9">
+                                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
                                         <iconPacks:PackIconMaterial
                                             Width="12"
                                             Height="12"
+                                            Margin="3,0,5,0"
+                                            VerticalAlignment="Center"
                                             Kind="CursorMove"
-                                            Opacity="0.7" />
-                                        <TextBlock
-                                            Margin="4,0,0,0"
-                                            FontSize="11"
-                                            Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
-                                            Opacity="0.7"
-                                            Text="Space to pan" />
-                                    </StackPanel>
-                                </Border>
-                                <Border
-                                    Margin="0,0,12,0"
-                                    Padding="4,2"
-                                    Background="{StaticResource EditorPrimaryMutedBrush}"
-                                    CornerRadius="4"
-                                    ToolTip="Use Ctrl+Scroll to zoom, or click buttons">
-                                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                                            Opacity="0.6"
+                                            ToolTip="Hold Space or Middle Mouse to pan the canvas" />
+                                        <Border
+                                            Width="1"
+                                            Margin="1,2"
+                                            Background="{StaticResource PanelBorderBrush}" />
                                         <Button
                                             x:Name="ZoomOutButton"
                                             Padding="4,2"
                                             Background="Transparent"
                                             BorderThickness="0"
-                                            Click="ZoomOutButton_Click">
+                                            Click="ZoomOutButton_Click"
+                                            ToolTip="Zoom out (Ctrl+Scroll)">
                                             <iconPacks:PackIconMaterial
-                                                Width="14"
-                                                Height="14"
+                                                Width="13"
+                                                Height="13"
                                                 Kind="MagnifyMinus" />
                                         </Button>
                                         <TextBlock
                                             x:Name="ZoomLevelText"
-                                            Width="44"
+                                            Width="40"
                                             VerticalAlignment="Center"
                                             FontSize="11"
                                             Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
@@ -1312,74 +1490,53 @@
                                             Padding="4,2"
                                             Background="Transparent"
                                             BorderThickness="0"
-                                            Click="ZoomInButton_Click">
+                                            Click="ZoomInButton_Click"
+                                            ToolTip="Zoom in (Ctrl+Scroll)">
                                             <iconPacks:PackIconMaterial
-                                                Width="14"
-                                                Height="14"
+                                                Width="13"
+                                                Height="13"
                                                 Kind="MagnifyPlus" />
                                         </Button>
+                                        <Border
+                                            Width="1"
+                                            Margin="3,2"
+                                            Background="{StaticResource PanelBorderBrush}" />
                                         <Button
                                             x:Name="ZoomResetButton"
-                                            Margin="4,0,0,0"
                                             Padding="4,2"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             Click="ZoomResetButton_Click"
                                             ToolTip="Reset zoom to 100%">
                                             <iconPacks:PackIconMaterial
-                                                Width="14"
-                                                Height="14"
+                                                Width="13"
+                                                Height="13"
                                                 Kind="MagnifyRemoveOutline" />
                                         </Button>
-                                    </StackPanel>
-                                </Border>
-                                <Border
-                                    Margin="0,0,8,0"
-                                    Padding="8,4"
-                                    VerticalAlignment="Center"
-                                    Background="#33FFC857"
-                                    BorderBrush="#66FFC857"
-                                    BorderThickness="1"
-                                    CornerRadius="6"
-                                    ToolTip="The graph has changes that are not saved to disk yet (Ctrl+S)"
-                                    Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibilityConverter}}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <iconPacks:PackIconMaterial
-                                            Width="12"
-                                            Height="12"
-                                            VerticalAlignment="Center"
-                                            Foreground="#FFC857"
-                                            Kind="ContentSaveAlert" />
-                                        <TextBlock
-                                            Margin="6,0,0,0"
-                                            VerticalAlignment="Center"
-                                            FontSize="11"
-                                            Foreground="#FFC857"
-                                            Text="Unsaved" />
-                                    </StackPanel>
-                                </Border>
-                                <Border
-                                    Padding="8,4"
-                                    VerticalAlignment="Center"
-                                    Background="{StaticResource EditorPrimarySurfaceBrush}"
-                                    BorderBrush="{StaticResource EditorPrimaryMutedBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="6">
-                                    <StackPanel Orientation="Horizontal">
-                                        <iconPacks:PackIconMaterial
-                                            Width="12"
-                                            Height="12"
-                                            VerticalAlignment="Center"
-                                            Foreground="{DynamicResource MahApps.Brushes.Accent}"
-                                            Kind="InformationOutline" />
-                                        <TextBlock
-                                            Margin="6,0,0,0"
-                                            MaxWidth="260"
-                                            VerticalAlignment="Center"
-                                            Foreground="{DynamicResource MahApps.Brushes.Accent}"
-                                            Text="{Binding Status}"
-                                            TextTrimming="CharacterEllipsis"
-                                            ToolTip="{Binding Status}" />
+                                        <Button
+                                            x:Name="FitGraphButton"
+                                            Padding="4,2"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Click="FitGraphButton_Click"
+                                            ToolTip="Fit graph to the canvas">
+                                            <iconPacks:PackIconMaterial
+                                                Width="13"
+                                                Height="13"
+                                                Kind="FitToPageOutline" />
+                                        </Button>
+                                        <Button
+                                            x:Name="CenterSelectionButton"
+                                            Padding="4,2"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Click="CenterSelectionButton_Click"
+                                            ToolTip="Center selected nodes">
+                                            <iconPacks:PackIconMaterial
+                                                Width="13"
+                                                Height="13"
+                                                Kind="CrosshairsGps" />
+                                        </Button>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -1397,6 +1554,7 @@
                             </LinearGradientBrush>
                         </Border.Background>
 
+                        <Grid>
                         <ScrollViewer
                             x:Name="CanvasScrollViewer"
                             Margin="8"
@@ -1406,11 +1564,15 @@
                             PreviewMouseMove="CanvasScrollViewer_OnPreviewMouseMove"
                             PreviewMouseUp="CanvasScrollViewer_OnPreviewMouseUp"
                             PreviewMouseWheel="CanvasScrollViewer_OnPreviewMouseWheel"
+                            ScrollChanged="CanvasScrollViewer_OnScrollChanged"
                             VerticalScrollBarVisibility="Auto">
                             <Grid
                                 x:Name="CanvasContainer"
                                 MinWidth="2000"
-                                MinHeight="1500">
+                                MinHeight="1500"
+                                AllowDrop="True"
+                                DragOver="CanvasContainer_OnDragOver"
+                                Drop="CanvasContainer_OnDrop">
                                 <Grid.Background>
                                     <!--  Cache the rasterized dot tile so panning/zooming/dragging over the 2000x1500
                                           canvas doesn't re-tile thousands of dots every render pass.  -->
@@ -1486,6 +1648,7 @@
                                         <DataTemplate>
                                             <Thumb
                                                 DragDelta="NodeDragDelta"
+                                                DragCompleted="NodeDragCompleted"
                                                 DragStarted="NodeDragStarted"
                                                 MouseLeftButtonDown="NodeMouseDown"
                                                 PreviewMouseLeftButtonDown="NodeMouseDown"
@@ -1526,15 +1689,22 @@
                                                             Margin="7,0"
                                                             MinHeight="130"
                                                             Padding="10"
-                                                            Background="{DynamicResource MahApps.Brushes.Gray10}"
-                                                            BorderBrush="{DynamicResource MahApps.Brushes.Gray6}"
+                                                            Background="#FF11161F"
                                                             BorderThickness="2"
                                                             CornerRadius="12"
                                                             Effect="{StaticResource NodeShadow}">
                                                             <Border.Style>
                                                                 <Style TargetType="Border">
-                                                                    <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Gray10}" />
-                                                                    <Setter Property="BorderBrush" Value="{StaticResource EditorPrimaryMutedBrush}" />
+                                                                    <!--  Dark card with a category-colored accent border  -->
+                                                                    <Setter Property="Background">
+                                                                        <Setter.Value>
+                                                                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                                                <GradientStop Offset="0" Color="#FF161D29" />
+                                                                                <GradientStop Offset="1" Color="#FF0F141D" />
+                                                                            </LinearGradientBrush>
+                                                                        </Setter.Value>
+                                                                    </Setter>
+                                                                    <Setter Property="BorderBrush" Value="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}" />
                                                                     <Setter Property="BorderThickness" Value="2" />
                                                                     <Style.Triggers>
                                                                         <DataTrigger Binding="{Binding IsActive}" Value="True">
@@ -1781,8 +1951,10 @@
                                                         </Grid>
                                                         </Border>
                                                         <Border
-                                                            Width="520"
-                                                            MinHeight="120"
+                                                            Width="{Binding DashboardWidth}"
+                                                            Height="{Binding DashboardHeight}"
+                                                            MinWidth="360"
+                                                            MinHeight="240"
                                                             Padding="12"
                                                             Background="#EE101620"
                                                             BorderBrush="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
@@ -1793,56 +1965,63 @@
                                                             <Grid>
                                                                 <Grid.RowDefinitions>
                                                                     <RowDefinition Height="Auto" />
-                                                                    <RowDefinition Height="Auto" />
+                                                                    <RowDefinition Height="*" />
                                                                 </Grid.RowDefinitions>
 
-                                                                <Grid>
-                                                                    <Grid.ColumnDefinitions>
-                                                                        <ColumnDefinition Width="Auto" />
-                                                                        <ColumnDefinition Width="*" />
-                                                                        <ColumnDefinition Width="Auto" />
-                                                                    </Grid.ColumnDefinitions>
-                                                                    <Border
-                                                                        Width="30"
-                                                                        Height="30"
-                                                                        Background="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=SurfaceBrush}"
-                                                                        CornerRadius="6">
-                                                                        <iconPacks:PackIconMaterial
-                                                                            Width="18"
-                                                                            Height="18"
-                                                                            HorizontalAlignment="Center"
+                                                                <Border
+                                                                    Padding="10,7"
+                                                                    Background="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=SurfaceBrush}"
+                                                                    BorderBrush="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
+                                                                    BorderThickness="0,0,0,2"
+                                                                    CornerRadius="6,6,0,0">
+                                                                    <Grid>
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="Auto" />
+                                                                            <ColumnDefinition Width="*" />
+                                                                            <ColumnDefinition Width="Auto" />
+                                                                        </Grid.ColumnDefinitions>
+                                                                        <Border
+                                                                            Width="30"
+                                                                            Height="30"
+                                                                            Background="#33000000"
+                                                                            CornerRadius="6">
+                                                                            <iconPacks:PackIconMaterial
+                                                                                Width="18"
+                                                                                Height="18"
+                                                                                HorizontalAlignment="Center"
+                                                                                VerticalAlignment="Center"
+                                                                                Foreground="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
+                                                                                Kind="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Icon}" />
+                                                                        </Border>
+                                                                        <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                                            <TextBlock
+                                                                                FontSize="15"
+                                                                                FontWeight="Bold"
+                                                                                Foreground="#FFFFFFFF"
+                                                                                Text="{Binding Title}" />
+                                                                            <TextBlock
+                                                                                FontSize="10.5"
+                                                                                Foreground="#CCFFFFFF"
+                                                                                Text="{Binding ActionText}"
+                                                                                TextTrimming="CharacterEllipsis" />
+                                                                        </StackPanel>
+                                                                        <Border
+                                                                            Grid.Column="2"
+                                                                            Padding="7,3"
                                                                             VerticalAlignment="Center"
-                                                                            Foreground="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
-                                                                            Kind="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Icon}" />
-                                                                    </Border>
-                                                                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                                                                        <TextBlock
-                                                                            FontSize="15"
-                                                                            FontWeight="SemiBold"
-                                                                            Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
-                                                                            Text="{Binding Title}" />
-                                                                        <TextBlock
-                                                                            FontSize="10"
-                                                                            Foreground="{DynamicResource MahApps.Brushes.Gray6}"
-                                                                            Text="{Binding ActionText}"
-                                                                            TextTrimming="CharacterEllipsis" />
-                                                                    </StackPanel>
-                                                                    <Border
-                                                                        Grid.Column="2"
-                                                                        Padding="7,3"
-                                                                        Background="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=SurfaceBrush}"
-                                                                        CornerRadius="5">
-                                                                        <TextBlock
-                                                                            FontSize="10"
-                                                                            FontWeight="SemiBold"
-                                                                            Foreground="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
-                                                                            Text="Canvas UI" />
-                                                                    </Border>
-                                                                </Grid>
+                                                                            Background="#40000000"
+                                                                            CornerRadius="5">
+                                                                            <TextBlock
+                                                                                FontSize="10"
+                                                                                FontWeight="SemiBold"
+                                                                                Foreground="#FFFFFFFF"
+                                                                                Text="Canvas UI" />
+                                                                        </Border>
+                                                                    </Grid>
+                                                                </Border>
 
                                                                 <TabControl
                                                                     Grid.Row="1"
-                                                                    Height="310"
                                                                     Margin="0,12,0,0"
                                                                     Background="Transparent"
                                                                     BorderThickness="0"
@@ -1851,10 +2030,16 @@
                                                                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                                                                             <StackPanel Margin="0,8,0,0">
                                                                                 <UniformGrid Columns="3">
-                                                                                    <Border Style="{StaticResource DashboardMetricCard}">
+                                                                                    <Border Style="{StaticResource DashboardMetricCard}" ToolTip="Time the graph has spent running this session">
                                                                                         <StackPanel>
-                                                                                            <TextBlock Style="{StaticResource DashboardMetricLabel}" Text="Runtime" />
+                                                                                            <TextBlock Style="{StaticResource DashboardMetricLabel}" Text="Graph runtime" />
                                                                                             <TextBlock Style="{StaticResource DashboardMetricValue}" Text="{Binding DataContext.DashboardRuntime, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                                                                        </StackPanel>
+                                                                                    </Border>
+                                                                                    <Border Style="{StaticResource DashboardMetricCard}" ToolTip="How long SharpBuilder has been open">
+                                                                                        <StackPanel>
+                                                                                            <TextBlock Style="{StaticResource DashboardMetricLabel}" Text="Builder uptime" />
+                                                                                            <TextBlock Style="{StaticResource DashboardMetricValue}" Text="{Binding DataContext.DashboardUptime, RelativeSource={RelativeSource AncestorType=UserControl}}" />
                                                                                         </StackPanel>
                                                                                     </Border>
                                                                                     <Border Style="{StaticResource DashboardMetricCard}">
@@ -1888,6 +2073,47 @@
                                                                                         </StackPanel>
                                                                                     </Border>
                                                                                 </UniformGrid>
+                                                                                <WrapPanel Margin="0,2,0,2">
+                                                                                    <Button
+                                                                                        Command="{Binding DataContext.ResetTimerCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                                        Style="{StaticResource ScriptControlButton}"
+                                                                                        ToolTip="Reset the graph runtime clock to zero">
+                                                                                        <StackPanel Orientation="Horizontal">
+                                                                                            <iconPacks:PackIconMaterial
+                                                                                                Width="12"
+                                                                                                Height="12"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Kind="TimerOutline" />
+                                                                                            <TextBlock Margin="5,0,0,0" Text="Reset timer" />
+                                                                                        </StackPanel>
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        Command="{Binding DataContext.ResetXpCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                                        Style="{StaticResource ScriptControlButton}"
+                                                                                        ToolTip="Re-baseline XP tracking (gained / XP per hour restart from now)">
+                                                                                        <StackPanel Orientation="Horizontal">
+                                                                                            <iconPacks:PackIconMaterial
+                                                                                                Width="12"
+                                                                                                Height="12"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Kind="StarCircleOutline" />
+                                                                                            <TextBlock Margin="5,0,0,0" Text="Reset XP" />
+                                                                                        </StackPanel>
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        Command="{Binding DataContext.ResetItemsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                                        Style="{StaticResource ScriptControlButton}"
+                                                                                        ToolTip="Clear tracked items and re-baseline item flow">
+                                                                                        <StackPanel Orientation="Horizontal">
+                                                                                            <iconPacks:PackIconMaterial
+                                                                                                Width="12"
+                                                                                                Height="12"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Kind="PackageVariantClosed" />
+                                                                                            <TextBlock Margin="5,0,0,0" Text="Reset items" />
+                                                                                        </StackPanel>
+                                                                                    </Button>
+                                                                                </WrapPanel>
                                                                                 <Border
                                                                                     Margin="0,4,0,0"
                                                                                     Padding="10"
@@ -2047,6 +2273,32 @@
                                                                         Foreground="{DynamicResource MahApps.Brushes.Gray6}"
                                                                         Text="Collapsed. Select this node and clear 'Collapse panel' to show the tabs." />
                                                                 </Border>
+
+                                                                <!--  Resize grip (drag to resize the dashboard card)  -->
+                                                                <Thumb
+                                                                    Grid.Row="1"
+                                                                    Width="16"
+                                                                    Height="16"
+                                                                    Margin="0,0,-6,-6"
+                                                                    HorizontalAlignment="Right"
+                                                                    VerticalAlignment="Bottom"
+                                                                    Cursor="SizeNWSE"
+                                                                    DragDelta="DashboardResize_DragDelta"
+                                                                    ToolTip="Drag to resize the dashboard">
+                                                                    <Thumb.Template>
+                                                                        <ControlTemplate TargetType="Thumb">
+                                                                            <Border Background="Transparent">
+                                                                                <iconPacks:PackIconMaterial
+                                                                                    Width="13"
+                                                                                    Height="13"
+                                                                                    HorizontalAlignment="Right"
+                                                                                    VerticalAlignment="Bottom"
+                                                                                    Foreground="{DynamicResource MahApps.Brushes.Gray5}"
+                                                                                    Kind="ResizeBottomRight" />
+                                                                            </Border>
+                                                                        </ControlTemplate>
+                                                                    </Thumb.Template>
+                                                                </Thumb>
                                                             </Grid>
                                                         </Border>
                                                         </Grid>
@@ -2101,6 +2353,122 @@
                                 </Border>
                             </Grid>
                         </ScrollViewer>
+
+                        <!--  Mini-map overlay. Draggable via the top handle; the opaque rectangle tracks
+                              the visible viewport as you pan/zoom. Visibility/auto-hide handled in code-behind.  -->
+                        <Border
+                            x:Name="MiniMapPanel"
+                            Width="166"
+                            Height="134"
+                            Margin="0,0,16,16"
+                            Padding="5"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Background="#CC0E1420"
+                            BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <Border.RenderTransform>
+                                <TranslateTransform x:Name="MiniMapTranslate" />
+                            </Border.RenderTransform>
+                            <Border.Effect>
+                                <DropShadowEffect
+                                    BlurRadius="14"
+                                    Opacity="0.4"
+                                    ShadowDepth="2" />
+                            </Border.Effect>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <!--  Drag handle  -->
+                                <Thumb
+                                    Grid.Row="0"
+                                    Height="16"
+                                    Cursor="SizeAll"
+                                    DragDelta="MiniMapPanel_DragDelta"
+                                    ToolTip="Drag to move the mini-map">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border Background="#1FFFFFFF" CornerRadius="4">
+                                                <StackPanel
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center"
+                                                    Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial
+                                                        Width="10"
+                                                        Height="10"
+                                                        VerticalAlignment="Center"
+                                                        Foreground="{DynamicResource MahApps.Brushes.Gray4}"
+                                                        Kind="CursorMove" />
+                                                    <TextBlock
+                                                        Margin="5,0,0,0"
+                                                        VerticalAlignment="Center"
+                                                        FontSize="9.5"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource MahApps.Brushes.Gray4}"
+                                                        Text="MAP" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+
+                                <Border
+                                    Grid.Row="1"
+                                    Margin="0,4,0,0"
+                                    ClipToBounds="True">
+                                    <Canvas x:Name="MiniMapCanvas" ClipToBounds="True">
+                                        <ItemsControl ItemsSource="{Binding Script.Nodes}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <Canvas />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemContainerStyle>
+                                                <Style TargetType="ContentPresenter">
+                                                    <Setter Property="Canvas.Left" Value="{Binding X, Converter={StaticResource MiniMapCoordinateConverter}}" />
+                                                    <Setter Property="Canvas.Top" Value="{Binding Y, Converter={StaticResource MiniMapCoordinateConverter}}" />
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Rectangle
+                                                        Width="10"
+                                                        Height="7"
+                                                        Fill="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
+                                                        Opacity="0.82"
+                                                        Stroke="#DDFFFFFF"
+                                                        StrokeThickness="0.5" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <!--  Viewport indicator — updated from code-behind on scroll/zoom.  -->
+                                        <Rectangle
+                                            x:Name="MiniMapViewport"
+                                            Fill="#284AB6FF"
+                                            Stroke="{StaticResource EditorPrimaryBrush}"
+                                            StrokeThickness="1" />
+                                    </Canvas>
+                                </Border>
+
+                                <!--  Auto-hide countdown bar (visible timer); hidden when always-on.  -->
+                                <Rectangle
+                                    x:Name="MiniMapTimerBar"
+                                    Grid.Row="2"
+                                    Height="3"
+                                    Margin="0,4,0,0"
+                                    HorizontalAlignment="Left"
+                                    Fill="{StaticResource EditorPrimaryBrush}"
+                                    RadiusX="1.5"
+                                    RadiusY="1.5"
+                                    Visibility="Collapsed" />
+                            </Grid>
+                        </Border>
+                        </Grid>
 
                     </Border>
                 </Grid>
@@ -2187,9 +2555,12 @@
 
                     <!--  Content (hidden when collapsed)  -->
                     <ScrollViewer
+                        x:Name="InspectorScrollViewer"
                         Grid.Row="1"
+                        HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto"
                         Visibility="{Binding IsRightCollapsed, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Inverted}">
+                        <Grid Width="{Binding ViewportWidth, ElementName=InspectorScrollViewer}">
                         <StackPanel Margin="16,12,16,16">
                             <Expander
                                 Margin="0,0,0,8"
@@ -2253,25 +2624,154 @@
                                             TextWrapping="Wrap" />
                                     </Grid>
 
-                                    <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
-                                        <Button Command="{Binding NewScriptCommand}" Content="New" />
+                                    <WrapPanel Margin="0,12,0,0">
                                         <Button
-                                            Margin="6,0,0,0"
+                                            Command="{Binding NewScriptCommand}"
+                                            Style="{StaticResource ScriptControlButton}"
+                                            ToolTip="New script (Ctrl+N)">
+                                            <StackPanel Orientation="Horizontal">
+                                                <iconPacks:PackIconMaterial
+                                                    Width="12"
+                                                    Height="12"
+                                                    VerticalAlignment="Center"
+                                                    Kind="FilePlusOutline" />
+                                                <TextBlock Margin="5,0,0,0" Text="New" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button
                                             Command="{Binding LoadScriptCommand}"
-                                            Content="Load" />
+                                            Style="{StaticResource ScriptControlButton}"
+                                            ToolTip="Load script (Ctrl+O)">
+                                            <StackPanel Orientation="Horizontal">
+                                                <iconPacks:PackIconMaterial
+                                                    Width="12"
+                                                    Height="12"
+                                                    VerticalAlignment="Center"
+                                                    Kind="FolderOpenOutline" />
+                                                <TextBlock Margin="5,0,0,0" Text="Load" />
+                                            </StackPanel>
+                                        </Button>
                                         <Button
-                                            Margin="6,0,0,0"
                                             Command="{Binding SaveScriptCommand}"
-                                            Content="Save" />
+                                            Style="{StaticResource ScriptControlSaveButton}"
+                                            ToolTip="Save script (Ctrl+S)">
+                                            <StackPanel Orientation="Horizontal">
+                                                <iconPacks:PackIconMaterial
+                                                    Width="12"
+                                                    Height="12"
+                                                    VerticalAlignment="Center"
+                                                    Kind="ContentSave" />
+                                                <TextBlock Margin="5,0,0,0" Text="Save" />
+                                            </StackPanel>
+                                        </Button>
                                         <Button
-                                            Margin="6,0,0,0"
                                             Command="{Binding ExportScriptCommand}"
-                                            Content="Export" />
+                                            Style="{StaticResource ScriptControlButton}"
+                                            ToolTip="Export script (Ctrl+Shift+S)">
+                                            <StackPanel Orientation="Horizontal">
+                                                <iconPacks:PackIconMaterial
+                                                    Width="12"
+                                                    Height="12"
+                                                    VerticalAlignment="Center"
+                                                    Kind="FileExport" />
+                                                <TextBlock Margin="5,0,0,0" Text="Export" />
+                                            </StackPanel>
+                                        </Button>
+                                    </WrapPanel>
+
+                                    <!--  Save state + status (relocated from the canvas toolbar)  -->
+                                    <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                                        <Border
+                                            Margin="0,0,8,0"
+                                            Padding="8,4"
+                                            VerticalAlignment="Center"
+                                            Background="#33FFC857"
+                                            BorderBrush="#66FFC857"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            ToolTip="The graph has changes that are not saved to disk yet (Ctrl+S)"
+                                            Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <iconPacks:PackIconMaterial
+                                                    Width="12"
+                                                    Height="12"
+                                                    VerticalAlignment="Center"
+                                                    Foreground="#FFC857"
+                                                    Kind="ContentSaveAlert" />
+                                                <TextBlock
+                                                    Margin="6,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="11"
+                                                    Foreground="#FFC857"
+                                                    Text="Unsaved" />
+                                            </StackPanel>
+                                        </Border>
+                                        <Border
+                                            Padding="8,4"
+                                            VerticalAlignment="Center"
+                                            Background="{StaticResource EditorPrimarySurfaceBrush}"
+                                            BorderBrush="{StaticResource EditorPrimaryMutedBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6">
+                                            <StackPanel Orientation="Horizontal">
+                                                <iconPacks:PackIconMaterial
+                                                    Width="12"
+                                                    Height="12"
+                                                    VerticalAlignment="Center"
+                                                    Foreground="{DynamicResource MahApps.Brushes.Accent}"
+                                                    Kind="InformationOutline" />
+                                                <TextBlock
+                                                    Margin="6,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="11"
+                                                    Foreground="{DynamicResource MahApps.Brushes.Accent}"
+                                                    Text="{Binding Status}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    ToolTip="{Binding Status}" />
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
-                                    <Button
-                                        Margin="0,6,0,0"
-                                        Command="{Binding LoadTemplateCommand}"
-                                        Content="Load power fishing template" />
+                                </StackPanel>
+                            </Expander>
+
+                            <Expander
+                                Margin="0,0,0,8"
+                                IsExpanded="{Binding IsGraphExplanationOpen, Mode=TwoWay}">
+                                <Expander.Header>
+                                    <StackPanel Orientation="Horizontal">
+                                        <iconPacks:PackIconMaterial
+                                            Width="16"
+                                            Height="16"
+                                            Foreground="{DynamicResource MahApps.Brushes.Accent}"
+                                            Kind="FileSearchOutline" />
+                                        <TextBlock
+                                            Margin="8,0,0,0"
+                                            FontSize="14"
+                                            FontWeight="SemiBold"
+                                            Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                            Text="Explain / Dry Run" />
+                                    </StackPanel>
+                                </Expander.Header>
+                                <StackPanel Margin="4,6,4,0">
+                                    <TextBlock
+                                        Margin="0,0,0,8"
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                        Text="{Binding GraphExplanationSummary}"
+                                        TextWrapping="Wrap" />
+                                    <ItemsControl ItemsSource="{Binding GraphExplanationLines}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock
+                                                    Margin="0,0,0,5"
+                                                    FontSize="11"
+                                                    Foreground="{DynamicResource MahApps.Brushes.Gray7}"
+                                                    Text="{Binding}"
+                                                    TextWrapping="Wrap" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </Expander>
 
@@ -2309,13 +2809,17 @@
                                     <ItemsControl ItemsSource="{Binding Signals}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <DockPanel Margin="0,4">
+                                                <Grid Margin="0,4">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
                                                     <CheckBox IsChecked="{Binding Value, Mode=TwoWay}" />
                                                     <TextBox
-                                                        Width="180"
+                                                        Grid.Column="1"
                                                         Margin="8,0,0,0"
                                                         Text="{Binding Key, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                                </DockPanel>
+                                                </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -2527,19 +3031,19 @@
                                             ItemsSource="{Binding AdvancedParameterBindings}" />
                                     </Expander>
 
-                                    <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
-                                        <Button Command="{Binding AddNodeCommand}" Content="Add node" />
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Margin="0,0,6,6" Command="{Binding AddNodeCommand}" Content="Add node" />
                                         <Button
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,6"
                                             Command="{Binding RemoveNodeCommand}"
                                             Content="Remove node"
                                             IsEnabled="{Binding CanEditNode}" />
                                         <Button
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,6"
                                             Command="{Binding SetAsStartCommand}"
                                             Content="Set as start"
                                             IsEnabled="{Binding CanEditNode}" />
-                                    </StackPanel>
+                                    </WrapPanel>
                                 </StackPanel>
                             </Expander>
 
@@ -2580,13 +3084,16 @@
 
                                     <ListBox
                                         BorderThickness="0"
+                                        HorizontalContentAlignment="Stretch"
                                         ItemsSource="{Binding SelectedNode.Transitions}"
+                                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                         SelectedItem="{Binding SelectedTransition, Mode=TwoWay}">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
                                                 <Border
                                                     Margin="0,0,0,8"
                                                     Padding="10"
+                                                    HorizontalAlignment="Stretch"
                                                     Background="{DynamicResource MahApps.Brushes.Gray9}"
                                                     BorderBrush="{DynamicResource MahApps.Brushes.Gray7}"
                                                     BorderThickness="1"
@@ -2638,41 +3145,44 @@
                                                             ItemsSource="{Binding DataContext.SignalSuggestions, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             Text="{Binding ConditionKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
-                                                        <StackPanel
+                                                        <WrapPanel
                                                             Grid.Row="3"
                                                             Grid.ColumnSpan="2"
                                                             Margin="0,8,0,0"
                                                             Orientation="Horizontal">
-                                                            <CheckBox Content="Expect true" IsChecked="{Binding ExpectedValue, Mode=TwoWay}" />
                                                             <CheckBox
-                                                                Margin="8,0,0,0"
+                                                                Margin="0,0,8,6"
+                                                                Content="Expect true"
+                                                                IsChecked="{Binding ExpectedValue, Mode=TwoWay}" />
+                                                            <CheckBox
+                                                                Margin="0,0,8,6"
                                                                 Content="Fallback"
                                                                 IsChecked="{Binding IsFallback, Mode=TwoWay}" />
                                                             <TextBox
                                                                 Width="140"
-                                                                Margin="8,0,0,0"
+                                                                Margin="0,0,8,6"
                                                                 Text="{Binding Label, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                 ToolTip="Label" />
                                                             <Button
-                                                                Margin="8,0,0,0"
+                                                                Margin="0,0,4,6"
                                                                 Padding="6,2"
                                                                 Command="{Binding DataContext.MoveTransitionUpCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                 CommandParameter="{Binding}"
                                                                 Content="▲"
                                                                 ToolTip="Move up (evaluated earlier)" />
                                                             <Button
-                                                                Margin="4,0,0,0"
+                                                                Margin="0,0,8,6"
                                                                 Padding="6,2"
                                                                 Command="{Binding DataContext.MoveTransitionDownCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                 CommandParameter="{Binding}"
                                                                 Content="▼"
                                                                 ToolTip="Move down (evaluated later)" />
                                                             <Button
-                                                                Margin="8,0,0,0"
+                                                                Margin="0,0,8,6"
                                                                 Command="{Binding DataContext.RemoveTransitionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                 CommandParameter="{Binding}"
                                                                 Content="Remove" />
-                                                        </StackPanel>
+                                                        </WrapPanel>
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
@@ -2681,6 +3191,7 @@
                                 </StackPanel>
                             </Expander>
                         </StackPanel>
+                        </Grid>
                     </ScrollViewer>
                   </Grid>
 

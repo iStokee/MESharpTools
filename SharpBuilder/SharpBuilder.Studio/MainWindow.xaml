@@ -18,8 +18,8 @@
             <Setter Property="Background" Value="#22FFFFFF" />
             <Setter Property="BorderBrush" Value="#33FFFFFF" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="12,5" />
-            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Margin" Value="4,0,0,0" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Template">
@@ -112,17 +112,17 @@
 
         <DockPanel>
             <!-- Workspace bar: session target + canvas actions -->
-            <Border DockPanel.Dock="Top" Background="#2A0E1320" Padding="14,8" BorderThickness="0,0,0,1"
+            <Border DockPanel.Dock="Top" Background="#2A0E1320" Padding="10,6" BorderThickness="0,0,0,1"
                     BorderBrush="#22FFFFFF">
                 <Grid>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock Text="WORKSPACE" Foreground="#FF7DD3FC" FontWeight="Bold"
-                                   FontSize="11" VerticalAlignment="Center" Margin="0,0,12,0" />
-                        <Border Background="#22FFFFFF" CornerRadius="6" Padding="8,3">
+                                   FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <Border Background="#22FFFFFF" CornerRadius="6" Padding="7,2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="Session:" Foreground="#FFAEB8C6" VerticalAlignment="Center"
                                            Margin="0,0,8,0" FontSize="12" />
-                                <ComboBox MinWidth="150" VerticalAlignment="Center"
+                                <ComboBox MinWidth="140" VerticalAlignment="Center"
                                           ItemsSource="{Binding Sessions}"
                                           SelectedItem="{Binding SelectedSession}"
                                           ToolTip="All canvases target this session. Cross-session routing is a later phase." />
