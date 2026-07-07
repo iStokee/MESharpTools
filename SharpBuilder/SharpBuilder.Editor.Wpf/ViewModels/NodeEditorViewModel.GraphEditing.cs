@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using SharpBuilder.Core.Models;
@@ -74,31 +75,47 @@ public partial class NodeEditorViewModel
 		if (SelectedNode == null)
 			return;
 
+		RemoveNodes(new[] { SelectedNode }, "Remove node");
+	}
+
+	private void RemoveNodes(IEnumerable<NodeModel> nodes, string label)
+	{
+		var targets = nodes.Where(n => Script.Nodes.Contains(n)).Distinct().ToList();
+		if (targets.Count == 0)
+			return;
+
 		var before = GraphCloneService.Clone(Script);
-		var targetId = SelectedNode.Id;
+		var targetIds = targets.Select(n => n.Id).ToHashSet();
 
 		foreach (var node in Script.Nodes.ToList())
 		{
-			var toRemove = node.Transitions.Where(t => t.FromNodeId == targetId || t.ToNodeId == targetId).ToList();
+			var toRemove = node.Transitions
+				.Where(t => targetIds.Contains(t.FromNodeId) || targetIds.Contains(t.ToNodeId))
+				.ToList();
 			foreach (var edge in toRemove)
 			{
 				node.Transitions.Remove(edge);
 			}
 		}
 
-		Script.Nodes.Remove(SelectedNode);
-		_selectedNodes.Remove(SelectedNode);
+		foreach (var target in targets)
+		{
+			target.IsSelected = false;
+			Script.Nodes.Remove(target);
+			_selectedNodes.Remove(target);
+		}
 
-		if (Script.StartNodeId == targetId)
+		if (Script.StartNodeId is Guid startNodeId && targetIds.Contains(startNodeId))
 		{
 			Script.StartNodeId = Script.Nodes.FirstOrDefault()?.Id;
 		}
 
 		SelectedNode = Script.Nodes.FirstOrDefault();
 		SelectedTransition = null;
+		OnPropertyChanged(nameof(SelectedNodes));
 
-		Status = "Removed node";
-		RecordGraphEdit("Remove node", before);
+		Status = targets.Count == 1 ? "Removed node" : $"Removed {targets.Count} nodes";
+		RecordGraphEdit(label, before);
 	}
 
 	private void AddTransition()
@@ -247,6 +264,9 @@ public partial class NodeEditorViewModel
 	private void ClearTrail()
 	{
 		_currentRunNode = null;
+		_runTrail.Clear();
+		_runTrailNodeCounts.Clear();
+		_runTrailTransitionCounts.Clear();
 
 		foreach (var node in Script.Nodes)
 		{
@@ -272,11 +292,8 @@ public partial class NodeEditorViewModel
 		if (_selectedNodes.Count == 0)
 			return;
 
-		foreach (var node in _selectedNodes.ToList())
-		{
-			SelectedNode = node;
-			RemoveSelectedNode();
-		}
+		var selectedNodes = _selectedNodes.ToList();
+		RemoveNodes(selectedNodes, selectedNodes.Count == 1 ? "Remove node" : "Remove nodes");
 	}
 
 	/// <summary>

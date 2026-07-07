@@ -195,12 +195,29 @@ internal static partial class NodeCatalogSections
 		};
 		yield return new NodeDefinition
 		{
+			Id = "bank.loadPreset",
+			Title = "Load bank preset",
+			ShortDescription = "Load a bank preset after the bank is open, either by pressing a configured preset keybind or by native preset slot.",
+			Icon = "PackageVariantClosed",
+			CategoryId = "bank",
+			Order = 3,
+			Parameters = new []
+			{
+				new NodeParam { Key = "method", Label = "Method", Type = NodeParamType.Enum, EnumValues = new [] { "Keybind", "PresetSlot", "LastPreset" }, IsRequired = true, DefaultValue = "Keybind" },
+				new NodeParam { Key = "keybind", Label = "Preset keybind", Type = NodeParamType.String, DefaultValue = "1", Placeholder = "1 / F1 / NumPad1" },
+				new NodeParam { Key = "preset", Label = "Preset number", Type = NodeParamType.Number, DefaultValue = "1", Placeholder = "1-18 for PresetSlot" },
+				new NodeParam { Key = "loadLast", Label = "Load last preset", Type = NodeParamType.Bool },
+				new NodeParam { Key = "waitMs", Label = "Wait after load (ms)", Type = NodeParamType.Number, DefaultValue = "1200" }
+			}
+		};
+		yield return new NodeDefinition
+		{
 		Id = "bank.close",
 		Title = "Close bank",
 		ShortDescription = "Close the bank interface.",
 		Icon = "CloseCircle",
 		CategoryId = "bank",
-		Order = 3,
+		Order = 4,
 		Parameters = Array.Empty<NodeParam>()
 		};
 		yield return new NodeDefinition
@@ -232,6 +249,34 @@ internal static partial class NodeCatalogSections
 		new NodeParam { Key = "quantity", Label = "Quantity", Type = NodeParamType.Enum, EnumValues = new [] { "One", "Some", "All" }, IsRequired = true, DefaultValue = "One", InlineCompanionKey = "count", InlineCompanionVisibleWhen = "Some" },
 		new NodeParam { Key = "count", Label = "Count (for Some)", Type = NodeParamType.Number, Placeholder = "3" }
 		}
+		};
+		yield return new NodeDefinition
+		{
+			Id = "inventory.alchAll",
+			Title = "High alch item(s)",
+			ShortDescription = "Tap a configured High Alchemy/action-bar keybind and wait through the player animation until matching inventory items are gone.",
+			Icon = "AutoFix",
+			CategoryId = "inventory",
+			Order = 8,
+			Parameters = new []
+			{
+				new NodeParam { Key = "items", Label = "Item name(s) / id(s)", Type = NodeParamType.List, AllowMultiple = true, IsRequired = true, DefaultValue = "Green dragonhide shield, 25794", Placeholder = "Green dragonhide shield, 25794" },
+				new NodeParam { Key = "keybind", Label = "High alch keybind", Type = NodeParamType.String, IsRequired = true, DefaultValue = "F5", Placeholder = "F5 / 5 / A" },
+				new NodeParam { Key = "targetMode", Label = "Target mode", Type = NodeParamType.Enum, EnumValues = new [] { "KeybindThenItem", "KeybindOnly" }, IsRequired = true, DefaultValue = "KeybindThenItem" },
+				new NodeParam { Key = "quantity", Label = "Quantity", Type = NodeParamType.Enum, EnumValues = new [] { "One", "Some", "All" }, IsRequired = true, DefaultValue = "All", InlineCompanionKey = "count", InlineCompanionVisibleWhen = "Some" },
+				new NodeParam { Key = "count", Label = "Count (for Some)", Type = NodeParamType.Number, Placeholder = "13" },
+				new NodeParam { Key = "requireAlchable", Label = "Require alchable metadata", Type = NodeParamType.Bool, DefaultValue = "true" },
+				new NodeParam { Key = "targetDelayMs", Label = "Delay before item target (ms)", Type = NodeParamType.Number, DefaultValue = "1000", IsAdvanced = true },
+				new NodeParam { Key = "recastMode", Label = "Recast trigger", Type = NodeParamType.Enum, EnumValues = new [] { "ItemDisappears", "FixedDelay" }, DefaultValue = "ItemDisappears", IsAdvanced = true },
+				new NodeParam { Key = "disappearTimeoutMs", Label = "Item disappear timeout (ms)", Type = NodeParamType.Number, DefaultValue = "3500", IsAdvanced = true },
+				new NodeParam { Key = "postTargetDelayMs", Label = "Delay after item target (ms)", Type = NodeParamType.Number, DefaultValue = "2500", IsAdvanced = true },
+				new NodeParam { Key = "startTimeoutMs", Label = "Animation start timeout (ms)", Type = NodeParamType.Number, DefaultValue = "1500", IsAdvanced = true },
+				new NodeParam { Key = "finishTimeoutMs", Label = "Animation finish timeout (ms)", Type = NodeParamType.Number, DefaultValue = "5000", IsAdvanced = true },
+				new NodeParam { Key = "betweenCastsMs", Label = "Delay between casts (ms)", Type = NodeParamType.Number, DefaultValue = "250", IsAdvanced = true },
+				new NodeParam { Key = "inventoryRoot", Label = "Inventory interface root", Type = NodeParamType.Number, DefaultValue = "0", IsAdvanced = true },
+				new NodeParam { Key = "itemAction", Label = "Alch item action", Type = NodeParamType.Number, DefaultValue = "110", IsAdvanced = true },
+				new NodeParam { Key = "itemOffset", Label = "Alch item route", Type = NodeParamType.Enum, EnumValues = OffsetChoices(ActionOffsets.OffsetCategory.Interface), DefaultValue = OffsetChoice("GeneralInterface_route1", Objects.Offsets.GeneralInterfaceRoute1), Placeholder = "OFF_ACT route used for the alch target click", IsAdvanced = true }
+			}
 		};
 	}
 }

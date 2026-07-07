@@ -442,7 +442,11 @@ namespace MESharp.Views.Behaviors
                 };
 
                 child.ContextMenu = menu;
-                child.ToolTip = "Drag to reorder, drag near bottom edge to resize, or right-click for panel actions";
+                // Don't overwrite a tooltip the panel already carries.
+                if (child.ToolTip == null)
+                {
+                    child.ToolTip = "Drag to reorder, drag near bottom edge to resize, or right-click for panel actions";
+                }
             }
         }
 
@@ -901,8 +905,9 @@ namespace MESharp.Views.Behaviors
                 }
             }
 
+            // v2 placements are the authoritative store; the legacy order file is only
+            // read as a fallback for layouts saved before v2 existed, never written.
             PanelLayoutStore.SavePlacements(pageKey, placements);
-            PanelLayoutStore.SaveOrder(pageKey, placements.Select(x => x.PanelKey));
         }
 
         private static double? GetSavedHeight(FrameworkElement element)

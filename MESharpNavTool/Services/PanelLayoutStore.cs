@@ -38,26 +38,6 @@ namespace MESharp.Services
             return Array.Empty<string>();
         }
 
-        public static void SaveOrder(string pageKey, IEnumerable<string> orderedPanelKeys)
-        {
-            if (string.IsNullOrWhiteSpace(pageKey))
-            {
-                return;
-            }
-
-            var keys = orderedPanelKeys?
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.Ordinal)
-                .ToList() ?? new List<string>();
-
-            lock (SyncRoot)
-            {
-                EnsureLoaded();
-                _layouts![pageKey] = keys;
-                PersistLegacy();
-            }
-        }
-
         public static void RemoveOrder(string pageKey)
         {
             if (string.IsNullOrWhiteSpace(pageKey))

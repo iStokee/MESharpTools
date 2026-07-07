@@ -9,47 +9,128 @@ using TraversalApi = MESharp.API.Traversal;
 
 namespace SharpBuilder.Core.Services;
 
-internal sealed class LodestoneTeleportExecutor : INodeExecutor
+// Self-managed: the lodestone dispatch (open map + click) is gated as a short op, then the teleport
+// animation + arrival are awaited off the lane so the dashboard keeps updating while travelling.
+internal sealed class LodestoneTeleportExecutor : INodeExecutor, IGameApiSelfManaged
 {
-	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
+	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
 		var destination = ParameterHelper.ToString(context.Parameters, "destination");
 		var timeout = ParameterHelper.ToInt(context.Parameters, "timeoutMs") ?? 12000;
+		if (string.IsNullOrWhiteSpace(destination))
+			return NodeExecutionResult.Fail();
 
-		var ok = !string.IsNullOrWhiteSpace(destination) && TraversalApi.Lodestone(destination, timeout);
-		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
+		var dispatched = await GameLane.Run(() => TraversalApi.Lodestone(destination, Math.Min(timeout, 8000)), cancellationToken);
+		if (!dispatched)
+			return NodeExecutionResult.Fail();
+
+		// Teleport animation plays for a moment before arrival; then hold the node until movement and
+		// the arrival animation settle so the next node doesn't act mid-teleport. All off the lane.
+		await Task.Delay(1500, cancellationToken);
+		await WaitForTeleportSettle(Math.Max(3000, timeout), cancellationToken);
+		return NodeExecutionResult.Success();
+	}
+
+	private static async Task WaitForTeleportSettle(int timeoutMs, CancellationToken cancellationToken)
+	{
+		var deadline = Environment.TickCount64 + timeoutMs;
+		var idleStreak = 0;
+		while (Environment.TickCount64 < deadline)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+
+			// One gated read covers both signals; movement unlocked + idle animation == arrived.
+			var settled = await GameLane.Run(() =>
+			{
+				var moving = LocalPlayer.IsMoving();
+				int animation;
+				try { animation = LocalPlayer.GetAnimation(); }
+				catch { animation = -1; }
+				return !moving && animation <= 0;
+			}, cancellationToken);
+
+			if (settled)
+			{
+				if (++idleStreak >= 2)
+					return;
+			}
+			else
+			{
+				idleStreak = 0;
+			}
+
+			await Task.Delay(300, cancellationToken);
+		}
 	}
 }
 
-internal sealed class WalkExecutor : INodeExecutor
+// Self-managed: dispatches the walk click then polls arrival with gated reads (re-clicking when the
+// player goes stationary), sleeping off the lane between polls so a long walk never freezes the UI.
+// Unlike the old fire-and-forget node, this completes only once the player actually arrives.
+internal sealed class WalkExecutor : INodeExecutor, IGameApiSelfManaged
 {
-	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
+	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
 		var coords = ParameterHelper.ToCoordinateList(context.Parameters, "target");
-		var stopShort = ParameterHelper.ToInt(context.Parameters, "stopShort") ?? 2;
+		if (coords.Count == 0)
+			return NodeExecutionResult.Fail();
+
+		var arrival = Math.Max(0, ParameterHelper.ToInt(context.Parameters, "stopShort") ?? 2);
 		var timeout = ParameterHelper.ToInt(context.Parameters, "timeoutMs") ?? 8000;
 		var jitter = ParameterHelper.ToInt(context.Parameters, "jitter") ?? 1;
 
-		bool ok;
-		if (coords.Count > 1)
+		// Walk waypoints in order; intermediate ones use a looser arrival window than the final tile.
+		for (var i = 0; i < coords.Count; i++)
 		{
-			ok = TraversalApi.WalkPath(coords.Select(c => (c.x, c.y, c.z)), stopShort, timeout, jitter);
-		}
-		else if (coords.Count == 1)
-		{
-			var c = coords[0];
-			ok = TraversalApi.WalkTo(c.x, c.y, c.z, stopShort, timeout, jitter);
-		}
-		else
-		{
-			return Task.FromResult(NodeExecutionResult.Fail());
+			var c = coords[i];
+			var isLast = i == coords.Count - 1;
+			var reached = await WalkToTile(c.x, c.y, c.z, isLast ? arrival : Math.Max(arrival, 4), timeout, jitter, cancellationToken);
+			if (!reached)
+				return NodeExecutionResult.Fail();
 		}
 
-		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
+		return NodeExecutionResult.Success();
+	}
+
+	private static async Task<bool> WalkToTile(int x, int y, int z, int arrival, int timeoutMs, int jitter, CancellationToken cancellationToken)
+	{
+		var deadline = Environment.TickCount64 + Math.Max(1000, timeoutMs);
+		await GameLane.Run(() => TraversalApi.WalkTo(x, y, z, 0, 8000, jitter), cancellationToken);
+
+		var stationary = 0;
+		while (Environment.TickCount64 < deadline)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+
+			if (await GameLane.Run(() => TraversalApi.IsWithinDistance(x, y, z, arrival), cancellationToken))
+				return true;
+
+			// Re-click only after two consecutive stationary reads (mirrors Traversal.WalkToAsync):
+			// a single stationary read often just catches a tick boundary, and re-clicking every poll
+			// spams input.
+			if (!await GameLane.Run(() => LocalPlayer.IsMoving(), cancellationToken))
+			{
+				if (++stationary >= 2)
+				{
+					await GameLane.Run(() => TraversalApi.WalkTo(x, y, z, 0, 8000, jitter), cancellationToken);
+					stationary = 0;
+				}
+			}
+			else
+			{
+				stationary = 0;
+			}
+
+			await Task.Delay(300, cancellationToken);
+		}
+
+		return await GameLane.Run(() => TraversalApi.IsWithinDistance(x, y, z, arrival), cancellationToken);
 	}
 }
 
-internal sealed class WaitExecutor : INodeExecutor
+// Self-managed: a pure wait must not hold the game-API lane (it touches no game state), otherwise the
+// dashboard would freeze for the whole delay.
+internal sealed class WaitExecutor : INodeExecutor, IGameApiSelfManaged
 {
 	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
@@ -61,7 +142,8 @@ internal sealed class WaitExecutor : INodeExecutor
 	}
 }
 
-internal sealed class WaitRangeExecutor : INodeExecutor
+// Self-managed: see WaitExecutor — a pure delay should never hold the lane.
+internal sealed class WaitRangeExecutor : INodeExecutor, IGameApiSelfManaged
 {
 	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
@@ -120,7 +202,8 @@ internal sealed class SkillRequirementExecutor : INodeExecutor
 	}
 }
 
-internal sealed class KeyboardSendExecutor : INodeExecutor
+// Self-managed: gate each key press but keep the inter-key delays off the lane.
+internal sealed class KeyboardSendExecutor : INodeExecutor, IGameApiSelfManaged
 {
 	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
@@ -144,16 +227,28 @@ internal sealed class KeyboardSendExecutor : INodeExecutor
 			resolved.Add(key.Value);
 		}
 
+		// Single non-modifier key (the common case, e.g. an action-bar keybind): use the
+		// direct game-input path, which is immune to window focus and ImGui capture.
+		if (resolved.Count == 1 && (int)resolved[0] is >= '0' and <= '9' or >= 'A' and <= 'Z')
+		{
+			var single = resolved[0];
+			var pressed = await GameLane.Run(() => KeyboardTokenResolver.Press(single), cancellationToken);
+			if (delayMs > 0)
+				await Task.Delay(delayMs, cancellationToken);
+			return pressed ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
+		}
+
 		var ok = true;
 		foreach (var key in resolved)
 		{
-			ok &= Keyboard.KeyDown(key);
+			ok &= await GameLane.Run(() => Keyboard.KeyDown(key), cancellationToken);
 			await Task.Delay(35, cancellationToken);
 		}
 
 		for (var i = resolved.Count - 1; i >= 0; i--)
 		{
-			ok &= Keyboard.KeyUp(resolved[i]);
+			var releaseKey = resolved[i];
+			ok &= await GameLane.Run(() => Keyboard.KeyUp(releaseKey), cancellationToken);
 			await Task.Delay(35, cancellationToken);
 		}
 
@@ -165,10 +260,16 @@ internal sealed class KeyboardSendExecutor : INodeExecutor
 
 	private static Keyboard.VirtualKey? ResolveKey(string token)
 	{
-		if (Enum.TryParse<Keyboard.VirtualKey>(token, ignoreCase: true, out var named))
+		var normalized = token.Trim().ToUpperInvariant();
+		if (normalized.Length == 0)
+			return null;
+
+		// Enum.TryParse also accepts bare integers ("1" would become (VirtualKey)1, the left mouse
+		// button), but a digit token always means the digit key — handled below.
+		if (!char.IsDigit(normalized[0]) &&
+			Enum.TryParse<Keyboard.VirtualKey>(normalized, ignoreCase: true, out var named))
 			return named;
 
-		var normalized = token.Trim().ToUpperInvariant();
 		return normalized switch
 		{
 			"CTRL" => Keyboard.VirtualKey.Control,

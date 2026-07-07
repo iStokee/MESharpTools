@@ -42,6 +42,7 @@ namespace MESharp.ViewModels
                                        ?? BrowseCategoryOptions.FirstOrDefault();
 
             RefreshGameStatusCommand = new RelayCommand(_ => RefreshGameStatus());
+            ReloadGameCacheCommand = new RelayCommand(async _ => await ReloadGameCacheAsync(), _ => !IsBusy);
             RefreshChiselStatusCommand = new RelayCommand(async _ => await RefreshChiselStatusAsync(), _ => !IsBusy);
             DownloadAllCommand = new RelayCommand(async _ => await DownloadAllAsync(), _ => !IsBusy);
             DownloadCategoryCommand = new RelayCommand(async row => await DownloadCategoryAsync(row as ChiselCategoryRow), _ => !IsBusy);
@@ -131,6 +132,7 @@ namespace MESharp.ViewModels
         public string BusyText { get => _busyText; private set => SetProperty(ref _busyText, value); }
 
         public ICommand RefreshGameStatusCommand { get; }
+        public ICommand ReloadGameCacheCommand { get; }
         public ICommand RefreshChiselStatusCommand { get; }
         public ICommand DownloadAllCommand { get; }
         public ICommand DownloadCategoryCommand { get; }
@@ -169,6 +171,18 @@ namespace MESharp.ViewModels
                 GameTypes.Clear();
                 GameStatusText = "Game cache unavailable (not running inside ME): " + ex.Message;
             }
+        }
+
+        private async Task ReloadGameCacheAsync()
+        {
+            await RunBusy("Reloading game cache from disk...", async () =>
+            {
+                var ok = await Task.Run(CacheManager.Reload);
+                RefreshGameStatus();
+                GameStatusText = ok
+                    ? "Cache reloaded from disk."
+                    : "Cache reload failed - previous cache snapshot was kept if one was loaded.";
+            });
         }
 
         // ---- Chisel ----

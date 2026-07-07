@@ -24,6 +24,7 @@ public sealed class DashboardSkillRow : INotifyPropertyChanged
 		(PrimaryBrush, SecondaryBrush) = CreateBrushes(skillName);
 	}
 
+	public SkillName SkillName => _skillName;
 	public string Name { get; }
 	public Brush PrimaryBrush { get; }
 	public Brush SecondaryBrush { get; }
@@ -43,13 +44,13 @@ public sealed class DashboardSkillRow : INotifyPropertyChanged
 			var snapshot = Skills.Get(_skillName);
 			var eta = session.GetTimeToNextLevel(_skillName, snapshot);
 
-			Level = snapshot.CurrentLevel;
-			Xp = snapshot.Xp;
-			XpGained = session.GetXpGained(_skillName, snapshot.Xp);
-			XpPerHour = session.GetXpPerHour(_skillName, snapshot.Xp);
-			XpToNext = Skills.GetXpToNextLevel(snapshot);
-			Eta = eta == TimeSpan.MaxValue ? "--" : eta.ToString(@"hh\:mm\:ss");
-			IsActive = XpGained > 0;
+			Apply(
+				snapshot.CurrentLevel,
+				snapshot.Xp,
+				session.GetXpGained(_skillName, snapshot.Xp),
+				session.GetXpPerHour(_skillName, snapshot.Xp),
+				Skills.GetXpToNextLevel(snapshot),
+				eta == TimeSpan.MaxValue ? "--" : eta.ToString(@"hh\:mm\:ss"));
 
 			error = null;
 			return true;
@@ -59,6 +60,17 @@ public sealed class DashboardSkillRow : INotifyPropertyChanged
 			error = ex.Message;
 			return false;
 		}
+	}
+
+	public void Apply(int level, int xp, int xpGained, double xpPerHour, int xpToNext, string eta)
+	{
+		Level = level;
+		Xp = xp;
+		XpGained = xpGained;
+		XpPerHour = xpPerHour;
+		XpToNext = xpToNext;
+		Eta = eta;
+		IsActive = XpGained > 0;
 	}
 
 	public event PropertyChangedEventHandler? PropertyChanged;

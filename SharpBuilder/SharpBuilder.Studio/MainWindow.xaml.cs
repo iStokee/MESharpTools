@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using SharpBuilder.Core.Services;
 using SharpBuilder.Editor.Wpf.Services;
@@ -63,6 +64,23 @@ public partial class MainWindow : MetroWindow
 
     private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        var dirty = _workspace.Canvases.Where(c => c.IsDirty).Select(c => c.Title).ToList();
+        if (dirty.Count > 0)
+        {
+            var result = MessageBox.Show(
+                this,
+                $"Unsaved changes in: {string.Join(", ", dirty)}.\n\nClose without saving?",
+                "Unsaved changes",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+            if (result != MessageBoxResult.Yes)
+            {
+                e.Cancel = true;
+                return;
+            }
+        }
+
         UserSettingsStore.Save(new UserSettings
         {
             WindowWidth = WindowState == WindowState.Normal ? ActualWidth : Width,

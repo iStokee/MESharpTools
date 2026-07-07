@@ -251,6 +251,77 @@ public class GraphExecutionEngineTests
 	}
 
 	[Fact]
+	public async Task ExecutorException_RoutesAsFailWithoutFaultingRun()
+	{
+		var (engine, registry) = CreateEngine();
+		registry.Register(NodeCatalogDefaults.GenericActionId, new ScriptedExecutor(_ =>
+			Task.FromException<NodeExecutionResult>(new InvalidOperationException("boom"))));
+
+		var a = Node(NodeCatalogDefaults.GenericActionId, title: "A");
+		var failEnd = Node(NodeCatalogDefaults.TerminalId, NodeType.Terminal, "FailEnd");
+		Edge(a, failEnd, trigger: TransitionTrigger.OnFail);
+
+		var completed = 0;
+		var faulted = 0;
+		engine.Completed += (_, _) => completed++;
+		engine.Faulted += (_, _) => faulted++;
+		var visits = TrackVisits(engine);
+
+		await engine.RunAsync(Graph(a, failEnd), NoSignals, loop: false);
+
+		Assert.Equal(new[] { "A", "FailEnd" }, visits);
+		Assert.Equal(1, completed);
+		Assert.Equal(0, faulted);
+	}
+
+	[Fact]
+	public async Task ThrowingEventSubscriber_DoesNotStopRunOrBlockOtherSubscribers()
+	{
+		var (engine, registry) = CreateEngine();
+		registry.Register(NodeCatalogDefaults.GenericActionId, new ScriptedExecutor(_ => NodeExecutionResult.Success()));
+
+		var a = Node(NodeCatalogDefaults.GenericActionId, title: "A");
+		var visits = new List<string>();
+		var completed = 0;
+		engine.NodeEntered += (_, _) => throw new InvalidOperationException("bad listener");
+		engine.NodeEntered += (_, node) => visits.Add(node.Title);
+		engine.Completed += (_, _) => completed++;
+
+		await engine.RunAsync(Graph(a), NoSignals, loop: false);
+
+		Assert.Equal(new[] { "A" }, visits);
+		Assert.Equal(1, completed);
+	}
+
+	[Fact]
+	public async Task MissingTransitionTarget_FaultsInsteadOfRestartingLoop()
+	{
+		var (engine, registry) = CreateEngine();
+		registry.Register(NodeCatalogDefaults.GenericActionId, new ScriptedExecutor(_ => NodeExecutionResult.Success()));
+
+		var a = Node(NodeCatalogDefaults.GenericActionId, title: "A");
+		a.Transitions.Add(new TransitionModel
+		{
+			FromNodeId = a.Id,
+			ToNodeId = Guid.NewGuid(),
+			Label = "Missing"
+		});
+
+		var completed = 0;
+		Exception? fault = null;
+		var visits = TrackVisits(engine);
+		engine.Completed += (_, _) => completed++;
+		engine.Faulted += (_, ex) => fault = ex;
+
+		await engine.RunAsync(Graph(a), NoSignals, loop: true);
+
+		Assert.Equal(new[] { "A" }, visits);
+		Assert.Equal(0, completed);
+		Assert.IsType<InvalidOperationException>(fault);
+		Assert.Contains("missing node", fault!.Message);
+	}
+
+	[Fact]
 	public async Task Cancellation_StopsLoopAndSuppressesCompletedEvent()
 	{
 		var (engine, registry) = CreateEngine();

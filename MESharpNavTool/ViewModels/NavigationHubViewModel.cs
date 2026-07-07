@@ -14,6 +14,7 @@ namespace MESharp.ViewModels
         Travel,
         Routes,
         Graph,
+        Dungeons,
         Verify,
         Status
     }
@@ -32,6 +33,7 @@ namespace MESharp.ViewModels
         private NavigationViewModel? _travel;
         private WebwalkingViewModel? _routes;
         private WebwalkGraphViewModel? _graph;
+        private DungeonImportViewModel? _dungeons;
         private VerificationDeskViewModel? _verify;
         private NavHealthViewModel? _status;
 
@@ -60,6 +62,7 @@ namespace MESharp.ViewModels
         private NavigationViewModel Travel => _travel ??= new NavigationViewModel();
         private WebwalkingViewModel Routes => _routes ??= new WebwalkingViewModel();
         private WebwalkGraphViewModel Graph => _graph ??= new WebwalkGraphViewModel();
+        private DungeonImportViewModel Dungeons => _dungeons ??= new DungeonImportViewModel();
         private VerificationDeskViewModel Verify => _verify ??= new VerificationDeskViewModel();
         private NavHealthViewModel Status => _status ??= new NavHealthViewModel();
 
@@ -74,6 +77,7 @@ namespace MESharp.ViewModels
                     RaisePropertyChanged(nameof(IsTravelSelected));
                     RaisePropertyChanged(nameof(IsRoutesSelected));
                     RaisePropertyChanged(nameof(IsGraphSelected));
+                    RaisePropertyChanged(nameof(IsDungeonsSelected));
                     RaisePropertyChanged(nameof(IsVerifySelected));
                     RaisePropertyChanged(nameof(IsStatusSelected));
                     RaisePropertyChanged(nameof(MapVisibility));
@@ -86,6 +90,7 @@ namespace MESharp.ViewModels
         public bool IsTravelSelected => CurrentSection == NavigationHubSection.Travel;
         public bool IsRoutesSelected => CurrentSection == NavigationHubSection.Routes;
         public bool IsGraphSelected => CurrentSection == NavigationHubSection.Graph;
+        public bool IsDungeonsSelected => CurrentSection == NavigationHubSection.Dungeons;
         public bool IsVerifySelected => CurrentSection == NavigationHubSection.Verify;
         public bool IsStatusSelected => CurrentSection == NavigationHubSection.Status;
 
@@ -116,6 +121,7 @@ namespace MESharp.ViewModels
         public ICommand ShowTravelCommand { get; }
         public ICommand ShowRoutesCommand { get; }
         public ICommand ShowGraphCommand { get; }
+        public ICommand ShowDungeonsCommand { get; }
         public ICommand ShowVerifyCommand { get; }
         public ICommand ShowStatusCommand { get; }
         public ICommand RefreshValidationCommand { get; }
@@ -126,6 +132,7 @@ namespace MESharp.ViewModels
             ShowTravelCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Travel));
             ShowRoutesCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Routes));
             ShowGraphCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Graph));
+            ShowDungeonsCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Dungeons));
             ShowVerifyCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Verify));
             ShowStatusCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Status));
             RefreshValidationCommand = new RelayCommand(_ => RunValidation());
@@ -158,6 +165,7 @@ namespace MESharp.ViewModels
                 NavigationHubSection.Travel => Travel,
                 NavigationHubSection.Routes => Routes,
                 NavigationHubSection.Graph => Graph,
+                NavigationHubSection.Dungeons => Dungeons,
                 NavigationHubSection.Verify => Verify,
                 NavigationHubSection.Status => Status,
                 _ => null
@@ -387,7 +395,7 @@ namespace MESharp.ViewModels
             Services.CoverageMapServer.FocusRequested -= OnMapFocusRequested;
             _statusTimer?.Stop();
 
-            foreach (var child in new object?[] { _map, _travel, _routes, _graph, _verify, _status })
+            foreach (var child in new object?[] { _map, _travel, _routes, _graph, _dungeons, _verify, _status })
             {
                 SafeDeactivate(child);
                 if (child is IDisposable d)

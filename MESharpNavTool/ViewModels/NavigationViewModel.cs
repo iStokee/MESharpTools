@@ -17,16 +17,11 @@ namespace MESharp.ViewModels
     public class NavigationViewModel : BaseViewModel, IDisposable, IActivatableViewModel
     {
         private readonly DispatcherTimer _refreshTimer;
-        private readonly NotifyCollectionChangedEventHandler _currentRouteChangedHandler;
-        private readonly Random _random = new();
-        private CancellationTokenSource? _routeRunCts;
         private bool _isActive;
         private bool _disposed;
 
         public ObservableCollection<string> ActivityLog { get; } = new();
         public ObservableCollection<LodestoneOption> Lodestones { get; }
-        public ObservableCollection<RouteWaypoint> CurrentRoute { get; } = new();
-        public ObservableCollection<RouteDefinition> SavedRoutes { get; } = new();
 
         // Live status
         private string _tilePosition = "--";
@@ -64,18 +59,6 @@ namespace MESharp.ViewModels
         private int _apiJewelryMenuLevel = 1;
         private int _apiJewelryOffset = Objects.Offsets.GeneralInterfaceChooseOption;
 
-        // Route builder
-        private string _routeName = "New route";
-        private RouteDefinition? _selectedRoute;
-        private RouteWaypoint? _selectedWaypoint;
-        private int _waypointAreaRadius = 1;
-        private int _waypointArrivalDistance = 2;
-        private int _waypointTimeoutMs = 9000;
-        private int _waypointJitterTiles = 1;
-        private bool _waypointChainWhileMoving = true;
-        private bool _isRouteRunning;
-        private string _routeExecutionStatus = "Idle";
-
         public string TilePosition { get => _tilePosition; set => SetProperty(ref _tilePosition, value); }
         public string ExactPosition { get => _exactPosition; set => SetProperty(ref _exactPosition, value); }
         public bool IsMoving { get => _isMoving; set => SetProperty(ref _isMoving, value); }
@@ -106,17 +89,6 @@ namespace MESharp.ViewModels
         public string ApiJewelryLocation2 { get => _apiJewelryLocation2; set => SetProperty(ref _apiJewelryLocation2, value); }
         public int ApiJewelryMenuLevel { get => _apiJewelryMenuLevel; set => SetProperty(ref _apiJewelryMenuLevel, value); }
         public int ApiJewelryOffset { get => _apiJewelryOffset; set => SetProperty(ref _apiJewelryOffset, value); }
-        public string RouteName { get => _routeName; set { SetProperty(ref _routeName, value); RefreshCommandStates(); } }
-        public RouteDefinition? SelectedRoute { get => _selectedRoute; set { SetProperty(ref _selectedRoute, value); RefreshCommandStates(); } }
-        public RouteWaypoint? SelectedWaypoint { get => _selectedWaypoint; set { SetProperty(ref _selectedWaypoint, value); RefreshCommandStates(); } }
-        public int WaypointAreaRadius { get => _waypointAreaRadius; set => SetProperty(ref _waypointAreaRadius, value); }
-        public int WaypointArrivalDistance { get => _waypointArrivalDistance; set => SetProperty(ref _waypointArrivalDistance, value); }
-        public int WaypointTimeoutMs { get => _waypointTimeoutMs; set => SetProperty(ref _waypointTimeoutMs, value); }
-        public int WaypointJitterTiles { get => _waypointJitterTiles; set => SetProperty(ref _waypointJitterTiles, value); }
-        public bool WaypointChainWhileMoving { get => _waypointChainWhileMoving; set => SetProperty(ref _waypointChainWhileMoving, value); }
-        public bool IsRouteRunning { get => _isRouteRunning; set { SetProperty(ref _isRouteRunning, value); RefreshCommandStates(); } }
-        public string RouteExecutionStatus { get => _routeExecutionStatus; set => SetProperty(ref _routeExecutionStatus, value); }
-        public string RouteStorePath => RouteStore.GetStorePath();
 
         public ICommand RefreshCommand { get; }
         public ICommand WalkToCommand { get; }
@@ -143,19 +115,6 @@ namespace MESharp.ViewModels
         public ICommand NudgeYNegativeCommand { get; }
         public ICommand NudgeZPositiveCommand { get; }
         public ICommand NudgeZNegativeCommand { get; }
-        public ICommand AddCurrentWaypointCommand { get; }
-        public ICommand AddTargetWaypointCommand { get; }
-        public ICommand InsertWaypointAboveCommand { get; }
-        public ICommand InsertWaypointBelowCommand { get; }
-        public ICommand MoveWaypointUpCommand { get; }
-        public ICommand MoveWaypointDownCommand { get; }
-        public ICommand RemoveWaypointCommand { get; }
-        public ICommand ClearRouteCommand { get; }
-        public ICommand SaveRouteCommand { get; }
-        public ICommand LoadRouteCommand { get; }
-        public ICommand RunCurrentRouteCommand { get; }
-        public ICommand RunSelectedRouteCommand { get; }
-        public ICommand StopRouteCommand { get; }
 
         // ── Webwalk travel harness ───────────────────────────────────────────────
         private CancellationTokenSource? _travelCts;
@@ -233,19 +192,6 @@ namespace MESharp.ViewModels
             NudgeYNegativeCommand = new RelayCommand(_ => TargetY = Adjust(TargetY, -_nudgeStep));
             NudgeZPositiveCommand = new RelayCommand(_ => TargetZ = Adjust(TargetZ, _nudgeStep));
             NudgeZNegativeCommand = new RelayCommand(_ => TargetZ = Adjust(TargetZ, -_nudgeStep));
-            AddCurrentWaypointCommand = new RelayCommand(_ => AddWaypointFromCurrent());
-            AddTargetWaypointCommand = new RelayCommand(_ => AddWaypointFromTarget());
-            InsertWaypointAboveCommand = new RelayCommand(_ => InsertWaypointAbove(), _ => SelectedWaypoint != null);
-            InsertWaypointBelowCommand = new RelayCommand(_ => InsertWaypointBelow(), _ => SelectedWaypoint != null);
-            MoveWaypointUpCommand = new RelayCommand(_ => MoveWaypointUp(), _ => CanMoveSelectedWaypoint(-1));
-            MoveWaypointDownCommand = new RelayCommand(_ => MoveWaypointDown(), _ => CanMoveSelectedWaypoint(1));
-            RemoveWaypointCommand = new RelayCommand(_ => RemoveSelectedWaypoint(), _ => SelectedWaypoint != null);
-            ClearRouteCommand = new RelayCommand(_ => ClearRoute());
-            SaveRouteCommand = new RelayCommand(_ => SaveRoute(), _ => CurrentRoute.Any() && !string.IsNullOrWhiteSpace(RouteName));
-            LoadRouteCommand = new RelayCommand(_ => LoadRoute(), _ => SelectedRoute != null);
-            RunCurrentRouteCommand = new RelayCommand(_ => RunCurrentRoute(), _ => CurrentRoute.Any() && !IsRouteRunning);
-            RunSelectedRouteCommand = new RelayCommand(_ => RunSelectedRoute(), _ => SelectedRoute != null && !IsRouteRunning);
-            StopRouteCommand = new RelayCommand(_ => StopRoute(), _ => IsRouteRunning);
 
             _refreshTimer = new DispatcherTimer(DispatcherPriority.Background)
             {
@@ -253,9 +199,6 @@ namespace MESharp.ViewModels
             };
             _refreshTimer.Tick += OnRefreshTick;
 
-            _currentRouteChangedHandler = (_, __) => RefreshCommandStates();
-            CurrentRoute.CollectionChanged += _currentRouteChangedHandler;
-            LoadRoutes();
             AddLog("Navigation tester ready.");
         }
 
@@ -644,7 +587,16 @@ namespace MESharp.ViewModels
             x = y = z = 0;
             if (!int.TryParse(TargetX, out x)) return false;
             if (!int.TryParse(TargetY, out y)) return false;
-            if (!int.TryParse(TargetZ, out z)) z = 0;
+            if (string.IsNullOrWhiteSpace(TargetZ))
+            {
+                z = 0;
+            }
+            else if (!int.TryParse(TargetZ, out z))
+            {
+                // A typed-but-invalid plane must not silently become plane 0.
+                return false;
+            }
+
             return true;
         }
 
@@ -679,403 +631,6 @@ namespace MESharp.ViewModels
             }
         }
 
-        private void AddWaypointFromCurrent()
-        {
-            try
-            {
-                var tile = LocalPlayer.GetTilePosition();
-                CurrentRoute.Add(BuildWaypoint(tile.x, tile.y, tile.z));
-                LastStatus = $"Added waypoint {tile.x},{tile.y},{tile.z} (area r{Math.Max(0, WaypointAreaRadius)}).";
-                RefreshCommandStates();
-            }
-            catch (Exception ex)
-            {
-                LastStatus = $"Failed to read current tile: {ex.Message}";
-            }
-        }
-
-        private void AddWaypointFromTarget()
-        {
-            if (!TryParseTarget(out var x, out var y, out var z))
-            {
-                LastStatus = "Enter X and Y (ints) before adding target waypoint.";
-                return;
-            }
-
-            CurrentRoute.Add(BuildWaypoint(x, y, z));
-            LastStatus = $"Added waypoint {x},{y},{z} from target (area r{Math.Max(0, WaypointAreaRadius)}).";
-            RefreshCommandStates();
-        }
-
-        private void RemoveSelectedWaypoint()
-        {
-            if (SelectedWaypoint == null) return;
-            CurrentRoute.Remove(SelectedWaypoint);
-            SelectedWaypoint = null;
-            RefreshCommandStates();
-        }
-
-        private void InsertWaypointAbove()
-        {
-            if (SelectedWaypoint == null)
-            {
-                return;
-            }
-
-            var index = CurrentRoute.IndexOf(SelectedWaypoint);
-            if (index < 0)
-            {
-                return;
-            }
-
-            var waypoint = CloneWaypoint(SelectedWaypoint);
-            CurrentRoute.Insert(index, waypoint);
-            SelectedWaypoint = waypoint;
-            LastStatus = $"Inserted waypoint above row {index + 1}.";
-            RefreshCommandStates();
-        }
-
-        private void InsertWaypointBelow()
-        {
-            if (SelectedWaypoint == null)
-            {
-                return;
-            }
-
-            var index = CurrentRoute.IndexOf(SelectedWaypoint);
-            if (index < 0)
-            {
-                return;
-            }
-
-            var waypoint = CloneWaypoint(SelectedWaypoint);
-            var insertIndex = Math.Min(CurrentRoute.Count, index + 1);
-            CurrentRoute.Insert(insertIndex, waypoint);
-            SelectedWaypoint = waypoint;
-            LastStatus = $"Inserted waypoint below row {index + 1}.";
-            RefreshCommandStates();
-        }
-
-        private void MoveWaypointUp() => MoveSelectedWaypoint(-1);
-
-        private void MoveWaypointDown() => MoveSelectedWaypoint(1);
-
-        private bool CanMoveSelectedWaypoint(int direction)
-        {
-            if (SelectedWaypoint == null)
-            {
-                return false;
-            }
-
-            var currentIndex = CurrentRoute.IndexOf(SelectedWaypoint);
-            if (currentIndex < 0)
-            {
-                return false;
-            }
-
-            var targetIndex = currentIndex + direction;
-            return targetIndex >= 0 && targetIndex < CurrentRoute.Count;
-        }
-
-        private void MoveSelectedWaypoint(int direction)
-        {
-            if (!CanMoveSelectedWaypoint(direction) || SelectedWaypoint == null)
-            {
-                return;
-            }
-
-            var currentIndex = CurrentRoute.IndexOf(SelectedWaypoint);
-            var targetIndex = currentIndex + direction;
-
-            CurrentRoute.Move(currentIndex, targetIndex);
-            SelectedWaypoint = CurrentRoute[targetIndex];
-            LastStatus = $"Moved waypoint to row {targetIndex + 1}.";
-            RefreshCommandStates();
-        }
-
-        private void ClearRoute()
-        {
-            CurrentRoute.Clear();
-            LastStatus = "Cleared route builder.";
-            RefreshCommandStates();
-        }
-
-        private void SaveRoute()
-        {
-            var name = RouteName?.Trim();
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                LastStatus = "Enter a route name.";
-                return;
-            }
-
-            if (!CurrentRoute.Any())
-            {
-                LastStatus = "Add at least one waypoint before saving.";
-                return;
-            }
-
-            var route = new RouteDefinition
-            {
-                SchemaVersion = RouteDefinition.CurrentSchemaVersion,
-                Name = name,
-                Description = $"Built from navigation tooling at {DateTime.Now:g}",
-                Category = "custom",
-                CreatedAt = DateTime.UtcNow,
-                SavedAt = DateTime.UtcNow,
-                Waypoints = CurrentRoute.Select(CloneWaypoint).ToList()
-            };
-
-            var existing = SavedRoutes.FirstOrDefault(r => r.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-            if (existing != null)
-            {
-                route.CreatedAt = existing.CreatedAt == default ? route.CreatedAt : existing.CreatedAt;
-                if (!string.IsNullOrWhiteSpace(existing.Description))
-                {
-                    route.Description = existing.Description;
-                }
-                if (!string.IsNullOrWhiteSpace(existing.Category))
-                {
-                    route.Category = existing.Category;
-                }
-                var index = SavedRoutes.IndexOf(existing);
-                SavedRoutes[index] = route;
-            }
-            else
-            {
-                SavedRoutes.Add(route);
-            }
-
-            if (!RouteStore.TrySave(SavedRoutes, out var saveError))
-            {
-                LastStatus = saveError ?? "Route save failed.";
-                AddLog(LastStatus);
-                return;
-            }
-            SelectedRoute = route;
-            LastStatus = $"Route '{route.Name}' saved ({route.Waypoints.Count} waypoints).";
-            AddLog(LastStatus);
-            RefreshCommandStates();
-        }
-
-        private void LoadRoute()
-        {
-            var route = SelectedRoute;
-            if (route == null)
-            {
-                LastStatus = "Select a route to load.";
-                return;
-            }
-
-            CurrentRoute.Clear();
-            foreach (var wp in route.Waypoints)
-            {
-                CurrentRoute.Add(CloneWaypoint(wp));
-            }
-
-            PathInput = string.Join(Environment.NewLine, route.Waypoints.Select(w => w.ToString()));
-            LastStatus = $"Loaded route '{route.Name}' into path input.";
-            AddLog(LastStatus);
-            RefreshCommandStates();
-        }
-
-        private RouteWaypoint BuildWaypoint(int x, int y, int z)
-        {
-            return new RouteWaypoint
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                X = x,
-                Y = y,
-                Z = z,
-                AreaRadius = WaypointAreaRadius,
-                ArrivalDistance = WaypointArrivalDistance,
-                TimeoutMs = WaypointTimeoutMs,
-                JitterTiles = WaypointJitterTiles,
-                ChainWhileMoving = WaypointChainWhileMoving,
-                TransitionObjectIds = new List<int>()
-            };
-        }
-
-        private static RouteWaypoint CloneWaypoint(RouteWaypoint source)
-        {
-            var clone = new RouteWaypoint
-            {
-                Id = source.Id,
-                Label = source.Label,
-                X = source.X,
-                Y = source.Y,
-                Z = source.Z,
-                AreaRadius = source.AreaRadius,
-                ArrivalDistance = source.ArrivalDistance,
-                TimeoutMs = source.TimeoutMs,
-                JitterTiles = source.JitterTiles,
-                ChainWhileMoving = source.ChainWhileMoving,
-                IsTransition = source.IsTransition,
-                TransitionObjectIds = source.TransitionObjectIds?.ToList() ?? new List<int>()
-            };
-            clone.Normalize();
-            return clone;
-        }
-
-        private void LoadRoutes()
-        {
-            SavedRoutes.Clear();
-            foreach (var route in RouteStore.Load())
-            {
-                SavedRoutes.Add(route);
-            }
-
-            if (!string.IsNullOrWhiteSpace(RouteStore.LastError))
-            {
-                LastStatus = RouteStore.LastError;
-                AddLog(LastStatus);
-            }
-
-            if (SavedRoutes.Any())
-            {
-                SelectedRoute = SavedRoutes.First();
-            }
-        }
-
-        private void RunCurrentRoute()
-        {
-            if (!CurrentRoute.Any())
-            {
-                LastStatus = "Current route is empty.";
-                return;
-            }
-
-            _ = RunRouteAsync(RouteName, CurrentRoute.Select(CloneWaypoint).ToList());
-        }
-
-        private void RunSelectedRoute()
-        {
-            var route = SelectedRoute;
-            if (route == null)
-            {
-                LastStatus = "Select a saved route.";
-                return;
-            }
-
-            _ = RunRouteAsync(route.Name, route.Waypoints.Select(CloneWaypoint).ToList());
-        }
-
-        private async Task RunRouteAsync(string routeName, IReadOnlyList<RouteWaypoint> waypoints)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (IsRouteRunning)
-            {
-                return;
-            }
-
-            _routeRunCts?.Cancel();
-            _routeRunCts?.Dispose();
-            _routeRunCts = new CancellationTokenSource();
-            var ct = _routeRunCts.Token;
-
-            IsRouteRunning = true;
-            RouteExecutionStatus = $"Running {routeName}";
-            AddLog($"Route run started: {routeName} ({waypoints.Count} waypoints).");
-
-            try
-            {
-                for (var i = 0; i < waypoints.Count; i++)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var waypoint = waypoints[i];
-                    waypoint.Normalize();
-                    RouteExecutionStatus = $"WP {i + 1}/{waypoints.Count}: {waypoint}";
-
-                    var clickX = waypoint.X;
-                    var clickY = waypoint.Y;
-                    if (waypoint.AreaRadius > 0)
-                    {
-                        clickX += _random.Next(-waypoint.AreaRadius, waypoint.AreaRadius + 1);
-                        clickY += _random.Next(-waypoint.AreaRadius, waypoint.AreaRadius + 1);
-                    }
-
-                    var clicked = Traversal.ClickTo(clickX, clickY, waypoint.Z, waypoint.JitterTiles);
-                    if (!clicked)
-                    {
-                        LastStatus = $"Route '{routeName}' failed: click rejected at waypoint {i + 1}.";
-                        AddLog(LastStatus);
-                        return;
-                    }
-
-                    var reached = await WaitForWaypointAdvanceAsync(waypoint, ct);
-                    if (!reached)
-                    {
-                        LastStatus = $"Route '{routeName}' timed out at waypoint {i + 1}.";
-                        AddLog(LastStatus);
-                        return;
-                    }
-
-                    await Task.Delay(95, ct);
-                }
-
-                LastStatus = $"Route '{routeName}' completed ({waypoints.Count} waypoints).";
-                AddLog(LastStatus);
-            }
-            catch (OperationCanceledException)
-            {
-                LastStatus = $"Route '{routeName}' cancelled.";
-                AddLog(LastStatus);
-            }
-            catch (Exception ex)
-            {
-                LastStatus = $"Route '{routeName}' error: {ex.Message}";
-                AddLog(LastStatus);
-            }
-            finally
-            {
-                IsRouteRunning = false;
-                RouteExecutionStatus = "Idle";
-                _routeRunCts?.Dispose();
-                _routeRunCts = null;
-            }
-        }
-
-        private async Task<bool> WaitForWaypointAdvanceAsync(RouteWaypoint waypoint, CancellationToken ct)
-        {
-            var start = Environment.TickCount64;
-            var timeout = Math.Max(1000, waypoint.TimeoutMs);
-
-            while (!ct.IsCancellationRequested && Environment.TickCount64 - start <= timeout)
-            {
-                var tile = LocalPlayer.GetTilePosition();
-                var inArea = waypoint.IsWithinArea(tile.x, tile.y, tile.z);
-                var dx = Math.Abs(waypoint.X - tile.x);
-                var dy = Math.Abs(waypoint.Y - tile.y);
-                var withinDistance = Math.Max(dx, dy) <= Math.Max(0, waypoint.ArrivalDistance);
-
-                // Preferred advancement: inside waypoint area and close enough.
-                if (inArea && withinDistance)
-                {
-                    return true;
-                }
-
-                // Optional chaining: allow next waypoint click while still moving after entering area.
-                if (waypoint.ChainWhileMoving && inArea && LocalPlayer.IsMoving())
-                {
-                    return true;
-                }
-
-                await Task.Delay(85, ct);
-            }
-
-            return false;
-        }
-
-        private void StopRoute()
-        {
-            _routeRunCts?.Cancel();
-            RouteExecutionStatus = "Stopping...";
-        }
-
         private void RefreshCommandStates() => System.Windows.Input.CommandManager.InvalidateRequerySuggested();
 
         private static IReadOnlyList<LodestoneOption> BuildLodestones()
@@ -1099,10 +654,9 @@ namespace MESharp.ViewModels
             _disposed = true;
             try { _refreshTimer.Stop(); } catch { /* ignored */ }
             _refreshTimer.Tick -= OnRefreshTick;
-            try { CurrentRoute.CollectionChanged -= _currentRouteChangedHandler; } catch { /* ignored */ }
-            try { _routeRunCts?.Cancel(); } catch { /* ignored */ }
-            try { _routeRunCts?.Dispose(); } catch { /* ignored */ }
-            _routeRunCts = null;
+            try { _travelCts?.Cancel(); } catch { /* ignored */ }
+            try { _travelCts?.Dispose(); } catch { /* ignored */ }
+            _travelCts = null;
         }
 
         public void OnActivated()
@@ -1138,9 +692,10 @@ namespace MESharp.ViewModels
 
             _isActive = false;
             try { _refreshTimer.Stop(); } catch { /* ignored */ }
-            if (IsRouteRunning)
+            if (IsTraveling)
             {
-                StopRoute();
+                AddLog("Travel stopped: the Travel section was deactivated while running.");
+                _travelCts?.Cancel();
             }
         }
 

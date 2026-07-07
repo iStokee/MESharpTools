@@ -31,6 +31,8 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 /// </summary>
 public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 {
+	private const int MaxRunTrailEntries = 32;
+
 	private readonly GraphScriptService _scriptService;
 	private readonly GraphExecutionEngine _engine;
 	private readonly NodeCatalogService _catalogService;
@@ -40,6 +42,9 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private readonly GraphExplainService _explainService;
 	private readonly CaptureCalibrationService _captureCalibrationService = new();
 	private readonly DashboardRefreshService _dashboardRefreshService = new();
+	private readonly Queue<RunTrailEntry> _runTrail = new();
+	private readonly Dictionary<Guid, int> _runTrailNodeCounts = new();
+	private readonly Dictionary<Guid, int> _runTrailTransitionCounts = new();
 	private NodeModel? _currentRunNode;
 	private CancellationTokenSource? _runCts;
 	private Task? _runTask;
@@ -50,12 +55,19 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private readonly ObservableCollection<NodeModel> _selectedNodes = new();
 	private bool _isRunning;
 	private bool _isLooping = true;
+	private bool _currentRunLooping;
 	private string _status = "Idle";
 	/// <summary>
 	/// Width (in DIPs) of a side panel when collapsed to its vertical rail.
 	/// Must match the column MinWidth used in NodeEditorControl.xaml.
 	/// </summary>
 	public const double CollapsedRailWidth = 56;
+
+	/// <summary>
+	/// Default expanded width of the catalog column: one node tile wide. The tile is 168 DIP plus its
+	/// 8 DIP right margin (176), inside the catalog grid's 16+16 insets and a ~17 DIP scrollbar.
+	/// </summary>
+	private const double DefaultCatalogWidth = 240;
 
 	private string? _currentFilePath;
 	private NodeCategory? _selectedCategory;
@@ -64,9 +76,9 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private bool _showAdvancedNodes;
 	private bool _isLeftCollapsed;
 	private bool _isRightCollapsed;
-	private double _expandedLeftWidth = 320;
+	private double _expandedLeftWidth = DefaultCatalogWidth;
 	private double _expandedRightWidth = 360;
-	private GridLength _leftColumnWidth = new(320);
+	private GridLength _leftColumnWidth = new(DefaultCatalogWidth);
 	private GridLength _rightColumnWidth = new(360);
 	private bool _isNodeInfoOpen;
 	private string _nodeInfoTitle = "Node Info";
@@ -89,6 +101,9 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private readonly DispatcherTimer _dashboardTimer;
 	private SkillSession? _dashboardSkillSession;
 	private readonly ItemTracker _itemTracker;
+	private bool _dashboardGameRefreshInProgress;
+	private bool _dashboardGameRefreshPending;
+	private int _dashboardRefreshVersion;
 	private bool _dashboardXpActiveOnly;
 	private bool _dashboardItemsActiveOnly = true;
 	private string _dashboardItemsStatus = "Item tracker idle";
@@ -101,6 +116,7 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private string _dashboardGraphSummary = "0 nodes / 0 transitions";
 	private string _dashboardSignalSummary = "0 signals";
 	private string _dashboardXpStatus = "XP tracker idle";
+	private string _dashboardSession = "No session yet";
 	private string _dashboardLastUpdated = "--";
 	private int _dashboardActiveSkillCount;
 	private int _dashboardTotalXpGained;
@@ -203,9 +219,13 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 
 		_dashboardTimer = new DispatcherTimer(DispatcherPriority.Background)
 		{
-			Interval = TimeSpan.FromSeconds(2)
+			Interval = TimeSpan.FromSeconds(1)
 		};
-		_dashboardTimer.Tick += (_, _) => RefreshDashboard();
+		_dashboardTimer.Tick += (_, _) =>
+		{
+			RefreshDashboard();
+			BeginDashboardGameRefresh();
+		};
 		_dashboardTimer.Start();
 
 		_script = _scriptService.CreatePowerFishingTemplate();
@@ -213,6 +233,7 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		_editHistory.Clear();
 		RefreshSignals();
 		RefreshDashboard();
+		BeginDashboardGameRefresh();
 
 		// Seed initial panel collapse state from the persisted startup preferences.
 		if (Services.EditorPreferences.StartLeftCollapsed)
@@ -473,6 +494,18 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		{
 			if (_dashboardXpStatus == value) return;
 			_dashboardXpStatus = value;
+			OnPropertyChanged();
+		}
+	}
+
+	/// <summary>Account/session the dashboard is reading from (player name, logged-out, or design mode).</summary>
+	public string DashboardSession
+	{
+		get => _dashboardSession;
+		private set
+		{
+			if (_dashboardSession == value) return;
+			_dashboardSession = value;
 			OnPropertyChanged();
 		}
 	}
@@ -1064,6 +1097,14 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	{
 		PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 	}
+
+	private enum RunTrailEntryKind
+	{
+		Node,
+		Transition
+	}
+
+	private readonly record struct RunTrailEntry(RunTrailEntryKind Kind, Guid Id);
 }
 
 /// <summary>Ordering applied to the node catalog list.</summary>

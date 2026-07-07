@@ -43,6 +43,7 @@ namespace MESharp.ViewModels
         private bool _isBusy;
         private string _busyOperation = "";
         private string _log = "";
+        private CancellationTokenSource? _busyCts;
 
         public ObservableCollection<HealthIndicator> Indicators { get; } = new();
 
@@ -56,12 +57,14 @@ namespace MESharp.ViewModels
 
             RefreshCommand = new RelayCommand(_ => Refresh(), _ => !IsBusy);
             SaveDumpPathCommand = new RelayCommand(_ => SaveSettings(), _ => !IsBusy);
+            CancelBusyCommand = new RelayCommand(_ => { try { _busyCts?.Cancel(); } catch { } Append("Cancellation requested…"); }, _ => IsBusy);
 
             RegenerateCollisionCommand = new RelayCommand(_ => RegenerateCollision(), _ => !IsBusy && DumpLooksValid());
             RegenerateObstaclesCommand = new RelayCommand(_ => RegenerateObstacles(), _ => !IsBusy && DumpLooksValid());
             ImportLadderSeedsCommand = new RelayCommand(_ => ImportLadderSeeds(), _ => !IsBusy && File.Exists(LadderSeedPath));
             RegenerateAreasCommand = new RelayCommand(_ => RegenerateAreas(), _ => !IsBusy && DumpLooksValid());
             RegenerateNpcAreasCommand = new RelayCommand(_ => RegenerateNpcAreas(), _ => !IsBusy && DumpLooksValid());
+            GenerateWikiMapDataCommand = new RelayCommand(_ => GenerateWikiMapData(), _ => !IsBusy);
             RegenerateDumpCommand = new RelayCommand(_ => RegenerateDump(), _ => !IsBusy && !string.IsNullOrWhiteSpace(DumpCommand));
             ImportAreaSeedsCommand = new RelayCommand(_ => ImportAreaSeeds(), _ => !IsBusy && (File.Exists(AreaSeedPath) || File.Exists(NpcAreaSeedPath)));
 
@@ -134,11 +137,13 @@ namespace MESharp.ViewModels
 
         public ICommand RefreshCommand { get; }
         public ICommand SaveDumpPathCommand { get; }
+        public ICommand CancelBusyCommand { get; }
         public ICommand RegenerateCollisionCommand { get; }
         public ICommand RegenerateObstaclesCommand { get; }
         public ICommand ImportLadderSeedsCommand { get; }
         public ICommand RegenerateAreasCommand { get; }
         public ICommand RegenerateNpcAreasCommand { get; }
+        public ICommand GenerateWikiMapDataCommand { get; }
         public ICommand RegenerateDumpCommand { get; }
         public ICommand ImportAreaSeedsCommand { get; }
         public ICommand ReloadCollisionCommand { get; }
@@ -217,19 +222,40 @@ namespace MESharp.ViewModels
             });
 
             // Webwalk graph
+            WebwalkGraphData? graphSnapshot = null;
             try
             {
-                var graph = WebwalkGraph.GetGraph();
+                graphSnapshot = WebwalkGraph.GetGraph();
                 Indicators.Add(new HealthIndicator
                 {
                     Title = "Webwalk graph",
-                    State = graph.Nodes.Count > 0 ? "ok" : "warn",
-                    Detail = $"{graph.Nodes.Count} nodes · {graph.Edges.Count} edges ({WebwalkGraph.GetGraphStorePath()})"
+                    State = graphSnapshot.Nodes.Count > 0 ? "ok" : "warn",
+                    Detail = $"{graphSnapshot.Nodes.Count} nodes · {graphSnapshot.Edges.Count} edges ({WebwalkGraph.GetGraphStorePath()})"
                 });
             }
             catch (Exception ex)
             {
                 Indicators.Add(new HealthIndicator { Title = "Webwalk graph", State = "error", Detail = ex.Message });
+            }
+
+            if (graphSnapshot != null)
+            {
+                var wikiNodes = graphSnapshot.Nodes.Count(n =>
+                    string.Equals(n.Source, "wiki", StringComparison.OrdinalIgnoreCase) ||
+                    n.Tags.Any(t => string.Equals(t, "wiki", StringComparison.OrdinalIgnoreCase)));
+                var wikiEdges = graphSnapshot.Edges.Count(e =>
+                    string.Equals(e.Source, "wiki", StringComparison.OrdinalIgnoreCase));
+                var wikiAreas = graphSnapshot.Areas.Count(a =>
+                    string.Equals(a.Source, "wiki", StringComparison.OrdinalIgnoreCase) ||
+                    a.Tags.Any(t => string.Equals(t, "wiki", StringComparison.OrdinalIgnoreCase)));
+                Indicators.Add(new HealthIndicator
+                {
+                    Title = "Wiki map web data",
+                    State = wikiNodes + wikiEdges + wikiAreas > 0 ? "ok" : "off",
+                    Detail = wikiNodes + wikiEdges + wikiAreas > 0
+                        ? $"{wikiNodes} nodes, {wikiEdges} edges, {wikiAreas} areas sourced from RuneScape Wiki maps."
+                        : "Not generated yet. Use Generate Wiki Map Web Data to import map-derived nodes, entrances, and areas."
+                });
             }
 
             // Dump
@@ -304,6 +330,22 @@ namespace MESharp.ViewModels
                 var result = NpcAreaDeriver.Derive(DumpDirectory, outDir: null, options: null, log: log, ct: ct);
                 return $"NPC areas derived: {result.ConfigsMatched} npc configs, {result.Spawns} spawns " +
                        $"→ {result.Areas} areas in npc_areas.seed.json.";
+            });
+        }
+
+        private void GenerateWikiMapData()
+        {
+            RunBackground("Generating wiki map web data", (log, ct) =>
+            {
+                var result = RuneScapeWikiDungeonImporter.DiscoverAndImportNavigationMapsAsync(
+                        limit: 120,
+                        replaceExactIds: true,
+                        replaceMatchingAreas: true,
+                        log: log,
+                        cancellationToken: ct)
+                    .GetAwaiter()
+                    .GetResult();
+                return result.Message;
             });
         }
 
@@ -403,6 +445,10 @@ namespace MESharp.ViewModels
             BusyOperation = operation + "…";
             Append($"▶ {operation} (dump: {DumpDirectory})");
 
+            _busyCts?.Dispose();
+            _busyCts = new CancellationTokenSource();
+            var ct = _busyCts.Token;
+
             var dispatcher = Application.Current?.Dispatcher;
             void Log(string line)
             {
@@ -415,7 +461,11 @@ namespace MESharp.ViewModels
                 string summary;
                 try
                 {
-                    summary = work(Log, CancellationToken.None);
+                    summary = work(Log, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    summary = "✖ Cancelled.";
                 }
                 catch (Exception ex)
                 {

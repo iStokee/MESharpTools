@@ -64,6 +64,25 @@ public class WorkspaceViewModelTests
 	}
 
 	[Fact]
+	public void CloseCanvas_DirtyCanvas_HonoursTheConfirmCallback()
+	{
+		using var ws = CreateWorkspace();
+		ws.NewCanvasCommand.Execute(null);
+		var second = ws.Canvases[1];
+		second.Editor.Script.Name = "Edited"; // marks the canvas dirty
+
+		var asked = 0;
+		ws.ConfirmCloseDirtyCanvas = _ => { asked++; return false; };
+		ws.CloseCanvasCommand.Execute(second);
+		Assert.Equal(1, asked);
+		Assert.Contains(second, ws.Canvases);
+
+		ws.ConfirmCloseDirtyCanvas = _ => true;
+		ws.CloseCanvasCommand.Execute(second);
+		Assert.DoesNotContain(second, ws.Canvases);
+	}
+
+	[Fact]
 	public void CloseActiveCanvas_SelectsANeighbour()
 	{
 		using var ws = CreateWorkspace();

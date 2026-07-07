@@ -336,6 +336,18 @@ public class GraphValidatorTests
 	}
 
 	[Fact]
+	public void GreenDhideShieldCraftAlchTemplate_HasNoValidationErrors()
+	{
+		var service = new GraphScriptService(_catalog);
+		var template = service.CreateGreenDhideShieldCraftAlchTemplate();
+
+		var issues = _validator.Validate(template, gameApiAvailable: true);
+
+		Assert.DoesNotContain(issues, i => i.Severity == ValidationSeverity.Error);
+		Assert.Contains(issues, i => i.Severity == ValidationSeverity.Warning && i.Message.Contains("advanced native-capture node"));
+	}
+
+	[Fact]
 	public void ScriptDashboard_CanFloatUnconnectedWithoutValidationWarnings()
 	{
 		var start = Node(NodeCatalogDefaults.StartId, NodeType.Start, "Start");

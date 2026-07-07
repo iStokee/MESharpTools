@@ -19,8 +19,7 @@ internal static class ParameterHelper
 		var text = val.ToString();
 		if (string.IsNullOrWhiteSpace(text)) return null;
 		if (int.TryParse(text, out var parsed)) return parsed;
-		var equalsIndex = text.LastIndexOf('=');
-		return equalsIndex >= 0 && int.TryParse(text[(equalsIndex + 1)..].Trim(), out parsed) ? parsed : null;
+		return OffsetNameResolver.TryResolve(text, out parsed) ? parsed : null;
 	}
 
 	public static bool ToBool(IReadOnlyDictionary<string, object?> map, string key, bool fallback = false)

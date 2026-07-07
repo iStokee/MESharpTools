@@ -32,10 +32,13 @@
   </ItemGroup>
 
   <!--
-    Deploy the editor next to the Orbit launcher plugin: SharpBuilderOrbitPlugin.ResolveEditorPath()
-    looks in %USERPROFILE%\MemoryError\Orbit_Plugins\SharpBuilder.OrbitPlugin\.
+    Standalone deploy. The editor ships to its own builder-named tool folder
+    (%USERPROFILE%\MemoryError\SharpBuilder\) rather than into Orbit's plugin tree.
+    Authored graphs from the repo Scripts\ folder are copied into both the "production"
+    tool folder and the default graph folder the editor/runner read from
+    (%USERPROFILE%\MemoryError\CSharp_scripts\SharpBuilder\).
   -->
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="if not exist &quot;%25USERPROFILE%25\MemoryError\Orbit_Plugins\SharpBuilder.OrbitPlugin\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\Orbit_Plugins\SharpBuilder.OrbitPlugin\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(AssemblyName).exe&quot; &quot;%25USERPROFILE%25\MemoryError\Orbit_Plugins\SharpBuilder.OrbitPlugin\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(AssemblyName).dll&quot; &quot;%25USERPROFILE%25\MemoryError\Orbit_Plugins\SharpBuilder.OrbitPlugin\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(AssemblyName).runtimeconfig.json&quot; &quot;%25USERPROFILE%25\MemoryError\Orbit_Plugins\SharpBuilder.OrbitPlugin\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(AssemblyName).deps.json&quot; &quot;%25USERPROFILE%25\MemoryError\Orbit_Plugins\SharpBuilder.OrbitPlugin\&quot; 2&gt;nul&#xD;&#xA;exit /b 0" />
+    <Exec Command="if not exist &quot;%25USERPROFILE%25\MemoryError\SharpBuilder\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\SharpBuilder\&quot;&#xD;&#xA;if not exist &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\SharpBuilder\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\SharpBuilder\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(AssemblyName).exe&quot; &quot;%25USERPROFILE%25\MemoryError\SharpBuilder\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(AssemblyName).dll&quot; &quot;%25USERPROFILE%25\MemoryError\SharpBuilder\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(AssemblyName).runtimeconfig.json&quot; &quot;%25USERPROFILE%25\MemoryError\SharpBuilder\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(AssemblyName).deps.json&quot; &quot;%25USERPROFILE%25\MemoryError\SharpBuilder\&quot; 2&gt;nul&#xD;&#xA;copy /Y &quot;$(ProjectDir)..\Scripts\*.builder.json&quot; &quot;%25USERPROFILE%25\MemoryError\SharpBuilder\&quot; 2&gt;nul&#xD;&#xA;copy /Y &quot;$(ProjectDir)..\Scripts\*.builder.json&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\SharpBuilder\&quot; 2&gt;nul&#xD;&#xA;exit /b 0" />
   </Target>
 </Project>

@@ -20,6 +20,7 @@ namespace MESharp.Services
     /// </summary>
     internal static class CoverageMapServer
     {
+        private static readonly object ServerSync = new();
         private static TcpListener? _listener;
         private static CancellationTokenSource? _cts;
         private static int _port;
@@ -41,35 +42,50 @@ namespace MESharp.Services
         /// <summary>Start (if needed) and return the map URL.</summary>
         public static string Start()
         {
-            if (_listener != null)
-                return $"http://127.0.0.1:{_port}/";
-
-            _listener = new TcpListener(IPAddress.Loopback, 0);
-            _listener.Start();
-            _port = ((IPEndPoint)_listener.LocalEndpoint).Port;
-            _cts = new CancellationTokenSource();
-
-            var token = _cts.Token;
-            _ = Task.Run(async () =>
+            lock (ServerSync)
             {
-                while (!token.IsCancellationRequested)
-                {
-                    TcpClient client;
-                    try { client = await _listener.AcceptTcpClientAsync(token).ConfigureAwait(false); }
-                    catch { break; }
-                    _ = Task.Run(() => HandleClient(client), token);
-                }
-            }, token);
+                if (_listener != null)
+                    return $"http://127.0.0.1:{_port}/";
 
-            return $"http://127.0.0.1:{_port}/";
+                var listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                _listener = listener;
+                _port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                _cts = new CancellationTokenSource();
+
+                var token = _cts.Token;
+                _ = Task.Run(async () =>
+                {
+                    while (!token.IsCancellationRequested)
+                    {
+                        TcpClient client;
+                        try { client = await listener.AcceptTcpClientAsync(token).ConfigureAwait(false); }
+                        catch { break; }
+                        _ = Task.Run(() => HandleClient(client), token);
+                    }
+                }, token);
+
+                return $"http://127.0.0.1:{_port}/";
+            }
         }
 
         public static void Stop()
         {
-            try { _cts?.Cancel(); } catch { }
-            try { _listener?.Stop(); } catch { }
-            _listener = null;
-            _cts = null;
+            lock (ServerSync)
+            {
+                try { _cts?.Cancel(); } catch { }
+                try { _listener?.Stop(); } catch { }
+                _listener = null;
+                _cts = null;
+            }
+
+            // In-flight travel started from the map must not outlive the server —
+            // otherwise the character keeps walking after the tool closes, and the
+            // task's closure pins this tool's collectible ALC.
+            lock (TravelSync)
+            {
+                try { _travelCts?.Cancel(); } catch { }
+            }
 
             // A recording session must not outlive the server (pump user balance,
             // hot-reload collectibility).
@@ -96,7 +112,17 @@ namespace MESharp.Services
                     var requestLine = ReadRequestLine(stream);
                     var method = ParseMethod(requestLine);
                     var path = ParsePath(requestLine);
-                    var requestBody = ReadHeadersAndBody(stream);
+                    var requestBody = ReadHeadersAndBody(stream, out var host);
+
+                    // DNS-rebinding guard: the browser always sends the Host it navigated to.
+                    // Anything other than this loopback listener gets refused, so a hostile web
+                    // page cannot drive the authoring/travel API through a rebound hostname.
+                    if (!IsExpectedHost(host))
+                    {
+                        WriteResponse(stream, "403 Forbidden", "text/plain",
+                            Encoding.UTF8.GetBytes("Forbidden: unexpected Host header."));
+                        return;
+                    }
 
                     byte[] body;
                     string contentType;
@@ -230,16 +256,22 @@ namespace MESharp.Services
                 }
             }
 
+            object? travel;
+            lock (TravelSync)
+            {
+                travel = _travelStatus == null ? null : new { running = _travelRunning, message = _travelStatus };
+            }
+
             try
             {
                 var pos = Traversal.GetCurrentPosition();
                 if (pos.X <= 0 && pos.Y <= 0)
-                    return new { available = false, focus };
-                return new { available = true, x = pos.X, y = pos.Y, z = pos.Z, focus };
+                    return new { available = false, focus, travel };
+                return new { available = true, x = pos.X, y = pos.Y, z = pos.Z, focus, travel };
             }
             catch
             {
-                return new { available = false, focus };
+                return new { available = false, focus, travel };
             }
         }
 
@@ -391,7 +423,57 @@ namespace MESharp.Services
 
         // ── Authoring + route factory API (R2-B, R7) ─────────────────────────────
 
+        private static readonly object TravelSync = new();
         private static CancellationTokenSource? _travelCts;
+        private static string? _travelStatus;
+        private static bool _travelRunning;
+
+        /// <summary>
+        /// Cancel any in-flight travel and start <paramref name="run"/> on a fresh token.
+        /// The task's outcome (including exceptions, which were previously unobserved and
+        /// therefore invisible) is captured into the travel status served with /player.json.
+        /// </summary>
+        private static void StartTravelTask(string description, Func<CancellationToken, Task> run)
+        {
+            CancellationTokenSource myCts;
+            lock (TravelSync)
+            {
+                try { _travelCts?.Cancel(); } catch { }
+                myCts = new CancellationTokenSource();
+                _travelCts = myCts;
+                _travelRunning = true;
+                _travelStatus = description + "…";
+            }
+
+            var ct = myCts.Token;
+            _ = Task.Run(async () =>
+            {
+                string status;
+                try
+                {
+                    await run(ct).ConfigureAwait(false);
+                    status = description + " finished.";
+                }
+                catch (OperationCanceledException)
+                {
+                    status = description + " cancelled.";
+                }
+                catch (Exception ex)
+                {
+                    status = description + " failed: " + ex.Message;
+                }
+
+                lock (TravelSync)
+                {
+                    // Only report if a newer travel hasn't taken over the status line.
+                    if (ReferenceEquals(_travelCts, myCts))
+                    {
+                        _travelStatus = status;
+                        _travelRunning = false;
+                    }
+                }
+            }, CancellationToken.None);
+        }
 
         // Click-distance slider bounds (tiles). Default mirrors CollisionPathfinder.CreateDraftRoute's
         // own default; the max is one map square — a generous upper bound on a single reliable click.
@@ -537,13 +619,10 @@ namespace MESharp.Services
                     case "/api/travel":
                     {
                         var to = new WorldPoint(GetInt(payload, "x"), GetInt(payload, "y"), GetInt(payload, "z"));
-                        _travelCts?.Cancel();
-                        _travelCts = new CancellationTokenSource();
-                        var ct = _travelCts.Token;
                         // Same live profile as /api/plan so the run uses the previewed teleports
                         // (and skips any the account can't currently afford, e.g. a depleted glory).
                         var travelProfile = WebwalkProfile.FromGameState();
-                        _ = Task.Run(() => Navigation.TravelToAsync(to, travelProfile, ct), ct);
+                        StartTravelTask($"Travel to {to}", ct => Navigation.TravelToAsync(to, travelProfile, ct));
                         return new { succeeded = true, message = $"Travel to {to} started." };
                     }
 
@@ -552,16 +631,13 @@ namespace MESharp.Services
                         var areaId = GetString(payload, "areaId") ?? GetString(payload, "id") ?? string.Empty;
                         if (string.IsNullOrWhiteSpace(areaId))
                             return new { succeeded = false, message = "areaId required." };
-                        _travelCts?.Cancel();
-                        _travelCts = new CancellationTokenSource();
-                        var ct = _travelCts.Token;
                         var areaProfile = WebwalkProfile.FromGameState();
-                        _ = Task.Run(() => Navigation.TravelToAreaAsync(areaId, areaProfile, ct), ct);
+                        StartTravelTask($"Travel into area '{areaId}'", ct => Navigation.TravelToAreaAsync(areaId, areaProfile, ct));
                         return new { succeeded = true, message = $"Travel into area '{areaId}' started." };
                     }
 
                     case "/api/travel_stop":
-                        _travelCts?.Cancel();
+                        lock (TravelSync) { try { _travelCts?.Cancel(); } catch { } }
                         return new { succeeded = true, message = "Travel cancelled." };
 
                     case "/api/walk_route":
@@ -577,11 +653,8 @@ namespace MESharp.Services
                         if (pts.Count == 0)
                             return new { succeeded = false, error = "waypoints[] empty." };
 
-                        _travelCts?.Cancel();
-                        _travelCts = new CancellationTokenSource();
-                        var ct = _travelCts.Token;
-                        _ = Task.Run(() => Traversal.WalkPathAsync(
-                            pts, waypointDistance: 2, timeoutMs: Math.Max(30000, pts.Count * 12000), cancellationToken: ct), ct);
+                        StartTravelTask($"Walk of {pts.Count} previewed waypoint(s)", ct => Traversal.WalkPathAsync(
+                            pts, waypointDistance: 2, timeoutMs: Math.Max(30000, pts.Count * 12000), cancellationToken: ct));
                         return new { succeeded = true, message = $"Walking {pts.Count} previewed waypoint(s)." };
                     }
 
@@ -968,18 +1041,35 @@ namespace MESharp.Services
             return new { succeeded = true, kind, snippets = snippets.ToArray() };
         }
 
-        /// <summary>Consumes headers and returns the request body (POST) using Content-Length.</summary>
-        private static string ReadHeadersAndBody(NetworkStream stream)
+        private static bool IsExpectedHost(string? host)
         {
+            if (string.IsNullOrWhiteSpace(host))
+                return false;
+            var expectedPort = _port;
+            return string.Equals(host, $"127.0.0.1:{expectedPort}", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(host, $"localhost:{expectedPort}", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Consumes headers and returns the request body (POST) using Content-Length.</summary>
+        private static string ReadHeadersAndBody(NetworkStream stream, out string? host)
+        {
+            host = null;
             var contentLength = 0;
             string line;
             while ((line = ReadRequestLine(stream)).Length > 0)
             {
                 var idx = line.IndexOf(':');
-                if (idx > 0 && line[..idx].Trim().Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
-                    int.TryParse(line[(idx + 1)..].Trim(), out var parsed))
+                if (idx <= 0) continue;
+                var name = line[..idx].Trim();
+                var value = line[(idx + 1)..].Trim();
+                if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(value, out var parsed))
                 {
                     contentLength = Math.Min(parsed, 1024 * 1024);
+                }
+                else if (name.Equals("Host", StringComparison.OrdinalIgnoreCase))
+                {
+                    host = value;
                 }
             }
 

@@ -187,7 +187,7 @@ public partial class NodeEditorControl : UserControl
 
 		CanvasScaleTransform.ScaleX = _zoomLevel;
 		CanvasScaleTransform.ScaleY = _zoomLevel;
-		ZoomLevelText.Text = $"{(int)(_zoomLevel * 100)}%";
+		ZoomLevelText.Text = $"{(int)Math.Round(_zoomLevel * 100)}%";
 
 		// Re-measure with the new scale before re-aligning the anchor, otherwise the scroll
 		// offsets clamp against the previous extent.
@@ -360,7 +360,9 @@ public partial class NodeEditorControl : UserControl
 		if (sender is Thumb thumb && thumb.Tag is NodeModel node)
 		{
 			var toggle = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
-			vm.SelectNode(node, toggle);
+			if (toggle || !vm.SelectedNodes.Contains(node) || vm.SelectedNodes.Count <= 1)
+				vm.SelectNode(node, toggle);
+
 			thumb.Focus();
 			// Do NOT mark the event handled: a handled PreviewMouseLeftButtonDown suppresses
 			// the bubbling MouseLeftButtonDown that Thumb needs to start its drag.
@@ -870,6 +872,10 @@ public partial class NodeEditorControl : UserControl
 
 	private void PaletteDefinitionCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
 	{
+		// The press ended without a drag; drop the armed definition so a later mouse-move
+		// over the card (e.g. with the button held from elsewhere) can't start a stale drag.
+		_paletteDragDefinition = null;
+
 		if (DataContext is not NodeEditorViewModel vm)
 			return;
 

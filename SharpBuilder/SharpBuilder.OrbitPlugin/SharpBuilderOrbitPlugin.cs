@@ -51,6 +51,15 @@ public sealed class SharpBuilderOrbitPlugin : IOrbitPlugin
             return byOrbitDir;
         }
 
+        // The standalone editor now deploys to its own builder-named tool folder
+        // (%USERPROFILE%\MemoryError\SharpBuilder\) instead of into the Orbit plugin tree,
+        // so prefer that location.
+        var byStandaloneFolder = Path.Combine(GetStandaloneToolDirectory(), DefaultEditorExeName);
+        if (File.Exists(byStandaloneFolder))
+        {
+            return byStandaloneFolder;
+        }
+
         var pluginRoot = GetDefaultPluginDirectory();
         var byPluginRoot = Path.Combine(pluginRoot, DefaultEditorExeName);
         if (File.Exists(byPluginRoot))
@@ -72,6 +81,13 @@ public sealed class SharpBuilderOrbitPlugin : IOrbitPlugin
     {
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Path.Combine(userProfile, "MemoryError", "Orbit_Plugins");
+    }
+
+    // Where the standalone Studio build deploys (decoupled from the Orbit plugin tree).
+    private static string GetStandaloneToolDirectory()
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(userProfile, "MemoryError", "SharpBuilder");
     }
 
     private sealed class SharpBuilderLauncherView : UserControl

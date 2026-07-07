@@ -11,7 +11,9 @@ namespace MESharp.Services
     /// </summary>
     public static class NavDiagnosticsStore
     {
-        private const string DefaultDumpDirectory = @"C:\Dev\rs3dump";
+        private static readonly string DefaultDumpDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MESharp", "rs3dump");
 
         private static readonly string FilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

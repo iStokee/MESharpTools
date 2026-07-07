@@ -249,6 +249,22 @@
                         </StackPanel>
                     </ToggleButton>
                     <ToggleButton
+                        Command="{Binding ShowDungeonsCommand}"
+                        IsChecked="{Binding IsDungeonsSelected, Mode=OneWay}"
+                        Style="{StaticResource HubNavButton}"
+                        ToolTip="Dungeon-aware graph imports from RuneScape Wiki maps">
+                        <StackPanel Orientation="Horizontal">
+                            <iconPacks:PackIconMaterial
+                                Width="16"
+                                Height="16"
+                                Margin="0,0,8,0"
+                                VerticalAlignment="Center"
+                                Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                                Kind="MapSearch" />
+                            <TextBlock Text="Dungeons" />
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton
                         Command="{Binding ShowVerifyCommand}"
                         IsChecked="{Binding IsVerifySelected, Mode=OneWay}"
                         Style="{StaticResource HubNavButton}"

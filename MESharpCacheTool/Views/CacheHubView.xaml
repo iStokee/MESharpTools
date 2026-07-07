@@ -47,6 +47,8 @@
                                 <TextBlock Text="Game cache" Style="{StaticResource Hub.SectionHeader}" />
                                 <Button Content="Refresh" Margin="10,0,0,0" Padding="8,2"
                                         Command="{Binding RefreshGameStatusCommand}" />
+                                <Button Content="Reload" Margin="6,0,0,0" Padding="8,2"
+                                        Command="{Binding ReloadGameCacheCommand}" />
                             </StackPanel>
                             <TextBlock DockPanel.Dock="Top" Style="{StaticResource Hub.HintText}"
                                        Text="{Binding GameStatusText}" Margin="0,0,0,8" />

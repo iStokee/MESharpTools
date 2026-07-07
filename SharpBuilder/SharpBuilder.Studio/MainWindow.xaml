@@ -122,12 +122,33 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="Session:" Foreground="#FFAEB8C6" VerticalAlignment="Center"
                                            Margin="0,0,8,0" FontSize="12" />
-                                <ComboBox MinWidth="140" VerticalAlignment="Center"
-                                          ItemsSource="{Binding Sessions}"
-                                          SelectedItem="{Binding SelectedSession}"
-                                          ToolTip="All canvases target this session. Cross-session routing is a later phase." />
+                                <ComboBox MinWidth="190" VerticalAlignment="Center"
+                                          ItemsSource="{Binding RemoteSessions}"
+                                          SelectedItem="{Binding SelectedRemoteSession}"
+                                          ToolTip="Live injected sessions from the discovery registry. Sessions marked (no agent) have no SharpBuilder SessionAgent loaded.">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding DisplayName}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button Style="{StaticResource WorkspaceActionButton}"
+                                        Command="{Binding RefreshSessionsCommand}" Content="⟳"
+                                        Padding="7,4" ToolTip="Re-scan for live sessions" />
+                                <Button Style="{StaticResource WorkspaceActionButton}"
+                                        Command="{Binding ObserveSessionCommand}" Content="◎ Observe"
+                                        ToolTip="Open a canvas mirroring this session's loaded graph and live run trail" />
+                                <Button Style="{StaticResource WorkspaceActionButton}"
+                                        Command="{Binding RemoteStartCommand}" Content="▶"
+                                        Padding="8,4" ToolTip="Start the session's loaded graph (loop)" />
+                                <Button Style="{StaticResource WorkspaceActionButton}"
+                                        Command="{Binding RemoteStopCommand}" Content="■"
+                                        Padding="8,4" ToolTip="Stop the session's running graph" />
                             </StackPanel>
                         </Border>
+                        <TextBlock Text="{Binding SessionActionStatus}" Foreground="#FF8FA0B5" FontSize="11"
+                                   VerticalAlignment="Center" Margin="10,0,0,0" MaxWidth="360"
+                                   TextTrimming="CharacterEllipsis" />
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">

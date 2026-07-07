@@ -35,7 +35,7 @@ public class GraphScriptServiceTests
 		var graph = service.CreatePowerFishingTemplate();
 		var first = graph.Nodes[0];
 		first.DefinitionTitle = "stale";
-		var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.orbitfsm.json");
+		var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.builder.json");
 
 		try
 		{
@@ -66,8 +66,8 @@ public class GraphScriptServiceTests
 	public async Task TryLoadAsync_ReturnsErrorForMissingOrInvalidFiles()
 	{
 		var service = new GraphScriptService(_catalog);
-		var missingPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.orbitfsm.json");
-		var invalidPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.orbitfsm.json");
+		var missingPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.builder.json");
+		var invalidPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.builder.json");
 
 		try
 		{
@@ -103,7 +103,7 @@ public class GraphScriptServiceTests
 
 		var graph = Graph(action, condition, end);
 		graph.SchemaVersion = 1;
-		var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.orbitfsm.json");
+		var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.builder.json");
 
 		try
 		{
@@ -161,6 +161,81 @@ public class GraphScriptServiceTests
 	}
 
 	[Fact]
+	public void GreenDhideShieldCraftAlchTemplate_HasExpectedRoutingAndDefaults()
+	{
+		var service = new GraphScriptService(_catalog);
+
+		var graph = service.CreateGreenDhideShieldCraftAlchTemplate();
+
+		Assert.Equal("Green dhide shield craft-alch", graph.Name);
+		Assert.Equal(graph.Nodes.Single(n => n.Title == "Have shields?").Id, graph.StartNodeId);
+
+		var shields = graph.Nodes.Single(n => n.Title == "Have shields?");
+		var preset = graph.Nodes.Single(n => n.Title == "Load preset");
+		var leather = graph.Nodes.Single(n => n.Title == "Have leather?");
+		var natures = graph.Nodes.Single(n => n.Title == "Have natures?");
+		var presetLeather = graph.Nodes.Single(n => n.Title == "Preset leather?");
+		var presetNatures = graph.Nodes.Single(n => n.Title == "Preset natures?");
+		var findPortable = graph.Nodes.Single(n => n.Title == "Find portable crafter");
+		var portable = graph.Nodes.Single(n => n.Title == "Use portable crafter");
+		var leatherKey = graph.Nodes.Single(n => n.Title == "Dragon leather keybind");
+		var make = graph.Nodes.Single(n => n.Title == "Make shields");
+		var alch = graph.Nodes.Single(n => n.Title == "Alch shields");
+		var stop = graph.Nodes.Single(n => n.Title == "Stop: missing supplies");
+
+		Assert.Equal("bank.loadPreset", preset.DefinitionId);
+		Assert.Contains(preset.Parameters, p => p.Key == "method" && p.RawValue == "Keybind");
+		Assert.Contains(preset.Parameters, p => p.Key == "keybind" && p.RawValue == "1");
+		Assert.Contains(leather.Parameters, p => p.Key == "id" && p.RawValue == "1745");
+		Assert.Contains(leather.Parameters, p => p.Key == "min" && p.RawValue == "26");
+		Assert.Contains(natures.Parameters, p => p.Key == "id" && p.RawValue == "561");
+		Assert.Contains(natures.Parameters, p => p.Key == "min" && p.RawValue == "13");
+		Assert.Contains(presetLeather.Parameters, p => p.Key == "id" && p.RawValue == "1745");
+		Assert.Contains(presetNatures.Parameters, p => p.Key == "id" && p.RawValue == "561");
+		Assert.Contains(findPortable.Parameters, p => p.Key == "signal" && p.RawValue == "hasPortableCrafter");
+		Assert.Contains(leatherKey.Parameters, p => p.Key == "keys" && p.RawValue == "F6");
+		Assert.Equal("makex.makeItem", make.DefinitionId);
+		Assert.Contains(make.Parameters, p => p.Key == "slot" && p.RawValue == "");
+		Assert.Contains(make.Parameters, p => p.Key == "category" && p.RawValue == "");
+		Assert.Contains(make.Parameters, p => p.Key == "waitComplete" && p.BoolValue);
+		Assert.Contains(alch.Parameters, p => p.Key == "keybind" && p.RawValue == "E");
+		Assert.Contains(alch.Parameters, p => p.Key == "items" && p.RawValue.Contains("25794"));
+		Assert.Contains(alch.Parameters, p => p.Key == "targetMode" && p.RawValue == "KeybindThenItem");
+		Assert.Contains(alch.Parameters, p => p.Key == "targetDelayMs" && p.RawValue == "1000");
+		Assert.Contains(alch.Parameters, p => p.Key == "recastMode" && p.RawValue == "ItemDisappears");
+		Assert.Contains(alch.Parameters, p => p.Key == "disappearTimeoutMs" && p.RawValue == "3500");
+		Assert.Contains(alch.Parameters, p => p.Key == "postTargetDelayMs" && p.RawValue == "2500");
+		Assert.Contains(alch.Parameters, p => p.Key == "itemAction" && p.RawValue == "110");
+		Assert.Contains(alch.Parameters, p => p.Key == "itemOffset" && p.RawValue == $"GeneralInterface_route1 = {MESharp.API.Objects.Offsets.GeneralInterfaceRoute1}");
+
+		Assert.Contains(shields.Transitions, t => t.ToNodeId == alch.Id && t.Trigger == TransitionTrigger.OnSuccess);
+		Assert.Contains(shields.Transitions, t => t.ToNodeId == leather.Id && t.Trigger == TransitionTrigger.OnFail);
+		Assert.Contains(leather.Transitions, t => t.ToNodeId == graph.Nodes.Single(n => n.Title == "Open nearby bank").Id && t.Trigger == TransitionTrigger.OnFail);
+		Assert.Contains(natures.Transitions, t => t.ToNodeId == graph.Nodes.Single(n => n.Title == "Open nearby bank").Id && t.Trigger == TransitionTrigger.OnFail);
+		Assert.Contains(findPortable.Transitions, t => t.ToNodeId == portable.Id && t.ConditionKey == "hasPortableCrafter");
+		Assert.Contains(findPortable.Transitions, t => t.ToNodeId == leatherKey.Id && t.IsFallback);
+		Assert.Contains(presetLeather.Transitions, t => t.ToNodeId == stop.Id && t.Trigger == TransitionTrigger.OnFail);
+		Assert.Contains(presetNatures.Transitions, t => t.ToNodeId == stop.Id && t.Trigger == TransitionTrigger.OnFail);
+		Assert.Contains(alch.Transitions, t => t.ToNodeId == graph.Nodes.Single(n => n.Title == "Open nearby bank").Id && t.Trigger == TransitionTrigger.OnSuccess);
+	}
+
+	[Fact]
+	public async Task SavedGreenDhideShieldCraftAlchGraph_Loads()
+	{
+		var service = new GraphScriptService(_catalog);
+		var sharpBuilderRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+		var path = Path.Combine(sharpBuilderRoot, "Scripts", "GreenDhideShieldCraftAlch.builder.json");
+
+		var (graph, error) = await service.TryLoadAsync(path);
+
+		Assert.Null(error);
+		Assert.NotNull(graph);
+		Assert.Equal("Green dhide shield craft-alch", graph!.Name);
+		Assert.Contains(graph.Nodes, n => n.DefinitionId == "bank.loadPreset");
+		Assert.Contains(graph.Nodes, n => n.DefinitionId == "inventory.alchAll");
+	}
+
+	[Fact]
 	public void CreateMultiCanvasDemo_ReturnsTwoNamedGraphs()
 	{
 		var service = new GraphScriptService(_catalog);
@@ -191,6 +266,33 @@ public class GraphScriptServiceTests
 
 			// The graph loops back so it keeps animating: at least one fallback edge exists.
 			Assert.Contains(graph.Nodes.SelectMany(n => n.Transitions), t => t.IsFallback);
+		}
+	}
+
+	[Fact]
+	public async Task Load_RefreshesDriftedOffsetValuesToCurrentTable()
+	{
+		var service = new GraphScriptService(_catalog);
+		var graph = service.CreatePowerFishingTemplate();
+		var fish = graph.Nodes.Single(n => n.Parameters.Any(p => p.RawValue?.StartsWith("InteractNPC_route") == true));
+		var offsetParam = fish.Parameters.Single(p => p.RawValue!.StartsWith("InteractNPC_route"));
+		offsetParam.RawValue = "InteractNPC_route = 4928"; // pre-update route number
+		var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.builder.json");
+
+		try
+		{
+			await service.SaveAsync(graph, path);
+
+			var loaded = await service.LoadAsync(path);
+
+			Assert.NotNull(loaded);
+			var loadedFish = Assert.Single(loaded!.Nodes, n => n.Id == fish.Id);
+			var loadedOffset = loadedFish.Parameters.Single(p => p.Key == offsetParam.Key);
+			Assert.Equal($"InteractNPC_route = {MESharp.API.Npcs.InteractNPC_route}", loadedOffset.RawValue);
+		}
+		finally
+		{
+			File.Delete(path);
 		}
 	}
 }

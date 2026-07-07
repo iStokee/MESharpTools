@@ -80,13 +80,14 @@ public class GraphExecutionEngine
 
 				while (current != null && !cancellationToken.IsCancellationRequested)
 				{
-					NodeEntered?.Invoke(this, current);
+					PublishNodeEntered(current);
 
 					var definition = ResolveDefinition(current);
 					var parameterMap = BuildParameterMap(current, definition);
 					var executor = _executorRegistry.Resolve(definition.Id);
 
-					var result = await executor.ExecuteAsync(
+					var result = await ExecuteNodeGatedAsync(
+						executor,
 						new NodeExecutionContext(current, definition, runtimeSignals, parameterMap),
 						cancellationToken);
 
@@ -117,7 +118,7 @@ public class GraphExecutionEngine
 					retryAttempts = 0;
 					lastRetryNode = null;
 
-					NodeCompleted?.Invoke(this, (current, result));
+					PublishNodeCompleted(current, result);
 
 					// Dwell is applied uniformly here so individual executors don't have to.
 					if (current.DwellMilliseconds > 0)
@@ -145,15 +146,17 @@ public class GraphExecutionEngine
 						break;
 					}
 
-					TransitionTaken?.Invoke(this, nextTransition);
+					PublishTransitionTaken(nextTransition);
 
-					current = script.Nodes.FirstOrDefault(n => n.Id == nextTransition.ToNodeId);
+					current = script.Nodes.FirstOrDefault(n => n.Id == nextTransition.ToNodeId)
+						?? throw new InvalidOperationException(
+							$"Transition '{nextTransition.Label}' from '{current.Title}' points to missing node {nextTransition.ToNodeId}.");
 				}
 			} while (loop && !terminalReached && !cancellationToken.IsCancellationRequested);
 
 			if (!cancellationToken.IsCancellationRequested)
 			{
-				Completed?.Invoke(this, EventArgs.Empty);
+				PublishCompleted();
 			}
 		}
 		catch (OperationCanceledException)
@@ -162,7 +165,7 @@ public class GraphExecutionEngine
 		}
 		catch (Exception ex)
 		{
-			Faulted?.Invoke(this, ex);
+			PublishFaulted(ex);
 		}
 		finally
 		{
@@ -221,6 +224,91 @@ public class GraphExecutionEngine
 	private NodeDefinition ResolveDefinition(NodeModel node)
 	{
 		return _catalogService.GetDefinition(node.DefinitionId) ?? _catalogService.GetDefaultDefinitionForType(node.Type);
+	}
+
+	private async Task<NodeExecutionResult> ExecuteNodeGatedAsync(
+		INodeExecutor executor,
+		NodeExecutionContext context,
+		CancellationToken cancellationToken)
+	{
+		try
+		{
+			if (executor is IGameApiSelfManaged)
+			{
+				// The executor manages the lane itself (gating discrete ops, releasing during long
+				// waits) so the dashboard can interleave mid-node. Don't hold the lane around it.
+				return await executor.ExecuteAsync(context, cancellationToken);
+			}
+
+			// Hold the game-API lane for the whole node so its native calls never overlap a
+			// concurrent dashboard read. The lane is released between nodes, letting the dashboard
+			// interleave; a long node simply makes the next dashboard read wait its turn.
+			using (await GameApi.Scheduler.AcquireAsync(cancellationToken).ConfigureAwait(false))
+			{
+				return await executor.ExecuteAsync(context, cancellationToken);
+			}
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine($"[SharpBuilder.Engine] Node '{context.Node.Title}' ({context.Definition.Id}) threw {ex.GetType().Name}: {ex.Message}; routing as failure.");
+			return NodeExecutionResult.Fail();
+		}
+	}
+
+	private void PublishNodeEntered(NodeModel node)
+	{
+		var handlers = NodeEntered;
+		if (handlers == null) return;
+		foreach (EventHandler<NodeModel> handler in handlers.GetInvocationList())
+			PublishEvent(() => handler(this, node), nameof(NodeEntered));
+	}
+
+	private void PublishNodeCompleted(NodeModel node, NodeExecutionResult result)
+	{
+		var handlers = NodeCompleted;
+		if (handlers == null) return;
+		foreach (EventHandler<(NodeModel Node, NodeExecutionResult Result)> handler in handlers.GetInvocationList())
+			PublishEvent(() => handler(this, (node, result)), nameof(NodeCompleted));
+	}
+
+	private void PublishTransitionTaken(TransitionModel transition)
+	{
+		var handlers = TransitionTaken;
+		if (handlers == null) return;
+		foreach (EventHandler<TransitionModel> handler in handlers.GetInvocationList())
+			PublishEvent(() => handler(this, transition), nameof(TransitionTaken));
+	}
+
+	private void PublishCompleted()
+	{
+		var handlers = Completed;
+		if (handlers == null) return;
+		foreach (EventHandler handler in handlers.GetInvocationList())
+			PublishEvent(() => handler(this, EventArgs.Empty), nameof(Completed));
+	}
+
+	private void PublishFaulted(Exception exception)
+	{
+		var handlers = Faulted;
+		if (handlers == null) return;
+		foreach (EventHandler<Exception> handler in handlers.GetInvocationList())
+			PublishEvent(() => handler(this, exception), nameof(Faulted));
+	}
+
+	private static void PublishEvent(Action raise, string eventName)
+	{
+		try
+		{
+			raise();
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine($"[SharpBuilder.Engine] {eventName} subscriber threw {ex.GetType().Name}: {ex.Message}");
+		}
 	}
 
 	private static IReadOnlyDictionary<string, object?> BuildParameterMap(NodeModel node, NodeDefinition definition)

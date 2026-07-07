@@ -6,14 +6,14 @@ using Newtonsoft.Json;
 namespace MESharp;
 
 /// <summary>
-/// Headless runner: executes a saved .orbitfsm.json graph through the standard ME script
+/// Headless runner: executes a saved .builder.json graph through the standard ME script
 /// framework, no editor required.
 ///
 /// Config resolution order (first hit wins), so individual game sessions can run
 /// different graphs even though they share the same scripts folder:
 ///   1. SHARPBUILDER_RUNNER_CONFIG environment variable (full path to a config json)
 ///   2. runner.&lt;pid&gt;.config.json in the SharpBuilder graph folder (written by an orchestrator
-///      such as Orbit before issuing LOAD for that specific client process)
+///      before issuing LOAD for that specific client process)
 ///   3. runner.config.json in the SharpBuilder graph folder (machine-wide default)
 /// </summary>
 public static class ScriptEntry
@@ -79,8 +79,24 @@ public static class ScriptEntry
         }
 
         var engine = new GraphExecutionEngine(catalog, new NodeExecutorRegistry());
-        engine.NodeEntered += (_, node) => Console.WriteLine($"[SharpBuilder.Runner] -> {node.Title}");
-        engine.NodeCompleted += (_, e) => Console.WriteLine($"[SharpBuilder.Runner]    {e.Node.Title}: {e.Result.Status}");
+        engine.NodeEntered += (_, node) => Console.WriteLine($"[SharpBuilder.Runner] -> {node.Title} ({node.DefinitionId})");
+        engine.NodeCompleted += (_, e) =>
+        {
+            var outputs = e.Result.Outputs == null || e.Result.Outputs.Count == 0
+                ? string.Empty
+                : $" outputs=[{string.Join(", ", e.Result.Outputs.Select(kv => $"{kv.Key}={kv.Value}"))}]";
+            Console.WriteLine($"[SharpBuilder.Runner]    {e.Node.Title}: {e.Result.Status}{outputs}");
+        };
+        engine.TransitionTaken += (_, transition) =>
+        {
+            var from = script.Nodes.FirstOrDefault(n => n.Id == transition.FromNodeId)?.Title ?? transition.FromNodeId.ToString();
+            var to = script.Nodes.FirstOrDefault(n => n.Id == transition.ToNodeId)?.Title ?? transition.ToNodeId.ToString();
+            var condition = transition.HasCondition
+                ? $" condition={transition.ConditionKey}=={transition.ExpectedValue}"
+                : string.Empty;
+            var fallback = transition.IsFallback ? " fallback=true" : string.Empty;
+            Console.WriteLine($"[SharpBuilder.Runner]    edge: {from} -> {to} label=\"{transition.Label}\" trigger={transition.Trigger}{condition}{fallback}");
+        };
         engine.Faulted += (_, ex) => Console.WriteLine($"[SharpBuilder.Runner] Engine fault: {ex.Message}");
         engine.Completed += (_, _) => Console.WriteLine("[SharpBuilder.Runner] Run complete.");
 
@@ -100,12 +116,12 @@ public static class ScriptEntry
             Directory.CreateDirectory(scriptsDirectory);
             var template = new RunnerConfig
             {
-                Script = Path.Combine(scriptsDirectory, "<your-script>.orbitfsm.json"),
+                Script = Path.Combine(scriptsDirectory, "<your-script>.builder.json"),
                 Loop = true
             };
             File.WriteAllText(defaultPath, JsonConvert.SerializeObject(template, Formatting.Indented));
             Console.WriteLine(
-                $"[SharpBuilder.Runner] No config found. A template was written to {defaultPath} — point 'script' at a saved .orbitfsm.json and reload. " +
+                $"[SharpBuilder.Runner] No config found. A template was written to {defaultPath} — point 'script' at a saved .builder.json and reload. " +
                 $"To target this session only, use runner.{Environment.ProcessId}.config.json or set SHARPBUILDER_RUNNER_CONFIG.");
             return null;
         }

@@ -19,7 +19,8 @@ public partial class NodeEditorViewModel
 			$"\"{Script.Name}\" has unsaved changes. Discard them?",
 			"Unsaved changes",
 			MessageBoxButton.YesNo,
-			MessageBoxImage.Warning);
+			MessageBoxImage.Warning,
+			MessageBoxResult.No);
 		return result == MessageBoxResult.Yes;
 	}
 
@@ -28,11 +29,11 @@ public partial class NodeEditorViewModel
 		if (!ConfirmDiscardUnsavedChanges())
 			return;
 
-			StopRun();
-			Script = _scriptService.CreateNew("New graph");
-			_editHistory.Clear();
-			CurrentFilePath = null;
-			RefreshSignals();
+		StopRun();
+		Script = _scriptService.CreateNew("New graph");
+		_editHistory.Clear();
+		CurrentFilePath = null;
+		RefreshSignals();
 	}
 
 	private void LoadTemplate()
@@ -40,11 +41,11 @@ public partial class NodeEditorViewModel
 		if (!ConfirmDiscardUnsavedChanges())
 			return;
 
-			StopRun();
-			Script = _scriptService.CreatePowerFishingTemplate();
-			_editHistory.Clear();
-			CurrentFilePath = null;
-			RefreshSignals();
+		StopRun();
+		Script = _scriptService.CreatePowerFishingTemplate();
+		_editHistory.Clear();
+		CurrentFilePath = null;
+		RefreshSignals();
 	}
 
 	/// <summary>
@@ -71,7 +72,7 @@ public partial class NodeEditorViewModel
 		var dialog = new OpenFileDialog
 		{
 			Title = "Open SharpBuilder graph",
-			Filter = "SharpBuilder graph (*.orbitfsm.json)|*.orbitfsm.json|JSON (*.json)|*.json|All files|*.*",
+			Filter = "SharpBuilder graph (*.builder.json)|*.builder.json|JSON (*.json)|*.json|All files|*.*",
 			InitialDirectory = _scriptService.ScriptsDirectory
 		};
 
@@ -85,22 +86,23 @@ public partial class NodeEditorViewModel
 			return;
 		}
 
-			StopRun();
-			Script = loaded;
-			_editHistory.Clear();
-			CurrentFilePath = dialog.FileName;
-			RefreshSignals();
+		StopRun();
+		Script = loaded;
+		_editHistory.Clear();
+		CurrentFilePath = dialog.FileName;
+		RefreshSignals();
 	}
 
 	private async Task SaveScriptAsync()
 	{
-		if (string.IsNullOrWhiteSpace(CurrentFilePath))
+		var hadPath = !string.IsNullOrWhiteSpace(CurrentFilePath);
+		if (!hadPath)
 		{
 			var dialog = new SaveFileDialog
 			{
 				Title = "Save SharpBuilder graph",
-				Filter = "SharpBuilder graph (*.orbitfsm.json)|*.orbitfsm.json|JSON (*.json)|*.json|All files|*.*",
-				FileName = $"{Script.Name}.orbitfsm.json",
+				Filter = "SharpBuilder graph (*.builder.json)|*.builder.json|JSON (*.json)|*.json|All files|*.*",
+				FileName = $"{SuggestFileName(Script.Name)}.builder.json",
 				InitialDirectory = _scriptService.ScriptsDirectory
 			};
 
@@ -110,9 +112,21 @@ public partial class NodeEditorViewModel
 			CurrentFilePath = dialog.FileName;
 		}
 
-		await _scriptService.SaveAsync(Script, CurrentFilePath);
-		IsDirty = false;
-		Status = $"Saved to {CurrentFilePath}";
+		try
+		{
+			await _scriptService.SaveAsync(Script, CurrentFilePath);
+			IsDirty = false;
+			Status = $"Saved to {CurrentFilePath}";
+		}
+		catch (Exception ex)
+		{
+			// A failed first-time save must not leave CurrentFilePath pointing at a file
+			// that was never written (the next Ctrl+S would silently retry there).
+			if (!hadPath)
+				CurrentFilePath = null;
+			Status = "Save failed";
+			MessageBox.Show($"Unable to save the graph.\n\n{ex.Message}", "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
+		}
 	}
 
 	private async Task ExportScriptAsync()
@@ -120,15 +134,30 @@ public partial class NodeEditorViewModel
 		var dialog = new SaveFileDialog
 		{
 			Title = "Export / share SharpBuilder graph",
-			Filter = "SharpBuilder graph (*.orbitfsm.json)|*.orbitfsm.json|JSON (*.json)|*.json|All files|*.*",
-			FileName = $"{Script.Name}.orbitfsm.json",
+			Filter = "SharpBuilder graph (*.builder.json)|*.builder.json|JSON (*.json)|*.json|All files|*.*",
+			FileName = $"{SuggestFileName(Script.Name)}.builder.json",
 			InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
 		};
 
 		if (dialog.ShowDialog() != true)
 			return;
 
-		await _scriptService.SaveAsync(Script, dialog.FileName);
-		Status = $"Exported to {dialog.FileName}";
+		try
+		{
+			await _scriptService.SaveAsync(Script, dialog.FileName);
+			Status = $"Exported to {dialog.FileName}";
+		}
+		catch (Exception ex)
+		{
+			Status = "Export failed";
+			MessageBox.Show($"Unable to export the graph.\n\n{ex.Message}", "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
+		}
+	}
+
+	/// <summary>Graph names are free text; strip filename-invalid characters before seeding the save dialog.</summary>
+	private static string SuggestFileName(string name)
+	{
+		var cleaned = string.Concat((name ?? string.Empty).Split(System.IO.Path.GetInvalidFileNameChars())).Trim();
+		return string.IsNullOrWhiteSpace(cleaned) ? "untitled" : cleaned;
 	}
 }

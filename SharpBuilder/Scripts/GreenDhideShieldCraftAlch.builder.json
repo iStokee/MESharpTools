@@ -1,0 +1,1009 @@
+{
+  "Id": "1db6c51b-1856-4013-a725-de3a00f2618c",
+  "Name": "Green dhide shield craft-alch",
+  "Description": "Area-agnostic bank/portable crafter loop for crafting and high-alching green dragonhide shields.",
+  "Author": "SharpBuilder",
+  "StartNodeId": "6548f167-feb0-4e90-b889-4daf4b9dfa66",
+  "UpdatedAt": "2026-06-22T03:01:38.1537065Z",
+  "SchemaVersion": 2,
+  "Nodes": [
+    {
+      "Id": "6548f167-feb0-4e90-b889-4daf4b9dfa66",
+      "Title": "Have shields?",
+      "Description": "Emit or guard on count of an item by id or name.",
+      "DefinitionId": "inventory.count",
+      "DefinitionTitle": "Inventory count",
+      "Type": 2,
+      "X": 120.0,
+      "Y": 80.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 100,
+      "ActionText": "Resume by alching any green dragonhide shields already in inventory",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "35f955c8-f2bc-444e-8641-86debe6416e8",
+          "FromNodeId": "6548f167-feb0-4e90-b889-4daf4b9dfa66",
+          "ToNodeId": "ce6f608c-0880-449c-9bc7-39df0d4a9a6e",
+          "Label": "Shields ready",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "3bc01885-be5d-42fe-89da-da88834a5219",
+          "FromNodeId": "6548f167-feb0-4e90-b889-4daf4b9dfa66",
+          "ToNodeId": "88760e88-d261-432c-86ef-6814308d4618",
+          "Label": "No shields; inspect supplies",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "id",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "25794",
+          "BoolValue": false
+        },
+        {
+          "Key": "name",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "Green dragonhide shield",
+          "BoolValue": false
+        },
+        {
+          "Key": "min",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "1",
+          "BoolValue": false
+        },
+        {
+          "Key": "max",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "588feb85-700c-49ef-a11a-b106d3e1992d",
+      "Title": "Open nearby bank",
+      "Description": "Open nearest bank booth/chest.",
+      "DefinitionId": "bank.open",
+      "DefinitionTitle": "Open bank",
+      "Type": 1,
+      "X": 120.0,
+      "Y": 260.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 250,
+      "ActionText": "Bank.Open() against nearest bank NPC/object",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "be69499b-3028-4037-9dbc-23b9177af26e",
+          "FromNodeId": "588feb85-700c-49ef-a11a-b106d3e1992d",
+          "ToNodeId": "7dca2fc1-3b77-4208-ba52-3b1fc2fa8e9c",
+          "Label": "Bank open",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "IsFallback": true,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": []
+    },
+    {
+      "Id": "7dca2fc1-3b77-4208-ba52-3b1fc2fa8e9c",
+      "Title": "Clear inventory",
+      "Description": "Deposit everything (optionally except specific items).",
+      "DefinitionId": "bank.depositAll",
+      "DefinitionTitle": "Deposit all",
+      "Type": 1,
+      "X": 120.0,
+      "Y": 410.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 250,
+      "ActionText": "Deposit all before loading preset",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "a653d4f7-2631-40ed-a285-7c2e30478750",
+          "FromNodeId": "7dca2fc1-3b77-4208-ba52-3b1fc2fa8e9c",
+          "ToNodeId": "bc03d087-8810-4ccd-9932-f24b01b2cd43",
+          "Label": "Inventory clear",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "IsFallback": true,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "exceptIds",
+          "Type": 4,
+          "AllowMultiple": true,
+          "RawValue": "",
+          "BoolValue": false
+        },
+        {
+          "Key": "exceptNames",
+          "Type": 4,
+          "AllowMultiple": true,
+          "RawValue": "",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "bc03d087-8810-4ccd-9932-f24b01b2cd43",
+      "Title": "Load preset",
+      "Description": "Load a bank preset after the bank is open, either by pressing a configured preset keybind or by native preset slot.",
+      "DefinitionId": "bank.loadPreset",
+      "DefinitionTitle": "Load bank preset",
+      "Type": 1,
+      "X": 120.0,
+      "Y": 560.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 250,
+      "ActionText": "Press bank preset keybind once bank is open",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "9a9fa669-6cd9-4842-b746-62056d390eec",
+          "FromNodeId": "bc03d087-8810-4ccd-9932-f24b01b2cd43",
+          "ToNodeId": "d3cd22d7-e40c-4761-a39e-988de3ccf58a",
+          "Label": "Preset loaded",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "756f0602-9cbb-4440-8582-988c1b11d506",
+          "FromNodeId": "bc03d087-8810-4ccd-9932-f24b01b2cd43",
+          "ToNodeId": "9f3d3a8b-1924-46e8-8832-67a036ede56e",
+          "Label": "Preset failed",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "method",
+          "Type": 3,
+          "AllowMultiple": false,
+          "RawValue": "Keybind",
+          "BoolValue": false
+        },
+        {
+          "Key": "keybind",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "1",
+          "BoolValue": false
+        },
+        {
+          "Key": "preset",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "1",
+          "BoolValue": false
+        },
+        {
+          "Key": "loadLast",
+          "Type": 2,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        },
+        {
+          "Key": "waitMs",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "1200",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "d3cd22d7-e40c-4761-a39e-988de3ccf58a",
+      "Title": "Close bank",
+      "Description": "Close the bank interface.",
+      "DefinitionId": "bank.close",
+      "DefinitionTitle": "Close bank",
+      "Type": 1,
+      "X": 120.0,
+      "Y": 710.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 500,
+      "ActionText": "Close before crafting",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "2589b660-b97e-4b86-9bff-1e199d6f1ec3",
+          "FromNodeId": "d3cd22d7-e40c-4761-a39e-988de3ccf58a",
+          "ToNodeId": "fb7d03dc-7ffc-4c47-89a1-13d57d9a3da1",
+          "Label": "Check preset supplies",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "IsFallback": true,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": []
+    },
+    {
+      "Id": "88760e88-d261-432c-86ef-6814308d4618",
+      "Title": "Have leather?",
+      "Description": "Emit or guard on count of an item by id or name.",
+      "DefinitionId": "inventory.count",
+      "DefinitionTitle": "Inventory count",
+      "Type": 2,
+      "X": 440.0,
+      "Y": 80.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 100,
+      "ActionText": "Resume if 26 green dragon leather are already in inventory",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "2621f654-8270-43ae-ae37-528a38dbed53",
+          "FromNodeId": "88760e88-d261-432c-86ef-6814308d4618",
+          "ToNodeId": "f3497b18-13f6-4ca2-b3b8-ca22e3faf7a2",
+          "Label": "Leather ready",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "29929e6e-72f9-4fe6-ae6c-4b6a5903da40",
+          "FromNodeId": "88760e88-d261-432c-86ef-6814308d4618",
+          "ToNodeId": "588feb85-700c-49ef-a11a-b106d3e1992d",
+          "Label": "Need supplies",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "id",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "1745",
+          "BoolValue": false
+        },
+        {
+          "Key": "name",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "Green dragon leather",
+          "BoolValue": false
+        },
+        {
+          "Key": "min",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "26",
+          "BoolValue": false
+        },
+        {
+          "Key": "max",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "f3497b18-13f6-4ca2-b3b8-ca22e3faf7a2",
+      "Title": "Have natures?",
+      "Description": "Emit or guard on count of an item by id or name.",
+      "DefinitionId": "inventory.count",
+      "DefinitionTitle": "Inventory count",
+      "Type": 2,
+      "X": 440.0,
+      "Y": 230.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 100,
+      "ActionText": "Resume if 13 nature runes are already in inventory",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "96d7b9bf-1444-4ccb-880e-d732cae55c02",
+          "FromNodeId": "f3497b18-13f6-4ca2-b3b8-ca22e3faf7a2",
+          "ToNodeId": "00f876c1-1cc6-4d7f-8559-16f3f292e9c7",
+          "Label": "Runes ready",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "ec6c7816-4cdc-416b-8324-882012bda752",
+          "FromNodeId": "f3497b18-13f6-4ca2-b3b8-ca22e3faf7a2",
+          "ToNodeId": "588feb85-700c-49ef-a11a-b106d3e1992d",
+          "Label": "Need natures",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "id",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "561",
+          "BoolValue": false
+        },
+        {
+          "Key": "name",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "Nature rune",
+          "BoolValue": false
+        },
+        {
+          "Key": "min",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "13",
+          "BoolValue": false
+        },
+        {
+          "Key": "max",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "fb7d03dc-7ffc-4c47-89a1-13d57d9a3da1",
+      "Title": "Preset leather?",
+      "Description": "Emit or guard on count of an item by id or name.",
+      "DefinitionId": "inventory.count",
+      "DefinitionTitle": "Inventory count",
+      "Type": 2,
+      "X": 440.0,
+      "Y": 500.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 100,
+      "ActionText": "Verify the loaded preset supplied 26 green dragon leather",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "87ae290c-9b25-4eef-939a-3a88ba0137f0",
+          "FromNodeId": "fb7d03dc-7ffc-4c47-89a1-13d57d9a3da1",
+          "ToNodeId": "648d8b2c-0101-4b8b-8191-d1c656ed458f",
+          "Label": "Leather ready",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "4fb039c4-e82b-4514-b626-efb45ee4b61b",
+          "FromNodeId": "fb7d03dc-7ffc-4c47-89a1-13d57d9a3da1",
+          "ToNodeId": "9f3d3a8b-1924-46e8-8832-67a036ede56e",
+          "Label": "No leather",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "id",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "1745",
+          "BoolValue": false
+        },
+        {
+          "Key": "name",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "Green dragon leather",
+          "BoolValue": false
+        },
+        {
+          "Key": "min",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "26",
+          "BoolValue": false
+        },
+        {
+          "Key": "max",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "648d8b2c-0101-4b8b-8191-d1c656ed458f",
+      "Title": "Preset natures?",
+      "Description": "Emit or guard on count of an item by id or name.",
+      "DefinitionId": "inventory.count",
+      "DefinitionTitle": "Inventory count",
+      "Type": 2,
+      "X": 440.0,
+      "Y": 650.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 100,
+      "ActionText": "Verify the loaded preset supplied 13 nature runes",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "e07afe9a-5204-431d-a552-9317934005d6",
+          "FromNodeId": "648d8b2c-0101-4b8b-8191-d1c656ed458f",
+          "ToNodeId": "00f876c1-1cc6-4d7f-8559-16f3f292e9c7",
+          "Label": "Runes ready",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "23787961-09bf-4e70-96d7-8019de31f14e",
+          "FromNodeId": "648d8b2c-0101-4b8b-8191-d1c656ed458f",
+          "ToNodeId": "9f3d3a8b-1924-46e8-8832-67a036ede56e",
+          "Label": "No natures",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "id",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "561",
+          "BoolValue": false
+        },
+        {
+          "Key": "name",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "Nature rune",
+          "BoolValue": false
+        },
+        {
+          "Key": "min",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "13",
+          "BoolValue": false
+        },
+        {
+          "Key": "max",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "9f3d3a8b-1924-46e8-8832-67a036ede56e",
+      "Title": "Stop: missing supplies",
+      "Description": "Terminal node that stops the runner.",
+      "DefinitionId": "control.terminal",
+      "DefinitionTitle": "End / Terminal",
+      "Type": 3,
+      "X": 440.0,
+      "Y": 820.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 100,
+      "ActionText": "Preset did not provide required materials/runes",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [],
+      "Parameters": []
+    },
+    {
+      "Id": "00f876c1-1cc6-4d7f-8559-16f3f292e9c7",
+      "Title": "Find portable crafter",
+      "Description": "Query nearby objects by name/id and emit a boolean signal.",
+      "DefinitionId": "objects.find",
+      "DefinitionTitle": "Find Object",
+      "Type": 2,
+      "X": 760.0,
+      "Y": 80.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 150,
+      "ActionText": "Scan local area for a portable crafter",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "621b21ee-2c11-4b47-adb0-7d123504b647",
+          "FromNodeId": "00f876c1-1cc6-4d7f-8559-16f3f292e9c7",
+          "ToNodeId": "60ba37ad-7078-4f2a-a75d-a4dbc1f00f65",
+          "Label": "Portable found",
+          "ConditionKey": "hasPortableCrafter",
+          "ExpectedValue": true,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": true
+        },
+        {
+          "Id": "aed3b141-6b39-484b-acee-4eef5f67ca46",
+          "FromNodeId": "00f876c1-1cc6-4d7f-8559-16f3f292e9c7",
+          "ToNodeId": "c88ae572-f7fd-4944-9945-c382d30cb102",
+          "Label": "No portable; use keybind",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "IsFallback": true,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "name",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "Portable crafter",
+          "BoolValue": false
+        },
+        {
+          "Key": "id",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        },
+        {
+          "Key": "maxDistance",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "12",
+          "BoolValue": false
+        },
+        {
+          "Key": "signal",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "hasPortableCrafter",
+          "BoolValue": false
+        },
+        {
+          "Key": "expected",
+          "Type": 2,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": true
+        }
+      ]
+    },
+    {
+      "Id": "60ba37ad-7078-4f2a-a75d-a4dbc1f00f65",
+      "Title": "Use portable crafter",
+      "Description": "Interact with a world object by name/id using captured native opcode and route offset.",
+      "DefinitionId": "objects.interact",
+      "DefinitionTitle": "Object interact (advanced)",
+      "Type": 1,
+      "X": 760.0,
+      "Y": 250.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 650,
+      "ActionText": "Click nearby portable crafter to open production",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "2ed252ca-e28b-4d39-9882-7ffa1518c6de",
+          "FromNodeId": "60ba37ad-7078-4f2a-a75d-a4dbc1f00f65",
+          "ToNodeId": "f71bf797-2ff1-40ce-ad5a-e6c20d26db5a",
+          "Label": "Make-X opened",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "a185e360-813c-441a-887a-dfd87f979edb",
+          "FromNodeId": "60ba37ad-7078-4f2a-a75d-a4dbc1f00f65",
+          "ToNodeId": "c88ae572-f7fd-4944-9945-c382d30cb102",
+          "Label": "Portable click failed",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "name",
+          "Type": 4,
+          "AllowMultiple": true,
+          "RawValue": "Portable crafter",
+          "BoolValue": false
+        },
+        {
+          "Key": "id",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        },
+        {
+          "Key": "actionIndex",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "58",
+          "BoolValue": false
+        },
+        {
+          "Key": "offset",
+          "Type": 3,
+          "AllowMultiple": false,
+          "RawValue": "GeneralObject_route0 = 3696",
+          "BoolValue": false
+        },
+        {
+          "Key": "maxDistance",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "12",
+          "BoolValue": false
+        },
+        {
+          "Key": "valid",
+          "Type": 2,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        },
+        {
+          "Key": "option",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "Craft",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "c88ae572-f7fd-4944-9945-c382d30cb102",
+      "Title": "Dragon leather keybind",
+      "Description": "Send keys or text to the game client.",
+      "DefinitionId": "keyboard.send",
+      "DefinitionTitle": "Keyboard macro",
+      "Type": 1,
+      "X": 760.0,
+      "Y": 430.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 650,
+      "ActionText": "Fallback if no portable is nearby",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "cc83b339-a423-4278-a729-e84cadee39f5",
+          "FromNodeId": "c88ae572-f7fd-4944-9945-c382d30cb102",
+          "ToNodeId": "f71bf797-2ff1-40ce-ad5a-e6c20d26db5a",
+          "Label": "Make-X opened",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "IsFallback": true,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "keys",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "F6",
+          "BoolValue": false
+        },
+        {
+          "Key": "delayMs",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "650",
+          "BoolValue": false
+        }
+      ]
+    },
+    {
+      "Id": "f71bf797-2ff1-40ce-ad5a-e6c20d26db5a",
+      "Title": "Make shields",
+      "Description": "Open-check, optional category, optional grid-slot select, then craft the current selection at the menu's preset amount. The product grid exposes no item ids, so select by slot index or leave blank if already selected.",
+      "DefinitionId": "makex.makeItem",
+      "DefinitionTitle": "Make item (Make-X)",
+      "Type": 1,
+      "X": 1080.0,
+      "Y": 170.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 250,
+      "ActionText": "Craft green dragonhide shields (already-selected product, preset amount)",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "be9e6fd0-5a47-4bca-9e15-5b2486ba4237",
+          "FromNodeId": "f71bf797-2ff1-40ce-ad5a-e6c20d26db5a",
+          "ToNodeId": "ce6f608c-0880-449c-9bc7-39df0d4a9a6e",
+          "Label": "Crafted",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "4f99a378-c350-4892-be11-44ee7e3d0488",
+          "FromNodeId": "f71bf797-2ff1-40ce-ad5a-e6c20d26db5a",
+          "ToNodeId": "9f3d3a8b-1924-46e8-8832-67a036ede56e",
+          "Label": "Craft failed",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "slot",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        },
+        {
+          "Key": "category",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        },
+        {
+          "Key": "waitComplete",
+          "Type": 2,
+          "AllowMultiple": false,
+          "RawValue": "true",
+          "BoolValue": true
+        }
+      ]
+    },
+    {
+      "Id": "ce6f608c-0880-449c-9bc7-39df0d4a9a6e",
+      "Title": "Alch shields",
+      "Description": "Tap a configured High Alchemy/action-bar keybind and wait through the player animation until matching inventory items are gone.",
+      "DefinitionId": "inventory.alchAll",
+      "DefinitionTitle": "High alch item(s)",
+      "Type": 1,
+      "X": 1080.0,
+      "Y": 360.0,
+      "DashboardWidth": 520.0,
+      "DashboardHeight": 430.0,
+      "DwellMilliseconds": 250,
+      "ActionText": "Press high-alch keybind and wait through animation until shields are gone",
+      "IsActive": false,
+      "IsSelected": false,
+      "Transitions": [
+        {
+          "Id": "2cab80d0-7293-4b3c-9c6a-409090e63bbc",
+          "FromNodeId": "ce6f608c-0880-449c-9bc7-39df0d4a9a6e",
+          "ToNodeId": "588feb85-700c-49ef-a11a-b106d3e1992d",
+          "Label": "Repeat",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 1,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        },
+        {
+          "Id": "e428f6d8-e293-4de0-88a0-b4f98312ae30",
+          "FromNodeId": "ce6f608c-0880-449c-9bc7-39df0d4a9a6e",
+          "ToNodeId": "9f3d3a8b-1924-46e8-8832-67a036ede56e",
+          "Label": "Alch failed/stalled",
+          "ConditionKey": "",
+          "ExpectedValue": true,
+          "Trigger": 2,
+          "IsFallback": false,
+          "IsActive": false,
+          "HasCondition": false
+        }
+      ],
+      "Parameters": [
+        {
+          "Key": "items",
+          "Type": 4,
+          "AllowMultiple": true,
+          "RawValue": "Green dragonhide shield, 25794",
+          "BoolValue": false
+        },
+        {
+          "Key": "keybind",
+          "Type": 0,
+          "AllowMultiple": false,
+          "RawValue": "E",
+          "BoolValue": false
+        },
+        {
+          "Key": "targetMode",
+          "Type": 3,
+          "AllowMultiple": false,
+          "RawValue": "KeybindThenItem",
+          "BoolValue": false
+        },
+        {
+          "Key": "quantity",
+          "Type": 3,
+          "AllowMultiple": false,
+          "RawValue": "All",
+          "BoolValue": false
+        },
+        {
+          "Key": "count",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "",
+          "BoolValue": false
+        },
+        {
+          "Key": "requireAlchable",
+          "Type": 2,
+          "AllowMultiple": false,
+          "RawValue": "true",
+          "BoolValue": true
+        },
+        {
+          "Key": "targetDelayMs",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "1000",
+          "BoolValue": false
+        },
+        {
+          "Key": "recastMode",
+          "Type": 3,
+          "AllowMultiple": false,
+          "RawValue": "ItemDisappears",
+          "BoolValue": false
+        },
+        {
+          "Key": "disappearTimeoutMs",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "3500",
+          "BoolValue": false
+        },
+        {
+          "Key": "postTargetDelayMs",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "2500",
+          "BoolValue": false
+        },
+        {
+          "Key": "startTimeoutMs",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "1500",
+          "BoolValue": false
+        },
+        {
+          "Key": "finishTimeoutMs",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "5000",
+          "BoolValue": false
+        },
+        {
+          "Key": "betweenCastsMs",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "250",
+          "BoolValue": false
+        },
+        {
+          "Key": "inventoryRoot",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "0",
+          "BoolValue": false
+        },
+        {
+          "Key": "itemAction",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "110",
+          "BoolValue": false
+        },
+        {
+          "Key": "itemOffset",
+          "Type": 1,
+          "AllowMultiple": false,
+          "RawValue": "1472",
+          "BoolValue": false
+        }
+      ]
+    }
+  ]
+}

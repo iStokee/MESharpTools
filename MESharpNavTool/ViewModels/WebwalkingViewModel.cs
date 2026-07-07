@@ -33,6 +33,7 @@ namespace MESharp.ViewModels
         private bool _isDirty;
         private bool _isRunning;
         private bool _suppressDirtyTracking;
+        private bool _lastRunSucceeded;
 
         private string _lastStatus = "Ready.";
         private string _runStatus = "Idle";
@@ -152,8 +153,6 @@ namespace MESharp.ViewModels
         public ICommand DuplicateRouteCommand { get; }
         public ICommand RenameRouteCommand { get; }
         public ICommand DeleteRouteCommand { get; }
-        public ICommand MoveRouteUpCommand { get; }
-        public ICommand MoveRouteDownCommand { get; }
         public ICommand RefreshRouteListCommand { get; }
 
         public ICommand AddCurrentWaypointCommand { get; }
@@ -184,8 +183,6 @@ namespace MESharp.ViewModels
             DuplicateRouteCommand = new RelayCommand(_ => DuplicateSelectedRoute(), _ => SelectedRoute != null && !IsRunning);
             RenameRouteCommand = new RelayCommand(_ => RenameSelectedRoute(), _ => SelectedRoute != null && !string.IsNullOrWhiteSpace(RenameText) && !IsRunning);
             DeleteRouteCommand = new RelayCommand(_ => DeleteSelectedRoute(), _ => SelectedRoute != null && !IsRunning);
-            MoveRouteUpCommand = new RelayCommand(_ => MoveSelectedRoute(-1), _ => CanMoveSelectedRoute(-1) && !IsRunning);
-            MoveRouteDownCommand = new RelayCommand(_ => MoveSelectedRoute(1), _ => CanMoveSelectedRoute(1) && !IsRunning);
             RefreshRouteListCommand = new RelayCommand(_ => RefreshRouteList());
 
             AddCurrentWaypointCommand = new RelayCommand(_ => AddWaypointFromCurrent(), _ => !IsRunning);
@@ -241,12 +238,6 @@ namespace MESharp.ViewModels
                 SavedRoutes.Add(route);
             }
 
-            if (!string.IsNullOrWhiteSpace(RouteStore.LastError))
-            {
-                LastStatus = RouteStore.LastError;
-                AddLog(LastStatus);
-            }
-
             ApplyRouteFilter();
             if (!string.IsNullOrWhiteSpace(currentSelectionId))
             {
@@ -259,7 +250,18 @@ namespace MESharp.ViewModels
 
             RefreshCategoryOptions();
 
-            LastStatus = $"Loaded {SavedRoutes.Count} routes.";
+            // A load error must stay visible — the catalog is degraded (core routes only)
+            // and saves are refused by the engine until the store is fixed.
+            if (!string.IsNullOrWhiteSpace(RouteStore.LastError))
+            {
+                LastStatus = RouteStore.LastError!;
+                AddLog(LastStatus);
+            }
+            else
+            {
+                LastStatus = $"Loaded {SavedRoutes.Count} routes.";
+            }
+
             RefreshCommandStates();
             RefreshWorkflowState();
         }
@@ -344,7 +346,9 @@ namespace MESharp.ViewModels
             }
 
             var normalizedName = RouteName.Trim();
-            var existing = FindExistingRouteForSave(normalizedName);
+            // Identity is the (normalized) name: saving under a new name creates a new
+            // route instead of silently renaming whatever happens to be selected.
+            var existing = SavedRoutes.FirstOrDefault(r => string.Equals(r.Name, normalizedName, StringComparison.OrdinalIgnoreCase));
 
             var route = new RouteDefinition
             {
@@ -361,18 +365,10 @@ namespace MESharp.ViewModels
             };
             route.Normalize();
 
-            if (existing is null)
+            if (!RouteStore.TryUpsert(route, out var saveError))
             {
-                SavedRoutes.Add(route);
-            }
-            else
-            {
-                var index = SavedRoutes.IndexOf(existing);
-                SavedRoutes[index] = route;
-            }
-
-            if (!PersistRoutesWithFeedback())
-            {
+                LastStatus = saveError ?? "Route save failed.";
+                AddLog(LastStatus);
                 return;
             }
             RefreshRouteList();
@@ -382,17 +378,6 @@ namespace MESharp.ViewModels
             LastStatus = $"Saved route '{route.Name}' ({route.Waypoints.Count} waypoints).";
             AddLog(LastStatus);
             RefreshWorkflowState();
-        }
-
-        private RouteDefinition? FindExistingRouteForSave(string normalizedName)
-        {
-            if (SelectedRoute != null)
-            {
-                return SavedRoutes.FirstOrDefault(r => string.Equals(r.Id, SelectedRoute.Id, StringComparison.OrdinalIgnoreCase))
-                    ?? SavedRoutes.FirstOrDefault(r => string.Equals(r.Name, SelectedRoute.Name, StringComparison.OrdinalIgnoreCase));
-            }
-
-            return SavedRoutes.FirstOrDefault(r => string.Equals(r.Name, normalizedName, StringComparison.OrdinalIgnoreCase));
         }
 
         private static string BuildRouteId(string name)
@@ -465,9 +450,10 @@ namespace MESharp.ViewModels
             duplicate.CreatedAt = DateTime.UtcNow;
             duplicate.SavedAt = DateTime.UtcNow;
 
-            SavedRoutes.Add(duplicate);
-            if (!PersistRoutesWithFeedback())
+            if (!RouteStore.TryUpsert(duplicate, out var error))
             {
+                LastStatus = error ?? "Route duplicate failed.";
+                AddLog(LastStatus);
                 return;
             }
             RefreshRouteList();
@@ -508,8 +494,10 @@ namespace MESharp.ViewModels
             route.Name = newName;
             route.SavedAt = DateTime.UtcNow;
             route.Normalize();
-            if (!PersistRoutesWithFeedback())
+            if (!RouteStore.TryUpsert(route, out var error))
             {
+                LastStatus = error ?? "Route rename failed.";
+                AddLog(LastStatus);
                 return;
             }
             RefreshRouteList();
@@ -526,50 +514,25 @@ namespace MESharp.ViewModels
                 return;
             }
 
-            SavedRoutes.Remove(route);
-            if (!PersistRoutesWithFeedback())
+            var confirmed = System.Windows.MessageBox.Show(
+                $"Delete route '{route.Name}' ({route.Waypoints?.Count ?? 0} waypoints)? This cannot be undone.",
+                "Delete route",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes;
+            if (!confirmed)
             {
+                return;
+            }
+
+            if (!RouteStore.TryDelete(route, out var error))
+            {
+                LastStatus = error ?? "Route delete failed.";
+                AddLog(LastStatus);
                 return;
             }
             RefreshRouteList();
             LastStatus = $"Deleted route '{route.Name}'.";
             AddLog(LastStatus);
-        }
-
-        private bool CanMoveSelectedRoute(int direction)
-        {
-            if (SelectedRoute == null)
-            {
-                return false;
-            }
-
-            var index = SavedRoutes.IndexOf(SelectedRoute);
-            if (index < 0)
-            {
-                return false;
-            }
-
-            var target = index + direction;
-            return target >= 0 && target < SavedRoutes.Count;
-        }
-
-        private void MoveSelectedRoute(int direction)
-        {
-            if (!CanMoveSelectedRoute(direction) || SelectedRoute == null)
-            {
-                return;
-            }
-
-            var index = SavedRoutes.IndexOf(SelectedRoute);
-            var target = index + direction;
-            SavedRoutes.Move(index, target);
-            if (!PersistRoutesWithFeedback())
-            {
-                return;
-            }
-            ApplyRouteFilter();
-            SelectedRoute = SavedRoutes[target];
-            LastStatus = $"Moved route to row {target + 1}.";
         }
 
         private void AddWaypointFromCurrent()
@@ -750,8 +713,9 @@ namespace MESharp.ViewModels
 
             return input
                 .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Where(part => int.TryParse(part, out _))
-                .Select(int.Parse)
+                .Select(part => int.TryParse(part, out var id) ? id : (int?)null)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
                 .Distinct()
                 .ToList();
         }
@@ -841,12 +805,14 @@ namespace MESharp.ViewModels
             var ct = _runCts.Token;
 
             IsRunning = true;
+            _lastRunSucceeded = false;
             RunStatus = $"Running {routeName}";
             AddLog($"Route run started: {routeName}");
 
             try
             {
                 var result = await Webwalking.RunRouteDetailedAsync(routeId, ct);
+                _lastRunSucceeded = result.Succeeded;
                 LastStatus = FormatRouteResult(result);
                 AddLog(LastStatus);
                 RefreshWorkflowState();
@@ -875,12 +841,14 @@ namespace MESharp.ViewModels
             var ct = _runCts.Token;
 
             IsRunning = true;
+            _lastRunSucceeded = false;
             RunStatus = $"Running {draftName}";
             AddLog($"Draft run started: {draftName} ({waypoints.Count} waypoints)");
 
             try
             {
                 var result = await Webwalking.RunRouteDetailedAsync(waypoints, draftName, ct);
+                _lastRunSucceeded = result.Succeeded;
                 LastStatus = FormatRouteResult(result);
                 AddLog(LastStatus);
                 RefreshWorkflowState();
@@ -920,15 +888,15 @@ namespace MESharp.ViewModels
 
         private void UpdateCurrentTile()
         {
-            if (TryGetCurrentTile(out var x, out var y, out var z))
+            var next = TryGetCurrentTile(out var x, out var y, out var z) ? $"{x}, {y}, {z}" : "--";
+            if (string.Equals(next, CurrentTile, StringComparison.Ordinal))
             {
-                CurrentTile = $"{x}, {y}, {z}";
-            }
-            else
-            {
-                CurrentTile = "--";
+                // Nothing changed this tick — skip the workflow rebuild (it re-validates the
+                // whole draft and replaces the checklist items, which is wasteful at 750ms).
+                return;
             }
 
+            CurrentTile = next;
             RefreshWorkflowState();
         }
 
@@ -1004,9 +972,14 @@ namespace MESharp.ViewModels
                 return false;
             }
 
-            if (!int.TryParse(TargetZ, out z))
+            if (string.IsNullOrWhiteSpace(TargetZ))
             {
                 z = 0;
+            }
+            else if (!int.TryParse(TargetZ, out z))
+            {
+                // A typed-but-invalid plane must not silently become plane 0.
+                return false;
             }
 
             return true;
@@ -1136,7 +1109,7 @@ namespace MESharp.ViewModels
             {
                 Title = "Run bounded test",
                 Detail = IsRunning ? RunStatus : "Use Run Draft first, then promote via graph edges.",
-                IsComplete = !IsRunning && LastStatus.Contains("completed", StringComparison.OrdinalIgnoreCase),
+                IsComplete = !IsRunning && _lastRunSucceeded,
                 IsActive = isValid && preflightOk && isSaved && !IsRunning
             });
         }
@@ -1241,18 +1214,6 @@ namespace MESharp.ViewModels
             _ => $"Route '{result.RouteName}': {result.Message}"
         };
 
-        private bool PersistRoutesWithFeedback()
-        {
-            if (RouteStore.TrySave(SavedRoutes, out var error))
-            {
-                return true;
-            }
-
-            LastStatus = error ?? "Route save failed.";
-            AddLog(LastStatus);
-            return false;
-        }
-
         private void ShowHelpWindow()
         {
             try
@@ -1310,6 +1271,7 @@ namespace MESharp.ViewModels
 
             if (IsRunning)
             {
+                AddLog("Route run stopped: the Routes section was deactivated while running.");
                 StopRun();
             }
         }

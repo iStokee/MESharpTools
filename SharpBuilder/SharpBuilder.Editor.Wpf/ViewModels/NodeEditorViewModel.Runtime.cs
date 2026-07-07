@@ -58,17 +58,20 @@ public partial class NodeEditorViewModel
 			return;
 
 		IsRunning = true;
-		IsLooping = loop;
+		// Remember the active run's mode without clobbering the user's Loop toggle
+		// (Step must not switch the toggle off for the next Start).
+		_currentRunLooping = loop;
 		Status = loop ? "Running (loop)" : "Running once";
 
 		ClearTrail();
+		var runScript = GraphCloneService.Clone(Script);
 
 		_runCts?.Dispose();
 		_runCts = new CancellationTokenSource();
 		var token = _runCts.Token;
 		try
 		{
-			_runTask = Task.Run(() => _engine.RunAsync(Script, signals, loop, token), token);
+			_runTask = Task.Run(() => _engine.RunAsync(runScript, signals, loop, token), token);
 			await _runTask;
 		}
 		finally
@@ -112,16 +115,23 @@ public partial class NodeEditorViewModel
 	{
 		RunOnUi(() =>
 		{
+			node = ResolveLiveNode(node) ?? node;
 			if (_currentRunNode != null && !ReferenceEquals(_currentRunNode, node))
 			{
 				_currentRunNode.IsCurrent = false;
+				if (!_runTrailNodeCounts.ContainsKey(_currentRunNode.Id))
+				{
+					_currentRunNode.IsActive = false;
+					_currentRunNode.LastRunStatus = NodeRunStatus.None;
+				}
 			}
 
 			_currentRunNode = node;
 			node.IsCurrent = true;
-			node.IsActive = true;
+			RecordTrailNode(node);
 			Status = $"Entered {node.Title}";
 			RefreshDashboard();
+			BeginDashboardGameRefresh();
 		});
 	}
 
@@ -129,7 +139,8 @@ public partial class NodeEditorViewModel
 	{
 		RunOnUi(() =>
 		{
-			e.Node.LastRunStatus = e.Result.Status == NodeExecutionStatus.Fail
+			var node = ResolveLiveNode(e.Node) ?? e.Node;
+			node.LastRunStatus = e.Result.Status == NodeExecutionStatus.Fail
 				? NodeRunStatus.Fail
 				: NodeRunStatus.Success;
 
@@ -151,6 +162,7 @@ public partial class NodeEditorViewModel
 			}
 
 			RefreshDashboard();
+			BeginDashboardGameRefresh();
 		});
 	}
 
@@ -158,8 +170,9 @@ public partial class NodeEditorViewModel
 	{
 		RunOnUi(() =>
 		{
-			transition.IsActive = true;
+			RecordTrailTransition(ResolveLiveTransition(transition) ?? transition);
 			RefreshDashboard();
+			BeginDashboardGameRefresh();
 		});
 	}
 
@@ -170,6 +183,7 @@ public partial class NodeEditorViewModel
 			IsRunning = false;
 			Status = "Cycle complete";
 			RefreshDashboard();
+			BeginDashboardGameRefresh();
 		});
 	}
 
@@ -180,6 +194,7 @@ public partial class NodeEditorViewModel
 			IsRunning = false;
 			Status = $"Error: {ex.Message}";
 			RefreshDashboard();
+			BeginDashboardGameRefresh();
 			MessageBox.Show($"SharpBuilder engine failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
 		});
 	}
@@ -201,5 +216,73 @@ public partial class NodeEditorViewModel
 		{
 			action();
 		}
+	}
+
+	private NodeModel? ResolveLiveNode(NodeModel node)
+		=> Script.Nodes.FirstOrDefault(n => n.Id == node.Id);
+
+	private TransitionModel? ResolveLiveTransition(TransitionModel transition)
+		=> AllTransitions.FirstOrDefault(t => t.Id == transition.Id);
+
+	private void RecordTrailNode(NodeModel node)
+	{
+		IncrementTrailCount(_runTrailNodeCounts, node.Id);
+		node.IsActive = true;
+		_runTrail.Enqueue(new RunTrailEntry(RunTrailEntryKind.Node, node.Id));
+		TrimRunTrail();
+	}
+
+	private void RecordTrailTransition(TransitionModel transition)
+	{
+		IncrementTrailCount(_runTrailTransitionCounts, transition.Id);
+		transition.IsActive = true;
+		_runTrail.Enqueue(new RunTrailEntry(RunTrailEntryKind.Transition, transition.Id));
+		TrimRunTrail();
+	}
+
+	private void TrimRunTrail()
+	{
+		while (_runTrail.Count > MaxRunTrailEntries)
+		{
+			var expired = _runTrail.Dequeue();
+			if (expired.Kind == RunTrailEntryKind.Node)
+			{
+				if (DecrementTrailCount(_runTrailNodeCounts, expired.Id))
+				{
+					var node = Script.Nodes.FirstOrDefault(n => n.Id == expired.Id);
+					if (node != null && !node.IsCurrent)
+					{
+						node.IsActive = false;
+						node.LastRunStatus = NodeRunStatus.None;
+					}
+				}
+			}
+			else if (DecrementTrailCount(_runTrailTransitionCounts, expired.Id))
+			{
+				var transition = AllTransitions.FirstOrDefault(t => t.Id == expired.Id);
+				if (transition != null)
+					transition.IsActive = false;
+			}
+		}
+	}
+
+	private static void IncrementTrailCount(Dictionary<Guid, int> counts, Guid id)
+	{
+		counts[id] = counts.TryGetValue(id, out var current) ? current + 1 : 1;
+	}
+
+	private static bool DecrementTrailCount(Dictionary<Guid, int> counts, Guid id)
+	{
+		if (!counts.TryGetValue(id, out var current))
+			return true;
+
+		if (current > 1)
+		{
+			counts[id] = current - 1;
+			return false;
+		}
+
+		counts.Remove(id);
+		return true;
 	}
 }

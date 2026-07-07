@@ -19,6 +19,7 @@ internal static partial class NodeCatalogSections
 			new NodeCategory { Id = "inventory", Title = "Inventory", Description = "Bag logic, item usage, gear", Icon = "BagPersonal", Order = 4, Slug = "inventory", AccentColor = "#FF9F6E" },
 			new NodeCategory { Id = "equipment", Title = "Equipment", Description = "Worn gear checks and unequip", Icon = "TshirtCrew", Order = 5, Slug = "equipment", AccentColor = "#E86E8A" },
 			new NodeCategory { Id = "bank", Title = "Bank", Description = "Banking operations and presets", Icon = "Safe", Order = 6, Slug = "bank", AccentColor = "#E8C46E" },
+			new NodeCategory { Id = "makex", Title = "Make-X", Description = "Production / Make-X menu: select, amount, craft", Icon = "Hammer", Order = 7, Slug = "makex", AccentColor = "#E8A36E" },
 			new NodeCategory { Id = "npcs", Title = "NPCs", Description = "Interact, attack, query NPCs", Icon = "AccountGroup", Order = 7, Slug = "npcs", AccentColor = "#FF6EC7" },
 			new NodeCategory { Id = "objects", Title = "Objects", Description = "Interact with world objects", Icon = "CubeOutline", Order = 8, Slug = "objects", AccentColor = "#6EDAE8" },
 			new NodeCategory { Id = "loot", Title = "Loot", Description = "Ground item pickup / filters", Icon = "TreasureChest", Order = 9, Slug = "loot", AccentColor = "#C0E86E" },
@@ -38,6 +39,7 @@ internal static partial class NodeCatalogSections
 			.Concat(CreateActionDefinitions())
 			.Concat(CreateTraversalDefinitions())
 			.Concat(CreateInventoryDefinitions())
+			.Concat(CreateMakeXDefinitions())
 			.Concat(CreateInteractionDefinitions())
 			.Concat(CreateCombatDefinitions())
 			.Concat(CreateMiscDefinitions())

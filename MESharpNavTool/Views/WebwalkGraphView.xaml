@@ -352,7 +352,7 @@
                                                ToolTip="Destination node id." />
 
                                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Kind" Style="{StaticResource FieldLabel}" Margin="0,0,0,4" />
-                                    <ComboBox  Grid.Row="3" Grid.Column="1" Text="{Binding NewEdgeKind}" IsEditable="True" Margin="0,0,0,4"
+                                    <ComboBox  Grid.Row="3" Grid.Column="1" SelectedValue="{Binding NewEdgeKind}" SelectedValuePath="Content" Margin="0,0,0,4"
                                                ToolTip="route: walks a named route. lodestone: teleports to a lodestone network destination. shortcut: clicks a world object (agility shortcuts, tunnels) — gate with a skill requirement. Other travel networks are schema-reserved but not executable yet.">
                                         <ComboBoxItem Content="route" />
                                         <ComboBoxItem Content="lodestone" />

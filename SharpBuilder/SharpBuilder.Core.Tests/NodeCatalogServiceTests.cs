@@ -105,4 +105,23 @@ public class NodeCatalogServiceTests
 			Assert.All(pair.Parameter.EnumValues!, value => Assert.False(string.IsNullOrWhiteSpace(value)));
 		});
 	}
+
+	[Fact]
+	public void CraftAlchSupportDefinitions_AreAvailable()
+	{
+		var preset = _catalog.GetDefinition("bank.loadPreset");
+		var alch = _catalog.GetDefinition("inventory.alchAll");
+
+		Assert.NotNull(preset);
+		Assert.NotNull(alch);
+		Assert.Contains(preset!.Parameters, p => p.Key == "method" && p.Type == NodeParamType.Enum);
+		Assert.Contains(preset.Parameters, p => p.Key == "keybind");
+		Assert.Contains(alch!.Parameters, p => p.Key == "keybind" && p.IsRequired);
+		Assert.Contains(alch.Parameters, p => p.Key == "items" && p.IsRequired);
+		Assert.Contains(alch.Parameters, p => p.Key == "targetMode" && p.Type == NodeParamType.Enum);
+		Assert.Contains(alch.Parameters, p => p.Key == "targetDelayMs" && p.DefaultValue == "1000");
+		Assert.Contains(alch.Parameters, p => p.Key == "recastMode" && p.Type == NodeParamType.Enum);
+		Assert.Contains(alch.Parameters, p => p.Key == "disappearTimeoutMs" && p.DefaultValue == "3500");
+		Assert.Contains(alch.Parameters, p => p.Key == "postTargetDelayMs" && p.DefaultValue == "2500");
+	}
 }

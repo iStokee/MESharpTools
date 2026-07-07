@@ -8,11 +8,13 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 
 /// <summary>
 /// Snapshots the player's inventory over the session and accumulates per-item inflow/outflow so the
-/// dashboard Items tab can show gained/lost, net, per-hour, and GP rates. Values come from the
-/// cache-backed high-alch value exposed on each item, keeping the tracker activity-agnostic.
+/// dashboard Items tab can show gained/lost, net, per-hour, and GP rates. Inventory item values come
+/// from cache-backed high-alch metadata; coin-pouch movement is tracked as raw GP.
 /// </summary>
 public sealed class ItemTracker
 {
+	private const int MoneyPouchRowId = -995;
+
 	private DateTime _startUtc;
 	private readonly Dictionary<int, DashboardItemRow> _byId = new();
 
@@ -45,46 +47,68 @@ public sealed class ItemTracker
 	/// </summary>
 	public bool TryUpdate(out string? error)
 	{
+		if (!TryCapture(out var snapshot, out error) || snapshot == null)
+			return false;
+
+		Apply(snapshot);
+		return true;
+	}
+
+	/// <summary>Reads inventory and coin-pouch state without mutating WPF-bound rows.</summary>
+	public bool TryCapture(out ItemTrackerSnapshot? snapshot, out string? error)
+	{
 		try
 		{
 			var items = Inventory.GetItemsDetailed();
 			var elapsedHours = (DateTime.UtcNow - _startUtc).TotalHours;
 
 			// Aggregate stack counts per item id for this snapshot.
-			var snapshot = new Dictionary<int, (long Count, string Name, int Value)>();
+			var itemsById = new Dictionary<int, ItemTrackerSnapshotItem>();
 			foreach (var item in items)
 			{
 				if (item.Id <= 0)
 					continue;
 
-				var existing = snapshot.TryGetValue(item.Id, out var prior) ? prior.Count : 0;
-				snapshot[item.Id] = (existing + Math.Max(0, item.Stack), item.Name, item.HighAlch);
+				var existing = itemsById.TryGetValue(item.Id, out var prior) ? prior.Count : 0;
+				itemsById[item.Id] = new ItemTrackerSnapshotItem(
+					existing + Math.Max(0, item.Stack),
+					item.Name,
+					item.HighAlch);
 			}
 
-			foreach (var entry in snapshot)
-			{
-				var row = GetOrAdd(entry.Key, entry.Value.Name);
-				row.Observe(entry.Value.Count, entry.Value.Value, elapsedHours);
-			}
-
-			// Items fully gone from the inventory drop to a count of zero.
-			foreach (var row in _byId.Values)
-			{
-				if (!snapshot.ContainsKey(row.Id))
-					row.Observe(0, row.UnitValue, elapsedHours);
-			}
-
-			TotalGpPerHour = _byId.Values.Sum(r => r.GpPerHour);
-			ActiveCount = _byId.Values.Count(r => r.IsActive);
-
+			snapshot = new ItemTrackerSnapshot(itemsById, Math.Max(0, MoneyPouch.Amount), elapsedHours);
 			error = null;
 			return true;
 		}
 		catch (Exception ex)
 		{
+			snapshot = null;
 			error = ex.Message;
 			return false;
 		}
+	}
+
+	/// <summary>Applies a captured inventory and coin-pouch snapshot to WPF-bound rows.</summary>
+	public void Apply(ItemTrackerSnapshot snapshot)
+	{
+		foreach (var entry in snapshot.Items)
+		{
+			var row = GetOrAdd(entry.Key, entry.Value.Name);
+			row.Observe(entry.Value.Count, entry.Value.Value, snapshot.ElapsedHours);
+		}
+
+		// Items fully gone from the inventory drop to a count of zero.
+		foreach (var row in _byId.Values)
+		{
+			if (row.Id != MoneyPouchRowId && !snapshot.Items.ContainsKey(row.Id))
+				row.Observe(0, row.UnitValue, snapshot.ElapsedHours);
+		}
+
+		var moneyPouch = GetOrAdd(MoneyPouchRowId, "Money pouch");
+		moneyPouch.Observe(snapshot.MoneyPouchAmount, 1, snapshot.ElapsedHours);
+
+		TotalGpPerHour = _byId.Values.Sum(r => r.GpPerHour);
+		ActiveCount = _byId.Values.Count(r => r.IsActive);
 	}
 
 	private DashboardItemRow GetOrAdd(int id, string name)
@@ -98,3 +122,10 @@ public sealed class ItemTracker
 		return row;
 	}
 }
+
+public sealed record ItemTrackerSnapshot(
+	IReadOnlyDictionary<int, ItemTrackerSnapshotItem> Items,
+	int MoneyPouchAmount,
+	double ElapsedHours);
+
+public sealed record ItemTrackerSnapshotItem(long Count, string Name, int Value);

@@ -11,21 +11,21 @@ internal sealed class NpcInteractExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var (ids, names) = InteractionParameterHelper.ToTargetLists(context.Parameters, "target");
+		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "target");
 		// Keep compatibility with older parameter keys; current native dispatch is exact-name/id based.
-		_ = InteractionParameterHelper.ToBool(context.Parameters, "allowPartial", false) ||
-		    InteractionParameterHelper.ToBool(context.Parameters, "acceptPartial", false);
+		_ = ParameterHelper.ToBool(context.Parameters, "allowPartial", false) ||
+		    ParameterHelper.ToBool(context.Parameters, "acceptPartial", false);
 
 		if (ids.Count == 0 && names.Count == 0)
 			return Task.FromResult(NodeExecutionResult.Fail());
 
-		var option = InteractionParameterHelper.ToString(context.Parameters, "option");
-		var actionIndex = InteractionParameterHelper.ToInt(context.Parameters, "actionIndex") ??
+		var option = ParameterHelper.ToString(context.Parameters, "option");
+		var actionIndex = ParameterHelper.ToInt(context.Parameters, "actionIndex") ??
 			InteractionActionResolver.ResolveActionIndex(option, InteractionKind.Npc);
-		var offset = InteractionParameterHelper.ToInt(context.Parameters, "offset") ?? Npcs.InteractNPC_route;
-		var maxDistance = InteractionParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
-		var ignoreStar = InteractionParameterHelper.ToBool(context.Parameters, "ignoreStar", false);
-		var minHealth = InteractionParameterHelper.ToInt(context.Parameters, "minHealth") ?? 0;
+		var offset = ParameterHelper.ToInt(context.Parameters, "offset") ?? Npcs.InteractNPC_route;
+		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
+		var ignoreStar = ParameterHelper.ToBool(context.Parameters, "ignoreStar", false);
+		var minHealth = ParameterHelper.ToInt(context.Parameters, "minHealth") ?? 0;
 
 		var ok = ids.Count > 0 && Npcs.DoActionByIds(ids.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, ignoreStar: ignoreStar, minHealth: minHealth);
 		if (!ok && names.Count > 0)
@@ -39,11 +39,11 @@ internal sealed class GenericInteractionExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var (ids, names) = InteractionParameterHelper.ToTargetLists(context.Parameters, "target");
+		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "target");
 		if (ids.Count == 0 && names.Count == 0)
 			return Task.FromResult(NodeExecutionResult.Fail());
 
-		var option = InteractionParameterHelper.ToString(context.Parameters, "option");
+		var option = ParameterHelper.ToString(context.Parameters, "option");
 		var npcAction = InteractionActionResolver.ResolveActionIndex(option, InteractionKind.Npc);
 		var objectAction = InteractionActionResolver.ResolveActionIndex(option, InteractionKind.Object);
 
@@ -63,11 +63,11 @@ internal sealed class NpcFindExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var name = InteractionParameterHelper.ToString(context.Parameters, "name");
-		var id = InteractionParameterHelper.ToInt(context.Parameters, "id");
-		var maxDistance = InteractionParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
-		var signal = InteractionParameterHelper.ToString(context.Parameters, "signal");
-		var expected = InteractionParameterHelper.ToBool(context.Parameters, "expected", true);
+		var name = ParameterHelper.ToString(context.Parameters, "name");
+		var id = ParameterHelper.ToInt(context.Parameters, "id");
+		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
+		var signal = ParameterHelper.ToString(context.Parameters, "signal");
+		var expected = ParameterHelper.ToBool(context.Parameters, "expected", true);
 
 		var found = Npcs.GetAll().Any(n =>
 			(!id.HasValue || n.Id == id.Value) &&
@@ -89,14 +89,14 @@ internal sealed class NpcAttackExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var (ids, names) = InteractionParameterHelper.ToTargetLists(context.Parameters, "name");
-		var id = InteractionParameterHelper.ToInt(context.Parameters, "id");
+		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "name");
+		var id = ParameterHelper.ToInt(context.Parameters, "id");
 		if (id.HasValue && !ids.Contains(id.Value))
 			ids.Add(id.Value);
 
-		var actionIndex = InteractionParameterHelper.ToInt(context.Parameters, "actionIndex") ?? Npcs.AttackNpcAction;
-		var offset = InteractionParameterHelper.ToInt(context.Parameters, "offset") ?? Npcs.AttackNPC_route;
-		var maxDistance = InteractionParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
+		var actionIndex = ParameterHelper.ToInt(context.Parameters, "actionIndex") ?? Npcs.AttackNpcAction;
+		var offset = ParameterHelper.ToInt(context.Parameters, "offset") ?? Npcs.AttackNPC_route;
+		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
 
 		var ok = ids.Count > 0 && Npcs.DoActionByIds(ids.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance);
 		if (!ok && names.Count > 0)
@@ -110,16 +110,16 @@ internal sealed class ObjectInteractExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var (ids, names) = InteractionParameterHelper.ToTargetLists(context.Parameters, "name");
-		var id = InteractionParameterHelper.ToInt(context.Parameters, "id");
+		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "name");
+		var id = ParameterHelper.ToInt(context.Parameters, "id");
 		if (id.HasValue && !ids.Contains(id.Value))
 			ids.Add(id.Value);
-		var option = InteractionParameterHelper.ToString(context.Parameters, "option");
-		var actionIndex = InteractionParameterHelper.ToInt(context.Parameters, "actionIndex") ??
+		var option = ParameterHelper.ToString(context.Parameters, "option");
+		var actionIndex = ParameterHelper.ToInt(context.Parameters, "actionIndex") ??
 			InteractionActionResolver.ResolveActionIndex(option, InteractionKind.Object);
-		var offset = InteractionParameterHelper.ToInt(context.Parameters, "offset") ?? Objects.Offsets.GeneralRoute0;
-		var maxDistance = InteractionParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
-		var valid = InteractionParameterHelper.ToBool(context.Parameters, "valid", false);
+		var offset = ParameterHelper.ToInt(context.Parameters, "offset") ?? Objects.Offsets.GeneralRoute0;
+		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
+		var valid = ParameterHelper.ToBool(context.Parameters, "valid", false);
 
 		var ok = ids.Count > 0 && Objects.DoActionByIds(ids.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, valid: valid);
 		if (!ok && names.Count > 0)
@@ -133,10 +133,10 @@ internal sealed class ObjectInteractHighlightedExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var objectIds = InteractionParameterHelper.ToIntList(context.Parameters, "objectIds");
-		var highlightIds = InteractionParameterHelper.ToIntList(context.Parameters, "highlightIds");
-		var maxDistance = InteractionParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
-		var actionIndex = InteractionParameterHelper.ToInt(context.Parameters, "actionIndex") ?? 0;
+		var objectIds = ParameterHelper.ToIntList(context.Parameters, "objectIds");
+		var highlightIds = ParameterHelper.ToIntList(context.Parameters, "highlightIds");
+		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
+		var actionIndex = ParameterHelper.ToInt(context.Parameters, "actionIndex") ?? 0;
 
 		if (objectIds.Count == 0 || highlightIds.Count == 0)
 			return Task.FromResult(NodeExecutionResult.Fail());
@@ -150,11 +150,11 @@ internal sealed class ObjectFindExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var name = InteractionParameterHelper.ToString(context.Parameters, "name");
-		var id = InteractionParameterHelper.ToInt(context.Parameters, "id");
-		var maxDistance = InteractionParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
-		var signal = InteractionParameterHelper.ToString(context.Parameters, "signal");
-		var expected = InteractionParameterHelper.ToBool(context.Parameters, "expected", true);
+		var name = ParameterHelper.ToString(context.Parameters, "name");
+		var id = ParameterHelper.ToInt(context.Parameters, "id");
+		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
+		var signal = ParameterHelper.ToString(context.Parameters, "signal");
+		var expected = ParameterHelper.ToBool(context.Parameters, "expected", true);
 
 		var found = Objects.GetAll().Any(o =>
 			(!id.HasValue || o.Id == id.Value) &&
@@ -176,9 +176,9 @@ internal sealed class ObjectExistsExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var name = InteractionParameterHelper.ToString(context.Parameters, "name");
-		var id = InteractionParameterHelper.ToInt(context.Parameters, "id");
-		var expected = InteractionParameterHelper.ToBool(context.Parameters, "expected", true);
+		var name = ParameterHelper.ToString(context.Parameters, "name");
+		var id = ParameterHelper.ToInt(context.Parameters, "id");
+		var expected = ParameterHelper.ToBool(context.Parameters, "expected", true);
 
 		var objs = id.HasValue
 			? Objects.GetAll().Where(o => o.Id == id.Value)
@@ -252,8 +252,7 @@ internal static class InteractionParameterHelper
 		var text = val.ToString();
 		if (string.IsNullOrWhiteSpace(text)) return null;
 		if (int.TryParse(text, out var parsed)) return parsed;
-		var equalsIndex = text.LastIndexOf('=');
-		return equalsIndex >= 0 && int.TryParse(text[(equalsIndex + 1)..].Trim(), out parsed) ? parsed : null;
+		return OffsetNameResolver.TryResolve(text, out parsed) ? parsed : null;
 	}
 
 	public static bool ToBool(IReadOnlyDictionary<string, object?> map, string key, bool fallback = false)

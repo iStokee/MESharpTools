@@ -94,12 +94,23 @@ public class NodeExecutorRegistry
 			Register("inventory.action", new InventoryMenuActionExecutor());
 			Register("inventory.useOn", new InventoryUseOnExecutor());
 			Register("inventory.note", new InventoryItemsActionExecutor("note", paceMs: 900));
+			Register("inventory.alchAll", new InventoryAlchAllExecutor());
 		Register("equipment.contains", new EquipmentContainsExecutor());
 		Register("equipment.unequip", new EquipmentUnequipExecutor());
 		Register("bank.open", new BankOpenExecutor());
 		Register("bank.depositAll", new BankDepositAllExecutor());
 		Register("bank.withdraw", new BankWithdrawExecutor());
+		Register("bank.loadPreset", new BankLoadPresetExecutor());
 		Register("bank.close", new BankCloseExecutor());
+
+		// Make-X / production
+		Register("makex.makeItem", new MakeXMakeItemExecutor());
+		Register("makex.isOpen", new MakeXIsOpenExecutor());
+		Register("makex.selectItem", new MakeXSelectItemExecutor());
+		Register("makex.selectCategory", new MakeXSelectCategoryExecutor());
+		Register("makex.setAmount", new MakeXSetAmountExecutor());
+		Register("makex.craft", new MakeXCraftExecutor());
+		Register("makex.waitComplete", new MakeXWaitCompleteExecutor());
 
 		// NPCs / objects / loot
 		Register("npcs.interact", new NpcInteractExecutor());

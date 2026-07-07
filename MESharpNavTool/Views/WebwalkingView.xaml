@@ -159,9 +159,7 @@
                             <Button Margin="0,0,6,0" Command="{Binding LoadRouteCommand}" Style="{StaticResource SecondaryCommandButton}" Content="Load To Editor" ToolTip="Load selected route into editor" />
                             <Button Margin="0,0,6,0" Command="{Binding DuplicateRouteCommand}" Style="{StaticResource SecondaryCommandButton}" Content="Clone" ToolTip="Create a copy of selected route" />
                             <Button Margin="0,0,6,0" Command="{Binding ShowRouteOnMapCommand}" Style="{StaticResource SecondaryCommandButton}" Content="Show on Map" ToolTip="Switch to the Map section centered on this route's start" />
-                            <Button Margin="0,0,6,0" Command="{Binding DeleteRouteCommand}" Style="{StaticResource SecondaryCommandButton}" Content="Delete" ToolTip="Delete selected route" />
-                            <Button Margin="0,0,6,0" Command="{Binding MoveRouteUpCommand}" Style="{StaticResource SecondaryCommandButton}" Content="Up" ToolTip="Move selected route up" />
-                            <Button Margin="0,0,6,0" Command="{Binding MoveRouteDownCommand}" Style="{StaticResource SecondaryCommandButton}" Content="Down" ToolTip="Move selected route down" />
+                            <Button Margin="0,0,6,0" Command="{Binding DeleteRouteCommand}" Style="{StaticResource SecondaryCommandButton}" Content="Delete" ToolTip="Delete selected route (asks for confirmation; built-in core routes cannot be deleted)" />
                         </WrapPanel>
                     </Grid>
                 </Border>

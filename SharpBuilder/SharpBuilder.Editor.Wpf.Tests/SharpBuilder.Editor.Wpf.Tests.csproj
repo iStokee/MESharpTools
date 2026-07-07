@@ -16,5 +16,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SharpBuilder.Editor.Wpf\SharpBuilder.Editor.Wpf.csproj" />
+    <ProjectReference Include="..\SharpBuilder.SessionAgent\SharpBuilder.SessionAgent.csproj" />
   </ItemGroup>
 </Project>

@@ -112,6 +112,11 @@ namespace MESharp.ViewModels
         private readonly List<WebwalkRecordedSample> _rawSamples = new();
         private readonly List<WebwalkAuthoring.WebwalkObstacleCandidate> _recordedObstacles = new();
         private DateTime _recordStartUtc;
+        private DateTime _lastWaypointCaptureUtc;
+
+        // Fixed raw-sample cadence, matching the map recorder, so dwell/teleport
+        // segmentation quality no longer depends on which recorder was used.
+        private const int RawSampleIntervalMs = 600;
 
         // ── Graph view ────────────────────────────────────────────────────────────
         public ObservableCollection<GraphNodeDisplay> Nodes { get; } = new();
@@ -309,9 +314,12 @@ namespace MESharp.ViewModels
             // recording become transition/obstacle candidates instead of invisible.
             DoActionDebugSignals.StartNativePump();
             IsRecording = true;
-            _recorderTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(Webwalking.GameTickMs, RecordIntervalSeconds * 1000));
+            _lastWaypointCaptureUtc = DateTime.MinValue;
+            // Raw trail is always sampled fast; the interval/min-distance settings act as
+            // waypoint-capture filters in RecordTick, so changing them mid-recording works.
+            _recorderTimer.Interval = TimeSpan.FromMilliseconds(RawSampleIntervalMs);
             _recorderTimer.Start();
-            AddLog($"Recording started (interval={Math.Max(1, RecordIntervalSeconds)}s, minDist={MinWaypointDistance} tiles). Object clicks are captured as obstacle candidates.");
+            AddLog($"Recording started (waypoint interval={Math.Max(1, RecordIntervalSeconds)}s, minDist={MinWaypointDistance} tiles; raw trail at {RawSampleIntervalMs}ms). Object clicks are captured as obstacle candidates.");
         }
 
         private void StopRecording()
@@ -357,9 +365,13 @@ namespace MESharp.ViewModels
 
                 _rawSamples.Add(new WebwalkRecordedSample { Position = pos });
 
+                var now = DateTime.UtcNow;
+                if ((now - _lastWaypointCaptureUtc).TotalSeconds < Math.Max(1, RecordIntervalSeconds))
+                    return;
                 if (!WebwalkAuthoring.ShouldRecordSample(pos, _lastRecordedPoint, MinWaypointDistance))
                     return;
 
+                _lastWaypointCaptureUtc = now;
                 _recordedSamples.Add(new WebwalkRecordedSample { Position = pos });
                 _lastRecordedPoint = pos;
                 RecordedTiles.Insert(0, $"[{_recordedSamples.Count}] ({tile.x}, {tile.y}, {tile.z})");
@@ -550,10 +562,20 @@ namespace MESharp.ViewModels
             LastStatus = $"Loaded node '{SelectedNode.Id}' into the node editor.";
         }
 
+        private static bool ConfirmDelete(string what)
+        {
+            return System.Windows.MessageBox.Show(
+                $"Delete {what}? This cannot be undone.",
+                "Confirm delete",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes;
+        }
+
         private void DeleteSelectedNode()
         {
             if (SelectedNode == null) return;
             var nodeId = SelectedNode.Id;
+            if (!ConfirmDelete($"node '{nodeId}' (any edges referencing it are deleted too)")) return;
             if (WebwalkGraph.TryDeleteNode(nodeId, out var error))
             {
                 LastStatus = $"Deleted node '{nodeId}' and any referenced edges.";
@@ -640,6 +662,7 @@ namespace MESharp.ViewModels
         {
             if (SelectedEdge == null) return;
             var edgeId = SelectedEdge.Id;
+            if (!ConfirmDelete($"edge '{edgeId}'")) return;
             if (WebwalkGraph.TryDeleteEdge(edgeId, out var error))
             {
                 LastStatus = $"Deleted edge '{edgeId}'.";
@@ -851,6 +874,7 @@ namespace MESharp.ViewModels
         {
             if (SelectedArea == null) return;
             var areaId = SelectedArea.Id;
+            if (!ConfirmDelete($"area '{areaId}'")) return;
             if (WebwalkGraph.TryDeleteArea(areaId, out var error))
             {
                 LastStatus = $"Deleted area '{areaId}'.";

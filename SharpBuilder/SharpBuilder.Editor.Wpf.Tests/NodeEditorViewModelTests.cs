@@ -289,6 +289,36 @@ public class NodeEditorViewModelTests
 	}
 
 	[Fact]
+	public void DeleteSelectedCommand_UndoesMultiNodeDeleteAsSingleEdit()
+	{
+		using var vm = CreateViewModel();
+		var first = vm.Script.Nodes[0];
+		var second = vm.Script.Nodes[1];
+		var initialCount = vm.Script.Nodes.Count;
+
+		vm.SelectNode(first, false);
+		vm.SelectNode(second, true);
+		vm.DeleteSelectedCommand.Execute(null);
+
+		Assert.Equal(initialCount - 2, vm.Script.Nodes.Count);
+		Assert.DoesNotContain(vm.Script.Nodes, n => n.Id == first.Id);
+		Assert.DoesNotContain(vm.Script.Nodes, n => n.Id == second.Id);
+
+		vm.UndoCommand.Execute(null);
+
+		Assert.Equal(initialCount, vm.Script.Nodes.Count);
+		Assert.Contains(vm.Script.Nodes, n => n.Id == first.Id);
+		Assert.Contains(vm.Script.Nodes, n => n.Id == second.Id);
+		Assert.True(vm.CanRedo);
+
+		vm.RedoCommand.Execute(null);
+
+		Assert.Equal(initialCount - 2, vm.Script.Nodes.Count);
+		Assert.DoesNotContain(vm.Script.Nodes, n => n.Id == first.Id);
+		Assert.DoesNotContain(vm.Script.Nodes, n => n.Id == second.Id);
+	}
+
+	[Fact]
 	public void DeleteTransitionsIntersectingLine_RemovesCrossedTransition()
 	{
 		using var vm = CreateViewModel();
@@ -385,6 +415,21 @@ public class NodeEditorViewModelTests
 		Assert.True(row.IsActive);
 		Assert.Equal(2.0, row.PerHour, 3);   // net 2 over 1 hour
 		Assert.Equal(200, row.GpPerHour);    // net 2 × 100 gp
+	}
+
+	[Fact]
+	public void DashboardItemRow_ValuesMoneyPouchMovementAsRawGp()
+	{
+		var row = new DashboardItemRow(-995, "Money pouch");
+
+		row.Observe(1_000, 1, 0);   // baseline snapshot
+		row.Observe(1_600, 1, 1.0); // +600 gp gained
+
+		Assert.Equal(600, row.In);
+		Assert.Equal(0, row.Out);
+		Assert.Equal(600, row.Net);
+		Assert.Equal(1, row.UnitValue);
+		Assert.Equal(600, row.GpPerHour);
 	}
 
 	[Fact]

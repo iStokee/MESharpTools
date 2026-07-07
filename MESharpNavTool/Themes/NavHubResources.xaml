@@ -26,6 +26,9 @@
     <DataTemplate DataType="{x:Type vm:WebwalkGraphViewModel}">
         <views:WebwalkGraphView />
     </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:DungeonImportViewModel}">
+        <views:DungeonImportView />
+    </DataTemplate>
     <DataTemplate DataType="{x:Type vm:NavHealthViewModel}">
         <views:NavHealthView />
     </DataTemplate>

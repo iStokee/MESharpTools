@@ -123,7 +123,7 @@ namespace MESharp.ViewModels
                     RefreshNativeBridge();
                     if (value)
                     {
-                        RefreshSignals();
+                        RefreshSignals(force: true);
                     }
                 }
             }
@@ -228,7 +228,7 @@ namespace MESharp.ViewModels
 
         public DoActionSignalsViewModel()
         {
-            RefreshCommand = new RelayCommand(_ => RefreshSignals());
+            RefreshCommand = new RelayCommand(_ => RefreshSignals(force: true));
             ClearBufferCommand = new RelayCommand(_ => ClearBuffer());
             CopySelectedCommand = new RelayCommand(_ => CopySelected(), _ => HasSelection);
             CopyAllCommand = new RelayCommand(_ => CopyAll(), _ => Signals.Count > 0);
@@ -321,11 +321,23 @@ namespace MESharp.ViewModels
             }
         }
 
-        private void RefreshSignals()
+        // Cheap fingerprint of the last rendered buffer (row count + newest timestamp + the two query knobs).
+        // Lets the 750ms auto-refresh skip a full rebuild when nothing changed, so the user's row selection and
+        // scroll position survive between ticks and we don't churn hundreds of row objects for no reason.
+        private (int count, long newest, int max, bool inclFailed) _lastSignalSignature = (-1, 0, 0, false);
+
+        private void RefreshSignals(bool force = false)
         {
             try
             {
                 var snapshot = DoActionDebugSignals.Snapshot(MaxCount, IncludeFailed);
+                var signature = (snapshot.Count, snapshot.Count > 0 ? snapshot[0].TimestampUtc.Ticks : 0L, MaxCount, IncludeFailed);
+                if (!force && signature == _lastSignalSignature)
+                {
+                    return;
+                }
+                _lastSignalSignature = signature;
+
                 Signals.Clear();
                 foreach (var signal in snapshot)
                 {
@@ -458,7 +470,7 @@ namespace MESharp.ViewModels
             try
             {
                 var removed = DoActionDebugSignals.Clear();
-                RefreshSignals();
+                RefreshSignals(force: true);
                 StatusMessage = $"Cleared {removed} buffered signal(s).";
             }
             catch (Exception ex)

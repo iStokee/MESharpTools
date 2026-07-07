@@ -113,6 +113,18 @@ public class GraphValidator
 							node.Id));
 					}
 				}
+
+				foreach (var parameter in node.Parameters)
+				{
+					var drift = OffsetNameResolver.DetectDrift(parameter.RawValue);
+					if (drift != null)
+					{
+						issues.Add(new ValidationIssue(
+							ValidationSeverity.Warning,
+							$"Node '{node.Title}': offset '{drift.Value.Name}' was saved as {drift.Value.SavedValue} but is now {drift.Value.CurrentValue} (game update); the run uses the current value. Re-save the script to clear this warning.",
+							node.Id));
+					}
+				}
 			}
 
 			foreach (var transition in node.Transitions)

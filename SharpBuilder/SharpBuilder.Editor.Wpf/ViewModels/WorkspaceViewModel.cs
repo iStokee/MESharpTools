@@ -18,7 +18,7 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 /// stub today (only "Local"); routing canvases to *other* sessions is a later phase that needs ME-side
 /// cross-process dispatch.
 /// </summary>
-public sealed class WorkspaceViewModel : INotifyPropertyChanged, IDisposable
+public sealed partial class WorkspaceViewModel : INotifyPropertyChanged, IDisposable
 {
 	private readonly NodeCatalogService _catalog;
 	private readonly GraphScriptService _scriptService;
@@ -50,6 +50,8 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged, IDisposable
 		NewCanvasCommand = new RelayCommand(() => AddCanvas(activate: true));
 		CloseCanvasCommand = new RelayCommand<CanvasDocument?>(CloseCanvas, CanCloseCanvas);
 		LoadDemoCommand = new RelayCommand(LoadDemo);
+		InitializeSessionCommands();
+		RefreshSessions();
 
 		// Open with a single blank canvas so the shell is never empty.
 		AddBlankCanvas(activate: true);
@@ -145,9 +147,24 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged, IDisposable
 		// Keep at least one canvas open so the shell always has content.
 		=> canvas != null && Canvases.Count > 1;
 
+	/// <summary>
+	/// Asks whether a dirty canvas may be closed. Defaults to a message box; swappable for tests
+	/// (and for hosts that want their own prompt).
+	/// </summary>
+	public Func<CanvasDocument, bool> ConfirmCloseDirtyCanvas { get; set; } = canvas =>
+		System.Windows.MessageBox.Show(
+			$"\"{canvas.Title}\" has unsaved changes. Close it anyway?",
+			"Unsaved changes",
+			System.Windows.MessageBoxButton.YesNo,
+			System.Windows.MessageBoxImage.Warning,
+			System.Windows.MessageBoxResult.No) == System.Windows.MessageBoxResult.Yes;
+
 	public void CloseCanvas(CanvasDocument? canvas)
 	{
 		if (canvas == null || !Canvases.Contains(canvas) || Canvases.Count <= 1)
+			return;
+
+		if (canvas.IsDirty && !ConfirmCloseDirtyCanvas(canvas))
 			return;
 
 		var index = Canvases.IndexOf(canvas);

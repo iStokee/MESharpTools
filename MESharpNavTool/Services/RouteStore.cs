@@ -1,134 +1,32 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text.Json;
 using MESharp.API;
 using MESharp.Models;
 
 namespace MESharp.Services
 {
+    /// <summary>
+    /// Thin adapter between the Routes pane and the shared <see cref="Webwalking"/> route store.
+    /// All persistence goes through the engine's per-route upsert/delete (lock-guarded, atomic,
+    /// refuses core-route overwrites and unreadable stores) — the tool never rewrites the whole
+    /// routes.json itself, so it can no longer clobber routes saved by the map server, the Graph
+    /// pane recorder, or other sessions.
+    /// </summary>
     internal static class RouteStore
     {
-        private static readonly string RoutesDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MESharp");
-        private static readonly string RoutesFile = Path.Combine(RoutesDirectory, "routes.json");
-        private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
         public static string? LastError { get; private set; }
 
+        /// <summary>Catalog snapshot: built-in core routes plus everything in routes.json.</summary>
         public static IReadOnlyList<RouteDefinition> Load()
         {
-            var loadedRoutes = new List<RouteDefinition>();
             LastError = null;
+            Webwalking.ReloadRoutes();
 
-            try
-            {
-                if (!File.Exists(RoutesFile))
-                {
-                    return MergeWithCoreRoutes(loadedRoutes);
-                }
-
-                var json = File.ReadAllText(RoutesFile);
-                var stored = JsonSerializer.Deserialize<List<WebwalkingStoredRoute>>(json);
-                if (stored == null)
-                {
-                    return MergeWithCoreRoutes(loadedRoutes);
-                }
-
-                foreach (var route in stored)
-                {
-                    route?.Normalize();
-                }
-
-                loadedRoutes = stored
-                    .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Name))
-                    .Select(ConvertFromStored)
-                    .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Name))
-                    .ToList();
-            }
-            catch (Exception ex)
-            {
-                loadedRoutes = new List<RouteDefinition>();
-                LastError = $"Route load failed: {ex.Message}";
-            }
-
-            return MergeWithCoreRoutes(loadedRoutes);
-        }
-
-        public static void Save(IEnumerable<RouteDefinition> routes)
-        {
-            _ = TrySave(routes, out _);
-        }
-
-        public static bool TrySave(IEnumerable<RouteDefinition> routes, out string? error)
-        {
-            LastError = null;
-            error = null;
-            try
-            {
-                Directory.CreateDirectory(RoutesDirectory);
-                var normalized = (routes ?? Array.Empty<RouteDefinition>())
-                    .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Name))
-                    .Select(r =>
-                    {
-                        r.Normalize();
-                        return r;
-                    })
-                    .ToList();
-
-                var stored = normalized.Select(ConvertToStored).ToList();
-                var json = JsonSerializer.Serialize(stored, JsonOptions);
-
-                var tmpFile = RoutesFile + ".tmp";
-                File.WriteAllText(tmpFile, json);
-
-                if (File.Exists(RoutesFile))
-                {
-                    File.Replace(tmpFile, RoutesFile, null);
-                }
-                else
-                {
-                    File.Move(tmpFile, RoutesFile);
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                error = $"Route save failed: {ex.Message}";
-                LastError = error;
-                try
-                {
-                    var tmpFile = RoutesFile + ".tmp";
-                    if (File.Exists(tmpFile))
-                    {
-                        File.Delete(tmpFile);
-                    }
-                }
-                catch
-                {
-                    // ignore cleanup errors
-                }
-
-                return false;
-            }
-        }
-
-        public static string GetStorePath() => RoutesFile;
-
-        private static IReadOnlyList<RouteDefinition> MergeWithCoreRoutes(IEnumerable<RouteDefinition> loadedRoutes)
-        {
             var merged = new Dictionary<string, RouteDefinition>(StringComparer.OrdinalIgnoreCase);
 
-            static string BuildKey(RouteDefinition route)
-            {
-                if (!string.IsNullOrWhiteSpace(route.Id))
-                {
-                    return $"id:{route.Id.Trim()}";
-                }
-
-                return $"name:{route.Name.Trim()}";
-            }
+            static string BuildKey(RouteDefinition route) =>
+                !string.IsNullOrWhiteSpace(route.Id) ? $"id:{route.Id.Trim()}" : $"name:{route.Name.Trim()}";
 
             foreach (var core in NavigationRouteSeeds.GetCoreRoutes())
             {
@@ -136,17 +34,67 @@ namespace MESharp.Services
                 merged[BuildKey(core)] = core;
             }
 
-            foreach (var route in loadedRoutes ?? Array.Empty<RouteDefinition>())
+            foreach (var stored in Webwalking.GetStoredRoutes())
             {
-                route.Normalize();
-                merged[BuildKey(route)] = route;
+                var route = ConvertFromStored(stored);
+                if (route != null && !string.IsNullOrWhiteSpace(route.Name))
+                {
+                    merged[BuildKey(route)] = route;
+                }
             }
 
+            LastError = Webwalking.LastLoadError;
             return merged.Values.ToList();
         }
 
-        private static RouteDefinition ConvertFromStored(WebwalkingStoredRoute route)
+        /// <summary>Insert or update a single route in the shared store.</summary>
+        public static bool TryUpsert(RouteDefinition route, out string? error)
         {
+            LastError = null;
+            if (route == null)
+            {
+                error = LastError = "Route is null.";
+                return false;
+            }
+
+            route.Normalize();
+            if (!Webwalking.TrySaveRoute(ConvertToStored(route), out error))
+            {
+                LastError = error;
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>Delete a single route from the shared store. Core routes are refused by the engine.</summary>
+        public static bool TryDelete(RouteDefinition route, out string? error)
+        {
+            LastError = null;
+            var key = !string.IsNullOrWhiteSpace(route?.Id) ? route!.Id : route?.Name ?? string.Empty;
+            if (!Webwalking.TryDeleteRoute(key, out error))
+            {
+                LastError = error;
+                return false;
+            }
+
+            return true;
+        }
+
+        public static bool IsCoreRoute(RouteDefinition? route)
+        {
+            if (route == null) return false;
+            return Webwalking.GetCoreRoutes().Any(core =>
+                string.Equals(core.Id, route.Id, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(core.Name, route.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public static string GetStorePath() => Webwalking.GetRouteStorePath();
+
+        private static RouteDefinition? ConvertFromStored(WebwalkingStoredRoute? route)
+        {
+            if (route == null) return null;
+
             var converted = new RouteDefinition
             {
                 SchemaVersion = route.SchemaVersion,
@@ -216,6 +164,5 @@ namespace MESharp.Services
             stored.Normalize();
             return stored;
         }
-
     }
 }

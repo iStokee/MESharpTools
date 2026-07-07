@@ -89,8 +89,27 @@ public sealed class CanvasDocument : INotifyPropertyChanged, IDisposable
 			SyncTitle();
 	}
 
+	/// <summary>
+	/// When this canvas observes a remote session, the attachment (agent client + event wiring)
+	/// lives here so closing the tab tears the connection down. Null for ordinary canvases.
+	/// </summary>
+	public IDisposable? RemoteAttachment { get; set; }
+
+	/// <summary>True when this canvas mirrors a remote session's run rather than a local one.</summary>
+	public bool IsRemote => RemoteAttachment != null;
+
 	public void Dispose()
 	{
+		try
+		{
+			RemoteAttachment?.Dispose();
+		}
+		catch
+		{
+			// A dead pipe on teardown is not actionable.
+		}
+		RemoteAttachment = null;
+
 		Editor.PropertyChanged -= OnEditorPropertyChanged;
 		if (_watchedGraph != null)
 			_watchedGraph.PropertyChanged -= OnGraphPropertyChanged;

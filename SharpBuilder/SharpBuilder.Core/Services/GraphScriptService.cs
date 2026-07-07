@@ -43,7 +43,7 @@ public class GraphScriptService
 
 		Directory.CreateDirectory(_scriptsDirectory);
 
-		var fileName = path ?? Path.Combine(_scriptsDirectory, $"{SanitizeFileName(script.Name)}.orbitfsm.json");
+		var fileName = path ?? Path.Combine(_scriptsDirectory, $"{SanitizeFileName(script.Name)}.builder.json");
 		script.UpdatedAt = DateTime.UtcNow;
 
 		var json = JsonConvert.SerializeObject(script, Formatting.Indented);
@@ -99,6 +99,7 @@ public class GraphScriptService
 			foreach (var node in model.Nodes)
 			{
 				EnsureNodeDefinition(node);
+				RefreshDriftedOffsets(node);
 			}
 
 			model.SchemaVersion = 2;
@@ -125,7 +126,7 @@ public class GraphScriptService
 		if (!Directory.Exists(_scriptsDirectory))
 			return results;
 
-		foreach (var file in Directory.EnumerateFiles(_scriptsDirectory, "*.orbitfsm.json", SearchOption.TopDirectoryOnly))
+		foreach (var file in Directory.EnumerateFiles(_scriptsDirectory, "*.builder.json", SearchOption.TopDirectoryOnly))
 		{
 			var model = await LoadAsync(file, cancellationToken);
 			if (model != null)
@@ -258,7 +259,7 @@ public class GraphScriptService
 		EnsureNodeParameters(fish, interactDefinition);
 		SetParameterValue(fish, "target", "Fishing spot");
 		SetParameterValue(fish, "actionIndex", "60");
-		SetParameterValue(fish, "offset", "InteractNPC_route = 4928");
+		SetParameterValue(fish, "offset", $"InteractNPC_route = {MESharp.API.Npcs.InteractNPC_route}");
 		SetParameterValue(fish, "maxDistance", "50");
 
 		var waitDefinition = _catalogService.GetDefinition("traversal.waitRange")!;
@@ -362,9 +363,180 @@ public class GraphScriptService
 		{
 			Name = "Power fishing (template)",
 			Description = "Minimal graph to power fish: clear bag, find a spot, move, and fish in a loop.",
-			Author = "Orbit",
+			Author = "SharpBuilder",
 			StartNodeId = start.Id,
 			Nodes = new System.Collections.ObjectModel.ObservableCollection<NodeModel>(nodes),
+			SchemaVersion = 2,
+			UpdatedAt = DateTime.UtcNow
+		};
+	}
+
+	/// <summary>
+	/// Area-agnostic bank + portable-crafter loop for green dragonhide shields:
+	/// bank preset, verify supplies, open Make-X from a nearby portable or leather keybind, craft,
+	/// high-alch by keybind while waiting on animation, then repeat.
+	/// </summary>
+	public GraphModel CreateGreenDhideShieldCraftAlchTemplate()
+	{
+		var shieldCheck = MakeNode(_catalogService.GetDefinition("inventory.count")!,
+			"Have shields?", NodeType.Condition, 120, 80, dwell: 100,
+			actionText: "Resume by alching any green dragonhide shields already in inventory");
+		SetParameterValue(shieldCheck, "id", "25794");
+		SetParameterValue(shieldCheck, "name", "Green dragonhide shield");
+		SetParameterValue(shieldCheck, "min", "1");
+
+		var openBank = MakeNode(_catalogService.GetDefinition("bank.open")!,
+			"Open nearby bank", NodeType.Action, 120, 260, dwell: 250,
+			actionText: "Bank.Open() against nearest bank NPC/object");
+
+		var deposit = MakeNode(_catalogService.GetDefinition("bank.depositAll")!,
+			"Clear inventory", NodeType.Action, 120, 410, dwell: 250,
+			actionText: "Deposit all before loading preset");
+
+		var preset = MakeNode(_catalogService.GetDefinition("bank.loadPreset")!,
+			"Load preset", NodeType.Action, 120, 560, dwell: 250,
+			actionText: "Press bank preset keybind once bank is open");
+		SetParameterValue(preset, "method", "Keybind");
+		SetParameterValue(preset, "keybind", "1");
+		SetParameterValue(preset, "preset", "1");
+		SetParameterValue(preset, "waitMs", "1200");
+
+		var closeBank = MakeNode(_catalogService.GetDefinition("bank.close")!,
+			"Close bank", NodeType.Action, 120, 710, dwell: 500,
+			actionText: "Close before crafting");
+
+		var leatherCheck = MakeNode(_catalogService.GetDefinition("inventory.count")!,
+			"Have leather?", NodeType.Condition, 440, 80, dwell: 100,
+			actionText: "Resume if 26 green dragon leather are already in inventory");
+		SetParameterValue(leatherCheck, "id", "1745");
+		SetParameterValue(leatherCheck, "name", "Green dragon leather");
+		SetParameterValue(leatherCheck, "min", "26");
+
+		var runeCheck = MakeNode(_catalogService.GetDefinition("inventory.count")!,
+			"Have natures?", NodeType.Condition, 440, 230, dwell: 100,
+			actionText: "Resume if 13 nature runes are already in inventory");
+		SetParameterValue(runeCheck, "id", "561");
+		SetParameterValue(runeCheck, "name", "Nature rune");
+		SetParameterValue(runeCheck, "min", "13");
+
+		var presetLeatherCheck = MakeNode(_catalogService.GetDefinition("inventory.count")!,
+			"Preset leather?", NodeType.Condition, 440, 500, dwell: 100,
+			actionText: "Verify the loaded preset supplied 26 green dragon leather");
+		SetParameterValue(presetLeatherCheck, "id", "1745");
+		SetParameterValue(presetLeatherCheck, "name", "Green dragon leather");
+		SetParameterValue(presetLeatherCheck, "min", "26");
+
+		var presetRuneCheck = MakeNode(_catalogService.GetDefinition("inventory.count")!,
+			"Preset natures?", NodeType.Condition, 440, 650, dwell: 100,
+			actionText: "Verify the loaded preset supplied 13 nature runes");
+		SetParameterValue(presetRuneCheck, "id", "561");
+		SetParameterValue(presetRuneCheck, "name", "Nature rune");
+		SetParameterValue(presetRuneCheck, "min", "13");
+
+		var stopMissing = MakeNode(_catalogService.GetDefinition(NodeCatalogDefaults.TerminalId)!,
+			"Stop: missing supplies", NodeType.Terminal, 440, 820, dwell: 100,
+			actionText: "Preset did not provide required materials/runes");
+
+		var findPortable = MakeNode(_catalogService.GetDefinition("objects.find")!,
+			"Find portable crafter", NodeType.Condition, 760, 80, dwell: 150,
+			actionText: "Scan local area for a portable crafter");
+		SetParameterValue(findPortable, "name", "Portable crafter");
+		SetParameterValue(findPortable, "maxDistance", "12");
+		SetParameterValue(findPortable, "signal", "hasPortableCrafter");
+		SetParameterBool(findPortable, "expected", true);
+
+		var clickPortable = MakeNode(_catalogService.GetDefinition("objects.interact")!,
+			"Use portable crafter", NodeType.Action, 760, 250, dwell: 650,
+			actionText: "Click nearby portable crafter to open production");
+		SetParameterValue(clickPortable, "name", "Portable crafter");
+		SetParameterValue(clickPortable, "actionIndex", "58");
+		SetParameterValue(clickPortable, "maxDistance", "12");
+		SetParameterBool(clickPortable, "valid", false);
+		SetParameterValue(clickPortable, "option", "Craft");
+
+		var leatherKeybind = MakeNode(_catalogService.GetDefinition("keyboard.send")!,
+			"Dragon leather keybind", NodeType.Action, 760, 430, dwell: 650,
+			actionText: "Fallback if no portable is nearby");
+		SetParameterValue(leatherKeybind, "keys", "F6");
+		SetParameterValue(leatherKeybind, "delayMs", "650");
+
+		var makeShield = MakeNode(_catalogService.GetDefinition("makex.makeItem")!,
+			"Make shields", NodeType.Action, 1080, 170, dwell: 250,
+			actionText: "Craft green dragonhide shields (already-selected product, preset amount)");
+		SetParameterValue(makeShield, "slot", "");
+		SetParameterValue(makeShield, "category", "");
+		SetParameterBool(makeShield, "waitComplete", true);
+
+		var alch = MakeNode(_catalogService.GetDefinition("inventory.alchAll")!,
+			"Alch shields", NodeType.Action, 1080, 360, dwell: 250,
+			actionText: "Press high-alch keybind and wait through animation until shields are gone");
+		SetParameterValue(alch, "items", "Green dragonhide shield, 25794");
+		SetParameterValue(alch, "keybind", "E");
+		SetParameterValue(alch, "targetMode", "KeybindThenItem");
+		SetParameterValue(alch, "quantity", "All");
+		SetParameterBool(alch, "requireAlchable", true);
+		SetParameterValue(alch, "targetDelayMs", "1000");
+		SetParameterValue(alch, "recastMode", "ItemDisappears");
+		SetParameterValue(alch, "disappearTimeoutMs", "3500");
+		SetParameterValue(alch, "postTargetDelayMs", "2500");
+		SetParameterValue(alch, "startTimeoutMs", "1500");
+		SetParameterValue(alch, "finishTimeoutMs", "5000");
+		SetParameterValue(alch, "betweenCastsMs", "250");
+		SetParameterValue(alch, "inventoryRoot", "0");
+		SetParameterValue(alch, "itemAction", "110");
+		SetParameterValue(alch, "itemOffset", $"GeneralInterface_route1 = {MESharp.API.Objects.Offsets.GeneralInterfaceRoute1}");
+
+		var nodes = new[]
+		{
+			shieldCheck,
+			openBank,
+			deposit,
+			preset,
+			closeBank,
+			leatherCheck,
+			runeCheck,
+			presetLeatherCheck,
+			presetRuneCheck,
+			stopMissing,
+			findPortable,
+			clickPortable,
+			leatherKeybind,
+			makeShield,
+			alch
+		};
+
+		Wire(nodes, shieldCheck.Id, alch.Id, "Shields ready", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, shieldCheck.Id, leatherCheck.Id, "No shields; inspect supplies", trigger: TransitionTrigger.OnFail);
+		Wire(nodes, leatherCheck.Id, runeCheck.Id, "Leather ready", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, leatherCheck.Id, openBank.Id, "Need supplies", trigger: TransitionTrigger.OnFail);
+		Wire(nodes, runeCheck.Id, findPortable.Id, "Runes ready", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, runeCheck.Id, openBank.Id, "Need natures", trigger: TransitionTrigger.OnFail);
+		Wire(nodes, openBank.Id, deposit.Id, "Bank open", fallback: true);
+		Wire(nodes, deposit.Id, preset.Id, "Inventory clear", fallback: true);
+		Wire(nodes, preset.Id, closeBank.Id, "Preset loaded", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, preset.Id, stopMissing.Id, "Preset failed", trigger: TransitionTrigger.OnFail);
+		Wire(nodes, closeBank.Id, presetLeatherCheck.Id, "Check preset supplies", fallback: true);
+		Wire(nodes, presetLeatherCheck.Id, presetRuneCheck.Id, "Leather ready", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, presetLeatherCheck.Id, stopMissing.Id, "No leather", trigger: TransitionTrigger.OnFail);
+		Wire(nodes, presetRuneCheck.Id, findPortable.Id, "Runes ready", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, presetRuneCheck.Id, stopMissing.Id, "No natures", trigger: TransitionTrigger.OnFail);
+		Wire(nodes, findPortable.Id, clickPortable.Id, "Portable found", conditionKey: "hasPortableCrafter", expected: true);
+		Wire(nodes, findPortable.Id, leatherKeybind.Id, "No portable; use keybind", fallback: true);
+		Wire(nodes, clickPortable.Id, makeShield.Id, "Make-X opened", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, clickPortable.Id, leatherKeybind.Id, "Portable click failed", trigger: TransitionTrigger.OnFail);
+		Wire(nodes, leatherKeybind.Id, makeShield.Id, "Make-X opened", fallback: true);
+		Wire(nodes, makeShield.Id, alch.Id, "Crafted", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, makeShield.Id, stopMissing.Id, "Craft failed", trigger: TransitionTrigger.OnFail);
+		Wire(nodes, alch.Id, openBank.Id, "Repeat", trigger: TransitionTrigger.OnSuccess);
+		Wire(nodes, alch.Id, stopMissing.Id, "Alch failed/stalled", trigger: TransitionTrigger.OnFail);
+
+		return new GraphModel
+		{
+			Name = "Green dhide shield craft-alch",
+			Description = "Area-agnostic bank/portable crafter loop for crafting and high-alching green dragonhide shields.",
+			Author = "SharpBuilder",
+			StartNodeId = shieldCheck.Id,
+			Nodes = new ObservableCollection<NodeModel>(nodes),
 			SchemaVersion = 2,
 			UpdatedAt = DateTime.UtcNow
 		};
@@ -493,14 +665,15 @@ public class GraphScriptService
 	}
 
 	private static void Wire(IReadOnlyList<NodeModel> nodes, Guid fromId, Guid toId, string label,
-		string? conditionKey = null, bool expected = true, bool fallback = false)
+		string? conditionKey = null, bool expected = true, bool fallback = false, TransitionTrigger trigger = TransitionTrigger.Any)
 	{
 		var transition = new TransitionModel
 		{
 			FromNodeId = fromId,
 			ToNodeId = toId,
 			Label = label,
-			IsFallback = fallback
+			IsFallback = fallback,
+			Trigger = trigger
 		};
 		if (!string.IsNullOrWhiteSpace(conditionKey))
 		{
@@ -545,6 +718,21 @@ public class GraphScriptService
 				AllowMultiple = parameter.AllowMultiple,
 				RawValue = parameter.DefaultValue ?? string.Empty
 			});
+		}
+	}
+
+	/// <summary>
+	/// Rewrites saved "Name = value" offset params whose number no longer matches the current
+	/// ActionOffsets table (route offsets move on game updates). Runtime resolution already
+	/// prefers the name; this keeps the persisted text and editor dropdowns in sync too.
+	/// </summary>
+	private static void RefreshDriftedOffsets(NodeModel node)
+	{
+		foreach (var parameter in node.Parameters)
+		{
+			var drift = OffsetNameResolver.DetectDrift(parameter.RawValue);
+			if (drift != null)
+				parameter.RawValue = $"{drift.Value.Name} = {drift.Value.CurrentValue}";
 		}
 	}
 
