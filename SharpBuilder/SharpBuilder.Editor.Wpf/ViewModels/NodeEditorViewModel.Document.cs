@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
@@ -13,6 +14,10 @@ public partial class NodeEditorViewModel
 {
 	private void AttachScript(GraphModel script)
 	{
+		// A pending property edit belongs to the previous script; the swap invalidates it.
+		_propertyEditPending = false;
+		_propertyEditTimer?.Stop();
+
 		_suppressDirty = true;
 		try
 		{
@@ -42,8 +47,34 @@ public partial class NodeEditorViewModel
 			_suppressDirty = false;
 		}
 
+		_shadowScript = GraphCloneService.Clone(script);
+		RebuildEdges();
 		IsDirty = false;
 		OnPropertyChanged(nameof(IsCanvasEmpty));
+	}
+
+	/// <summary>
+	/// Recreates the connector layer from the current graph. Called on structural changes (nodes or
+	/// transitions added/removed/reordered/retargeted); node moves are handled by each edge itself.
+	/// </summary>
+	private void RebuildEdges()
+	{
+		foreach (var edge in Edges)
+			edge.Dispose();
+		Edges.Clear();
+
+		var nodesById = new Dictionary<Guid, NodeModel>(Script.Nodes.Count);
+		foreach (var node in Script.Nodes)
+			nodesById[node.Id] = node;
+
+		foreach (var node in Script.Nodes)
+		{
+			foreach (var transition in node.Transitions)
+			{
+				if (nodesById.TryGetValue(transition.ToNodeId, out var target))
+					Edges.Add(new EdgeViewModel(node, target, transition));
+			}
+		}
 	}
 
 	private void DetachScript()
@@ -108,10 +139,10 @@ public partial class NodeEditorViewModel
 		}
 
 		RefreshSignals();
-		OnPropertyChanged(nameof(AllTransitions));
+		RebuildEdges();
 		OnPropertyChanged(nameof(IsCanvasEmpty));
 		AddTransitionCommand.NotifyCanExecuteChanged();
-		RefreshDashboard();
+		Dashboard.Refresh();
 		MarkDirty();
 	}
 
@@ -134,8 +165,8 @@ public partial class NodeEditorViewModel
 		}
 
 		RefreshSignals();
-		OnPropertyChanged(nameof(AllTransitions));
-		RefreshDashboard();
+		RebuildEdges();
+		Dashboard.Refresh();
 		MarkDirty();
 	}
 
@@ -145,9 +176,10 @@ public partial class NodeEditorViewModel
 			return;
 
 		RefreshSignals();
-		OnPropertyChanged(nameof(AllTransitions));
-		RefreshDashboard();
-		MarkDirty();
+		// Retargeting (or reordering) changes which nodes an edge spans; rebuild the layer.
+		RebuildEdges();
+		Dashboard.Refresh();
+		NotePropertyEdit();
 	}
 
 	private void OnParametersChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -170,7 +202,7 @@ public partial class NodeEditorViewModel
 
 		RefreshSignals();
 		RefreshParameterBindings();
-		RefreshDashboard();
+		Dashboard.Refresh();
 		MarkDirty();
 	}
 
@@ -180,8 +212,8 @@ public partial class NodeEditorViewModel
 		    string.Equals(e.PropertyName, nameof(NodeParameterValue.BoolValue), StringComparison.OrdinalIgnoreCase))
 		{
 			RefreshSignals();
-			RefreshDashboard();
-			MarkDirty();
+			Dashboard.Refresh();
+			NotePropertyEdit();
 		}
 	}
 
@@ -191,7 +223,7 @@ public partial class NodeEditorViewModel
 		if (e.PropertyName is nameof(GraphModel.Name) or nameof(GraphModel.Description)
 		    or nameof(GraphModel.Author) or nameof(GraphModel.StartNodeId))
 		{
-			MarkDirty();
+			NotePropertyEdit();
 		}
 	}
 
@@ -201,6 +233,34 @@ public partial class NodeEditorViewModel
 		{
 			IsDirty = true;
 		}
+	}
+
+	/// <summary>
+	/// Marks an in-place property change (inspector fields, node titles, edge labels…) as an
+	/// uncommitted edit. It is committed as a single "Edit properties" undo entry after a short
+	/// idle pause, or by the next selection change, batch, or undo/redo.
+	/// </summary>
+	private void NotePropertyEdit()
+	{
+		if (_suppressDirty || _editHistory.IsApplying)
+			return;
+
+		MarkDirty();
+
+		// During a gesture batch the commit at the end of the gesture captures everything.
+		if (_activeGraphEditBatchLabel != null)
+			return;
+
+		_propertyEditPending = true;
+		if (_propertyEditTimer == null)
+		{
+			_propertyEditTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+			_propertyEditTimer.Tick += (_, _) => CommitPendingPropertyEdit();
+		}
+
+		// Restart the idle countdown on every change.
+		_propertyEditTimer.Stop();
+		_propertyEditTimer.Start();
 	}
 
 	private void RefreshSignals()
@@ -225,55 +285,43 @@ public partial class NodeEditorViewModel
 			}
 		}
 
-		SignalSuggestions.Clear();
-		foreach (var key in keys)
+		// Only rebuild the suggestion list when the key set actually changed — a reset while an
+		// autocomplete dropdown is open would collapse it mid-typing.
+		var suggestionsChanged = SignalSuggestions.Count != keys.Count;
+		if (!suggestionsChanged)
 		{
-			SignalSuggestions.Add(key);
+			for (var i = 0; i < keys.Count; i++)
+			{
+				if (!string.Equals(SignalSuggestions[i], keys[i], StringComparison.Ordinal))
+				{
+					suggestionsChanged = true;
+					break;
+				}
+			}
+		}
+
+		if (suggestionsChanged)
+		{
+			SignalSuggestions.Clear();
+			foreach (var key in keys)
+			{
+				SignalSuggestions.Add(key);
+			}
 		}
 
 		OnPropertyChanged(nameof(Signals));
 		OnPropertyChanged(nameof(SignalSuggestions));
 	}
 
-	/// <summary>
-	/// A node drag fires X and Y changes many times per second, and each
-	/// <see cref="AllTransitions"/> invalidation rebuilds every connector path. Coalesce them so the
-	/// edges still follow the node live, but the rebuild runs at most once per render frame
-	/// (and once total for a whole multi-node drag tick) instead of twice per node per delta.
-	/// </summary>
-	private void QueueTransitionsRefresh()
-	{
-		var dispatcher = Application.Current?.Dispatcher;
-		if (dispatcher == null)
-		{
-			// No UI thread (e.g. unit tests): keep the original synchronous behavior.
-			OnPropertyChanged(nameof(AllTransitions));
-			return;
-		}
-
-		if (_transitionsRefreshQueued)
-			return;
-
-		_transitionsRefreshQueued = true;
-		dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
-		{
-			_transitionsRefreshQueued = false;
-			OnPropertyChanged(nameof(AllTransitions));
-		});
-	}
-
 	private void OnNodePropertyChanged(object? sender, PropertyChangedEventArgs e)
 	{
-		if (e.PropertyName == nameof(NodeModel.X) || e.PropertyName == nameof(NodeModel.Y))
-		{
-			QueueTransitionsRefresh();
-		}
+		// X/Y moves are tracked by each EdgeViewModel directly; nothing to invalidate here.
 
 		// Run/selection feedback is visual-only state; everything else is a document edit.
 		if (e.PropertyName is not (nameof(NodeModel.IsActive) or nameof(NodeModel.IsCurrent)
 		    or nameof(NodeModel.IsSelected) or nameof(NodeModel.LastRunStatus)))
 		{
-			MarkDirty();
+			NotePropertyEdit();
 		}
 	}
 }

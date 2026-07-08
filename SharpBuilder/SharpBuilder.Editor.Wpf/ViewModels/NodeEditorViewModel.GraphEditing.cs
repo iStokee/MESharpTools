@@ -27,7 +27,6 @@ public partial class NodeEditorViewModel
 		if (definition == null)
 			return;
 
-		var before = GraphCloneService.Clone(Script);
 
 		double x, y;
 		if (dropPosition is { } drop)
@@ -67,7 +66,7 @@ public partial class NodeEditorViewModel
 
 		SelectedNode = node;
 		Status = $"Added {node.Title}";
-		RecordGraphEdit($"Add {node.Title}", before);
+		RecordGraphEdit($"Add {node.Title}");
 	}
 
 	private void RemoveSelectedNode()
@@ -84,7 +83,6 @@ public partial class NodeEditorViewModel
 		if (targets.Count == 0)
 			return;
 
-		var before = GraphCloneService.Clone(Script);
 		var targetIds = targets.Select(n => n.Id).ToHashSet();
 
 		foreach (var node in Script.Nodes.ToList())
@@ -115,7 +113,7 @@ public partial class NodeEditorViewModel
 		OnPropertyChanged(nameof(SelectedNodes));
 
 		Status = targets.Count == 1 ? "Removed node" : $"Removed {targets.Count} nodes";
-		RecordGraphEdit(label, before);
+		RecordGraphEdit(label);
 	}
 
 	private void AddTransition()
@@ -131,7 +129,6 @@ public partial class NodeEditorViewModel
 			return;
 		}
 
-		var before = GraphCloneService.Clone(Script);
 
 		var transition = new TransitionModel
 		{
@@ -144,7 +141,7 @@ public partial class NodeEditorViewModel
 		SelectedNode.Transitions.Add(transition);
 		SelectedTransition = transition;
 		Status = "Added transition";
-		RecordGraphEdit("Add transition", before);
+		RecordGraphEdit("Add transition");
 	}
 
 	/// <summary>
@@ -164,7 +161,6 @@ public partial class NodeEditorViewModel
 			return;
 		}
 
-		var before = GraphCloneService.Clone(Script);
 		var transition = new TransitionModel
 		{
 			FromNodeId = from.Id,
@@ -177,7 +173,7 @@ public partial class NodeEditorViewModel
 		SelectedNode = from;
 		SelectedTransition = transition;
 		Status = $"Connected {from.Title} -> {to.Title}";
-		RecordGraphEdit("Connect nodes", before);
+		RecordGraphEdit("Connect nodes");
 	}
 
 	/// <summary>
@@ -201,12 +197,11 @@ public partial class NodeEditorViewModel
 		if (source == null || target == null || transition == null)
 			return;
 
-		var before = GraphCloneService.Clone(Script);
 		transition.ToNodeId = target.Id;
 		SelectedNode = source;
 		SelectedTransition = transition;
 		Status = $"Retargeted transition to {target.Title}";
-		RecordGraphEdit("Retarget transition", before);
+		RecordGraphEdit("Retarget transition");
 	}
 
 	/// <summary>
@@ -227,11 +222,10 @@ public partial class NodeEditorViewModel
 		if (index < 0 || newIndex < 0 || newIndex >= source.Transitions.Count)
 			return;
 
-		var before = GraphCloneService.Clone(Script);
 		source.Transitions.Move(index, newIndex);
 		SelectedTransition = transition;
 		Status = $"Moved transition {(direction < 0 ? "up" : "down")}";
-		RecordGraphEdit("Move transition", before);
+		RecordGraphEdit("Move transition");
 	}
 
 	private void RemoveTransition(TransitionModel? transition)
@@ -239,7 +233,6 @@ public partial class NodeEditorViewModel
 		if (SelectedNode == null || transition == null)
 			return;
 
-		var before = GraphCloneService.Clone(Script);
 		SelectedNode.Transitions.Remove(transition);
 		if (ReferenceEquals(SelectedTransition, transition))
 		{
@@ -247,7 +240,7 @@ public partial class NodeEditorViewModel
 		}
 
 		Status = "Removed transition";
-		RecordGraphEdit("Remove transition", before);
+		RecordGraphEdit("Remove transition");
 	}
 
 	private void SetSelectedAsStart()
@@ -255,10 +248,9 @@ public partial class NodeEditorViewModel
 		if (SelectedNode == null)
 			return;
 
-		var before = GraphCloneService.Clone(Script);
 		Script.StartNodeId = SelectedNode.Id;
 		Status = $"{SelectedNode.Title} marked as start";
-		RecordGraphEdit("Set start node", before);
+		RecordGraphEdit("Set start node");
 	}
 
 	private void ClearTrail()
@@ -325,7 +317,6 @@ public partial class NodeEditorViewModel
 		if (items == null || items.Count == 0)
 			return 0;
 
-		var before = GraphCloneService.Clone(Script);
 		foreach (var (node, transition) in items)
 		{
 			node.Transitions.Remove(transition);
@@ -333,7 +324,7 @@ public partial class NodeEditorViewModel
 
 		SelectedTransition = null;
 		Status = $"Removed {items.Count} transition{(items.Count == 1 ? string.Empty : "s")}";
-		RecordGraphEdit("Cut transitions", before);
+		RecordGraphEdit("Cut transitions");
 		return items.Count;
 	}
 

@@ -1,0 +1,536 @@
+<UserControl
+    x:Class="SharpBuilder.Editor.Wpf.Views.CatalogPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="http://metro.mahapps.com/winfx/xaml/controls"
+    xmlns:converters="clr-namespace:SharpBuilder.Editor.Wpf.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+    xmlns:mahApps="http://metro.mahapps.com/winfx/xaml/controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="clr-namespace:SharpBuilder.Core.Models;assembly=SharpBuilder.Core"
+    xmlns:utils="clr-namespace:SharpBuilder.Editor.Wpf.Utilities"
+    xmlns:viewModels="clr-namespace:SharpBuilder.Editor.Wpf.ViewModels"
+    mc:Ignorable="d">
+
+    <!--
+        Node catalog column: searchable/sortable palette of node definitions with drag-to-canvas,
+        the definition info popup, and the collapsed rail. DataContext is the editor view model.
+        Extracted from NodeEditorControl.xaml.
+    -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/EditorStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Border
+        Padding="0"
+        Style="{StaticResource PanelCard}">
+        <Grid>
+            <!--  Expanded catalog: header + scrollable palette  -->
+            <Grid Visibility="{Binding IsLeftCollapsed, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Inverted}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Style="{StaticResource EditorColumnHeader}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ToggleButton
+                            Grid.Column="0"
+                            IsChecked="{Binding IsLeftCollapsed, Mode=TwoWay}"
+                            Style="{StaticResource RailToggleButton}"
+                            ToolTip="Collapse catalog">
+                            <iconPacks:PackIconMaterial
+                                Width="16"
+                                Height="16"
+                                Kind="ChevronLeft" />
+                        </ToggleButton>
+                        <Border
+                            Grid.Column="1"
+                            Width="30"
+                            Height="30"
+                            Margin="10,0,0,0"
+                            VerticalAlignment="Center"
+                            Background="{StaticResource EditorPrimaryMutedBrush}"
+                            CornerRadius="7">
+                            <iconPacks:PackIconMaterial
+                                Width="16"
+                                Height="16"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource MahApps.Brushes.Accent}"
+                                Kind="Puzzle" />
+                        </Border>
+                        <StackPanel
+                            Grid.Column="2"
+                            Margin="10,0,0,0"
+                            VerticalAlignment="Center">
+                            <TextBlock
+                                FontSize="16"
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                Text="Catalog" />
+                            <TextBlock
+                                FontSize="11"
+                                Foreground="{DynamicResource MahApps.Brushes.Gray7}"
+                                Text="Click to insert, or drag onto the canvas" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!--  Content (hidden when collapsed)  -->
+                <Grid Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!--  Pinned search + sort bar  -->
+                    <Grid Grid.Row="0" Margin="16,12,16,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            VerticalContentAlignment="Center"
+                            mahApps:TextBoxHelper.ClearTextButton="True"
+                            mahApps:TextBoxHelper.Watermark="Search nodes…"
+                            Text="{Binding CatalogSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <ComboBox
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Width="Auto"
+                            Margin="0,10,0,0"
+                            ItemsSource="{Binding CatalogSortModes}"
+                            SelectedItem="{Binding CatalogSortMode, Mode=TwoWay}"
+                            ToolTip="Sort the catalog">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource CatalogSortModeLabelConverter}}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <CheckBox
+                            Grid.Row="2"
+                            Grid.ColumnSpan="2"
+                            Margin="0,8,0,0"
+                            Content="Show advanced nodes"
+                            IsChecked="{Binding ShowAdvancedNodes, Mode=TwoWay}"
+                            ToolTip="Shows low-level native capture nodes for expert graphs." />
+                    </Grid>
+
+                    <Grid
+                        Grid.Row="1"
+                        Margin="16,12,16,16"
+                        Visibility="{Binding IsLeftCollapsed, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Inverted}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition
+                                x:Name="CategoryRow"
+                                Height="132"
+                                MinHeight="44" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" MinHeight="120" />
+                        </Grid.RowDefinitions>
+
+                        <!--  Categories: bounded + vertically resizable so they never crowd out the node list  -->
+                        <Border
+                            Grid.Row="0"
+                            Background="#14000000"
+                            BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <ScrollViewer
+                                Padding="6,4"
+                                HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Auto">
+                                <ListBox
+                                    HorizontalContentAlignment="Stretch"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    ItemsSource="{Binding Categories}"
+                                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                    ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                    SelectedItem="{Binding SelectedCategory, Mode=TwoWay}">
+                                    <ListBox.ItemContainerStyle>
+                                        <!--  Strip the default square bright-blue selection chrome; the chip draws its own.  -->
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Margin" Value="0" />
+                                            <Setter Property="Padding" Value="0" />
+                                            <Setter Property="Background" Value="Transparent" />
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                        <ContentPresenter />
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel />
+                                        </ItemsPanelTemplate>
+                                    </ListBox.ItemsPanel>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border
+                                                Margin="0,4,5,4"
+                                                Padding="8,5"
+                                                CornerRadius="11">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}, ConverterParameter=Surface}" />
+                                                        <Setter Property="BorderBrush" Value="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}, ConverterParameter=Muted}" />
+                                                        <Setter Property="BorderThickness" Value="1" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                                <Setter Property="Background" Value="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}, ConverterParameter=Muted}" />
+                                                                <Setter Property="BorderBrush" Value="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}}" />
+                                                                <Setter Property="BorderThickness" Value="1.5" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Ellipse
+                                                        Width="8"
+                                                        Height="8"
+                                                        Margin="0,0,6,0"
+                                                        VerticalAlignment="Center"
+                                                        Fill="{Binding AccentColor, Converter={StaticResource AccentBrushConverter}}" />
+                                                    <TextBlock
+                                                        FontSize="11.5"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                                        Text="{Binding Title}" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </ScrollViewer>
+                        </Border>
+
+                        <GridSplitter
+                            Grid.Row="1"
+                            Height="6"
+                            Margin="0,3"
+                            HorizontalAlignment="Stretch"
+                            Background="{StaticResource EditorPrimaryMutedBrush}"
+                            ResizeBehavior="PreviousAndNext"
+                            ResizeDirection="Rows"
+                            ShowsPreview="True"
+                            ToolTip="Drag to resize the category list" />
+
+                        <ScrollViewer
+                            x:Name="CatalogScrollViewer"
+                            Grid.Row="2"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Auto">
+                            <!--
+                                Tiles wrap to fill the panel width and scroll vertically; width is pinned to the
+                                viewport so the WrapPanel knows where to break instead of running off to the right.
+                            -->
+                            <ItemsControl Width="{Binding ViewportWidth, ElementName=CatalogScrollViewer}" ItemsSource="{Binding FilteredDefinitions}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border
+                                            Width="168"
+                                            Height="138"
+                                            Margin="0,0,8,8"
+                                            Background="{StaticResource PanelHeaderBrush}"
+                                            BorderBrush="{Binding Id, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
+                                            BorderThickness="3,3,3,3"
+                                            CornerRadius="9"
+                                            Cursor="Hand"
+                                            MouseLeftButtonUp="PaletteDefinitionCard_MouseLeftButtonUp"
+                                            MouseMove="PaletteDefinitionCard_MouseMove"
+                                            PreviewMouseLeftButtonDown="PaletteDefinitionCard_PreviewMouseLeftButtonDown"
+                                            ToolTip="Click for info, or drag onto the canvas to add this node">
+                                            <Grid Margin="9,8,8,8">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="*" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+
+                                                <!--  Header: icon + title (+ query marker)  -->
+                                                <Grid Grid.Row="0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border
+                                                        Grid.Column="0"
+                                                        Width="26"
+                                                        Height="26"
+                                                        Margin="0,0,7,0"
+                                                        VerticalAlignment="Top"
+                                                        Background="{Binding Id, Converter={StaticResource NodeVisualConverter}, ConverterParameter=SurfaceBrush}"
+                                                        CornerRadius="6">
+                                                        <iconPacks:PackIconMaterial
+                                                            Width="15"
+                                                            Height="15"
+                                                            HorizontalAlignment="Center"
+                                                            VerticalAlignment="Center"
+                                                            Foreground="{Binding Id, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
+                                                            Kind="{Binding Id, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Icon}" />
+                                                    </Border>
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        MaxHeight="34"
+                                                        VerticalAlignment="Center"
+                                                        FontSize="12.5"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                                        Text="{Binding Title}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        TextWrapping="Wrap" />
+                                                    <Border
+                                                        Grid.Column="2"
+                                                        Width="7"
+                                                        Height="7"
+                                                        Margin="4,3,0,0"
+                                                        VerticalAlignment="Top"
+                                                        Background="{Binding Id, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
+                                                        CornerRadius="4"
+                                                        ToolTip="Reads game state (query node)"
+                                                        Visibility="{Binding HasQuery, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                                </Grid>
+
+                                                <!--  Description  -->
+                                                <TextBlock
+                                                    Grid.Row="1"
+                                                    Margin="0,6,0,6"
+                                                    FontSize="11"
+                                                    Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                                    Opacity="0.72"
+                                                    Text="{Binding ShortDescription}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    TextWrapping="Wrap" />
+
+                                                <!--  Footer: primary Add + Info  -->
+                                                <Grid Grid.Row="2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button
+                                                        Grid.Column="0"
+                                                        Command="{Binding DataContext.CreateNodeFromDefinitionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource CatalogAddButton}"
+                                                        ToolTip="Add this node to the canvas">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <iconPacks:PackIconMaterial
+                                                                Width="11"
+                                                                Height="11"
+                                                                VerticalAlignment="Center"
+                                                                Kind="Plus" />
+                                                            <TextBlock Margin="5,0,0,0" Text="Add" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <!--<Button
+                                                        Grid.Column="1"
+                                                        Width="28"
+                                                        Margin="6,0,0,0"
+                                                        Padding="0"
+                                                        Click="PaletteDefinitionInfoButton_Click"
+                                                        Style="{StaticResource CatalogIconButton}"
+                                                        ToolTip="Show node info">
+                                                        <iconPacks:PackIconMaterial
+                                                            Width="13"
+                                                            Height="13"
+                                                            HorizontalAlignment="Center"
+                                                            VerticalAlignment="Center"
+                                                            Kind="InformationOutline" />
+                                                    </Button>-->
+                                                </Grid>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+
+                    <Popup
+                        x:Name="NodeInfoPopup"
+                        AllowsTransparency="True"
+                        Closed="NodeInfoPopup_OnClosed"
+                        IsOpen="{Binding IsNodeInfoOpen, Mode=TwoWay}"
+                        Placement="Right"
+                        PopupAnimation="Fade"
+                        StaysOpen="False">
+                        <Border
+                            Width="380"
+                            MaxHeight="520"
+                            Padding="12"
+                            Background="#F21B2432"
+                            BorderBrush="{StaticResource EditorPrimaryBrush}"
+                            BorderThickness="1.5"
+                            CornerRadius="10">
+                            <Border.Effect>
+                                <DropShadowEffect
+                                    BlurRadius="16"
+                                    Opacity="0.35"
+                                    ShadowDepth="2" />
+                            </Border.Effect>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock
+                                    Grid.Row="0"
+                                    Grid.Column="0"
+                                    FontSize="15"
+                                    FontWeight="SemiBold"
+                                    Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                    Text="{Binding NodeInfoTitle}" />
+
+                                <Button
+                                    Grid.Row="0"
+                                    Grid.Column="1"
+                                    Width="26"
+                                    Height="26"
+                                    Margin="8,0,0,0"
+                                    Padding="0"
+                                    Background="Transparent"
+                                    BorderBrush="{StaticResource EditorPrimaryMutedBrush}"
+                                    BorderThickness="1"
+                                    Command="{Binding CloseNodeInfoCommand}"
+                                    ToolTip="Close (Esc)">
+                                    <iconPacks:PackIconMaterial
+                                        Width="14"
+                                        Height="14"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Kind="Close" />
+                                </Button>
+
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,8,0,0"
+                                    Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                    Opacity="0.92"
+                                    Text="{Binding NodeInfoDescription}"
+                                    TextWrapping="Wrap" />
+
+                                <ScrollViewer
+                                    Grid.Row="2"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,10,0,0"
+                                    VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding NodeInfoUsageTips}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border
+                                                    Margin="0,0,0,6"
+                                                    Padding="8,6"
+                                                    Background="#1AFFFFFF"
+                                                    CornerRadius="6">
+                                                    <TextBlock
+                                                        FontSize="12"
+                                                        Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                                        Text="{Binding}"
+                                                        TextWrapping="Wrap" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+
+                                <TextBlock
+                                    Grid.Row="3"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,6,0,0"
+                                    FontSize="11"
+                                    Foreground="{DynamicResource MahApps.Brushes.IdealForeground}"
+                                    Opacity="0.72"
+                                    Text="Click another catalog item to move this info panel near that item."
+                                    TextWrapping="Wrap" />
+                            </Grid>
+                        </Border>
+                    </Popup>
+                </Grid>
+            </Grid>
+
+            <!--  Collapsed catalog rail  -->
+            <Border
+                Background="{StaticResource RailSurfaceBrush}"
+                CornerRadius="13"
+                Visibility="{Binding IsLeftCollapsed, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid Margin="0,14">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ToggleButton
+                        Grid.Row="0"
+                        HorizontalAlignment="Center"
+                        IsChecked="{Binding IsLeftCollapsed, Mode=TwoWay}"
+                        Style="{StaticResource RailToggleButton}"
+                        ToolTip="Expand catalog">
+                        <iconPacks:PackIconMaterial
+                            Width="16"
+                            Height="16"
+                            Kind="ChevronRight" />
+                    </ToggleButton>
+                    <TextBlock
+                        Grid.Row="1"
+                        Margin="0,16"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource RailCaption}"
+                        Text="CATALOG" />
+                    <Border
+                        Grid.Row="2"
+                        Width="32"
+                        Height="32"
+                        HorizontalAlignment="Center"
+                        Background="{StaticResource EditorPrimaryMutedBrush}"
+                        CornerRadius="9">
+                        <iconPacks:PackIconMaterial
+                            Width="16"
+                            Height="16"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Foreground="{DynamicResource MahApps.Brushes.Accent}"
+                            Kind="Puzzle" />
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

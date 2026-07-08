@@ -20,12 +20,7 @@ internal sealed class InventoryContainsExecutor : INodeExecutor
 		var hasNames = names.Count > 0 && names.Any(n => Inventory.Contains(n));
 		var result = ids.Count == 0 && names.Count == 0 ? Inventory.IsFull : hasIds || hasNames;
 
-		var outputs = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
-		{
-			["inventory.contains"] = result
-		};
-		var status = result == expected ? NodeExecutionStatus.Success : NodeExecutionStatus.Fail;
-		return Task.FromResult(new NodeExecutionResult(status, outputs));
+		return Task.FromResult(ExecutorHelpers.ConditionOutcome("inventory.contains", result, expected));
 	}
 }
 
@@ -76,14 +71,8 @@ internal sealed class InventoryItemsActionExecutor : INodeExecutor, IGameApiSelf
 		if (ids.Count == 0 && names.Count == 0)
 			return NodeExecutionResult.Fail();
 
-		var quantity = (ParameterHelper.ToString(context.Parameters, "quantity") ?? "One").Trim().ToLowerInvariant();
-		var requested = Math.Max(1, ParameterHelper.ToInt(context.Parameters, "count") ?? 1);
-		var limit = quantity switch
-		{
-			"all" => int.MaxValue,
-			"some" => requested,
-			_ => 1
-		};
+		var plan = QuantityPlan.Parse(context.Parameters, "One");
+		var limit = plan.Limit;
 
 		var performed = 0;
 		while (performed < limit)
@@ -111,12 +100,7 @@ internal sealed class InventoryItemsActionExecutor : INodeExecutor, IGameApiSelf
 		}
 
 		var remaining = await GameLane.Run(() => FindMatches(ids, names), cancellationToken);
-		var ok = quantity switch
-		{
-			"all" => remaining.Count == 0,
-			"some" => performed >= limit,
-			_ => performed >= 1
-		};
+		var ok = plan.IsSatisfied(performed, remaining.Count == 0);
 
 		return ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
 	}
@@ -151,32 +135,7 @@ internal sealed class InventoryMenuActionExecutor : INodeExecutor
 		var menuIndex = Math.Max(0, ParameterHelper.ToInt(context.Parameters, "menuIndex") ?? 1);
 		var offset = ParameterHelper.ToInt(context.Parameters, "offset") ?? Objects.Offsets.GeneralInterfaceRoute;
 
-		var ok = false;
-		foreach (var id in ids)
-		{
-			cancellationToken.ThrowIfCancellationRequested();
-			if (!Inventory.Contains(id))
-				continue;
-
-			ok = Inventory.DoAction(id, menuIndex, offset);
-			if (ok)
-				break;
-		}
-
-		if (!ok)
-		{
-			foreach (var name in names)
-			{
-				cancellationToken.ThrowIfCancellationRequested();
-				if (!Inventory.Contains(name))
-					continue;
-
-				ok = Inventory.DoAction(name, menuIndex, offset);
-				if (ok)
-					break;
-			}
-		}
-
+		var ok = ExecutorHelpers.InventoryDoActionOnFirst(ids, names, menuIndex, offset, cancellationToken);
 		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
 	}
 }
@@ -226,12 +185,7 @@ internal sealed class EquipmentContainsExecutor : INodeExecutor
 
 		var worn = ids.Any(Equipment.ContainsById) || names.Any(Equipment.ContainsByName);
 
-		var outputs = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
-		{
-			["equipment.contains"] = worn
-		};
-		var status = worn == expected ? NodeExecutionStatus.Success : NodeExecutionStatus.Fail;
-		return Task.FromResult(new NodeExecutionResult(status, outputs));
+		return Task.FromResult(ExecutorHelpers.ConditionOutcome("equipment.contains", worn, expected));
 	}
 }
 
@@ -448,36 +402,14 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 		if (!KeyboardTokenResolver.TryResolve(keybind, out var key))
 			return NodeExecutionResult.Fail();
 
-		var quantity = (ParameterHelper.ToString(context.Parameters, "quantity") ?? "All").Trim().ToLowerInvariant();
-		var requested = Math.Max(1, ParameterHelper.ToInt(context.Parameters, "count") ?? 1);
-		var limit = quantity switch
-		{
-			"all" => int.MaxValue,
-			"some" => requested,
-			_ => 1
-		};
-		var requireAlchable = ParameterHelper.ToBool(context.Parameters, "requireAlchable", true);
-		var targetMode = (ParameterHelper.ToString(context.Parameters, "targetMode") ?? "KeybindThenItem").Trim();
-		var targetDelayMs = Math.Max(0, ParameterHelper.ToInt(context.Parameters, "targetDelayMs") ?? 1000);
-		var recastMode = (ParameterHelper.ToString(context.Parameters, "recastMode") ?? "ItemDisappears").Trim();
-		var disappearTimeoutMs = Math.Max(PollMs, ParameterHelper.ToInt(context.Parameters, "disappearTimeoutMs") ?? 3500);
-		var postTargetDelayMs = Math.Max(0, ParameterHelper.ToInt(context.Parameters, "postTargetDelayMs") ?? 2500);
-		var startTimeoutMs = Math.Max(PollMs, ParameterHelper.ToInt(context.Parameters, "startTimeoutMs") ?? 1500);
-		var finishTimeoutMs = Math.Max(PollMs, ParameterHelper.ToInt(context.Parameters, "finishTimeoutMs") ?? 5000);
-		var betweenCastsMs = Math.Max(0, ParameterHelper.ToInt(context.Parameters, "betweenCastsMs") ?? 250);
-		var inventoryRoot = ParameterHelper.ToInt(context.Parameters, "inventoryRoot") ?? 0;
-		var itemAction = ParameterHelper.ToInt(context.Parameters, "itemAction") ?? 110;
-		var itemOffset = ParameterHelper.ToInt(context.Parameters, "itemOffset") ?? Objects.Offsets.GeneralInterfaceRoute1;
-		var clickInventoryTarget = !string.Equals(targetMode, "KeybindOnly", StringComparison.OrdinalIgnoreCase);
-		var recastOnDisappear = clickInventoryTarget &&
-			string.Equals(recastMode, "ItemDisappears", StringComparison.OrdinalIgnoreCase);
+		var options = AlchOptions.Parse(context.Parameters);
 
 		var casts = 0;
-		while (casts < limit)
+		while (casts < options.Plan.Limit)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 
-			var before = await GameLane.Run(() => CountMatches(ids, names, requireAlchable), cancellationToken);
+			var before = await GameLane.Run(() => CountMatches(ids, names, options.RequireAlchable), cancellationToken);
 			if (before == 0)
 				break;
 
@@ -485,59 +417,94 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 				break;
 
 			var targetClickedAt = Environment.TickCount64;
-			if (clickInventoryTarget)
+			if (options.ClickInventoryTarget)
 			{
-				if (targetDelayMs > 0)
-					await Task.Delay(targetDelayMs, cancellationToken);
+				if (options.TargetDelayMs > 0)
+					await Task.Delay(options.TargetDelayMs, cancellationToken);
 
-				var target = await GameLane.Run(() => FindFirstMatch(ids, names, requireAlchable), cancellationToken);
+				var target = await GameLane.Run(() => FindFirstMatch(ids, names, options.RequireAlchable), cancellationToken);
 				if (target == null)
 					break;
-				if (!await GameLane.Run(() => ClickAlchTarget(target, inventoryRoot, itemAction, itemOffset), cancellationToken))
+				if (!await GameLane.Run(() => ClickAlchTarget(target, options.InventoryRoot, options.ItemAction, options.ItemOffset), cancellationToken))
 					break;
 
 				targetClickedAt = Environment.TickCount64;
 			}
 
-			var itemDisappeared = recastOnDisappear &&
-				await WaitForCountBelow(ids, names, requireAlchable, before, disappearTimeoutMs, cancellationToken);
+			var itemDisappeared = options.RecastOnDisappear &&
+				await WaitForCountBelow(ids, names, options.RequireAlchable, before, options.DisappearTimeoutMs, cancellationToken);
 
 			if (!itemDisappeared)
 			{
-				var animated = await WaitForAnimationStart(startTimeoutMs, cancellationToken);
+				var animated = await WaitForAnimationStart(options.StartTimeoutMs, cancellationToken);
 				if (animated)
-					await WaitForAnimationEnd(finishTimeoutMs, cancellationToken);
+					await WaitForAnimationEnd(options.FinishTimeoutMs, cancellationToken);
 				else
-					await Task.Delay(Math.Min(finishTimeoutMs, 1200), cancellationToken);
+					await Task.Delay(Math.Min(options.FinishTimeoutMs, 1200), cancellationToken);
 			}
 
 			casts++;
 
-			if (clickInventoryTarget && !itemDisappeared)
+			if (options.ClickInventoryTarget && !itemDisappeared)
 			{
 				var elapsedAfterTarget = Math.Max(0, Environment.TickCount64 - targetClickedAt);
-				var remainingPostTargetDelay = postTargetDelayMs - elapsedAfterTarget;
+				var remainingPostTargetDelay = options.PostTargetDelayMs - elapsedAfterTarget;
 				if (remainingPostTargetDelay > 0)
 					await Task.Delay((int)remainingPostTargetDelay, cancellationToken);
 			}
 
-			var after = await GameLane.Run(() => CountMatches(ids, names, requireAlchable), cancellationToken);
+			var after = await GameLane.Run(() => CountMatches(ids, names, options.RequireAlchable), cancellationToken);
 			if (after >= before)
 				break;
 
-			if (betweenCastsMs > 0)
-				await Task.Delay(betweenCastsMs, cancellationToken);
+			if (options.BetweenCastsMs > 0)
+				await Task.Delay(options.BetweenCastsMs, cancellationToken);
 		}
 
-		var remaining = await GameLane.Run(() => CountMatches(ids, names, requireAlchable), cancellationToken);
-		var ok = quantity switch
-		{
-			"all" => remaining == 0,
-			"some" => casts >= limit,
-			_ => casts >= 1
-		};
+		var remaining = await GameLane.Run(() => CountMatches(ids, names, options.RequireAlchable), cancellationToken);
+		var ok = options.Plan.IsSatisfied(casts, remaining == 0);
 
 		return ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
+	}
+
+	/// <summary>All tunables for the alch loop, parsed once so the loop body reads clean.</summary>
+	private sealed record AlchOptions(
+		QuantityPlan Plan,
+		bool RequireAlchable,
+		bool ClickInventoryTarget,
+		bool RecastOnDisappear,
+		int TargetDelayMs,
+		int DisappearTimeoutMs,
+		int PostTargetDelayMs,
+		int StartTimeoutMs,
+		int FinishTimeoutMs,
+		int BetweenCastsMs,
+		int InventoryRoot,
+		int ItemAction,
+		int ItemOffset)
+	{
+		public static AlchOptions Parse(IReadOnlyDictionary<string, object?> parameters)
+		{
+			var targetMode = (ParameterHelper.ToString(parameters, "targetMode") ?? "KeybindThenItem").Trim();
+			var recastMode = (ParameterHelper.ToString(parameters, "recastMode") ?? "ItemDisappears").Trim();
+			var clickInventoryTarget = !string.Equals(targetMode, "KeybindOnly", StringComparison.OrdinalIgnoreCase);
+
+			return new AlchOptions(
+				Plan: QuantityPlan.Parse(parameters, "All"),
+				RequireAlchable: ParameterHelper.ToBool(parameters, "requireAlchable", true),
+				ClickInventoryTarget: clickInventoryTarget,
+				RecastOnDisappear: clickInventoryTarget &&
+					string.Equals(recastMode, "ItemDisappears", StringComparison.OrdinalIgnoreCase),
+				TargetDelayMs: Math.Max(0, ParameterHelper.ToInt(parameters, "targetDelayMs") ?? 1000),
+				DisappearTimeoutMs: Math.Max(PollMs, ParameterHelper.ToInt(parameters, "disappearTimeoutMs") ?? 3500),
+				PostTargetDelayMs: Math.Max(0, ParameterHelper.ToInt(parameters, "postTargetDelayMs") ?? 2500),
+				StartTimeoutMs: Math.Max(PollMs, ParameterHelper.ToInt(parameters, "startTimeoutMs") ?? 1500),
+				FinishTimeoutMs: Math.Max(PollMs, ParameterHelper.ToInt(parameters, "finishTimeoutMs") ?? 5000),
+				BetweenCastsMs: Math.Max(0, ParameterHelper.ToInt(parameters, "betweenCastsMs") ?? 250),
+				InventoryRoot: ParameterHelper.ToInt(parameters, "inventoryRoot") ?? 0,
+				ItemAction: ParameterHelper.ToInt(parameters, "itemAction") ?? 110,
+				ItemOffset: ParameterHelper.ToInt(parameters, "itemOffset") ?? Objects.Offsets.GeneralInterfaceRoute1);
+		}
 	}
 
 	private static ulong CountMatches(List<int> ids, List<string> names, bool requireAlchable)
@@ -607,68 +574,4 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 
 	private static Task WaitForAnimationEnd(int timeoutMs, CancellationToken cancellationToken)
 		=> GameLane.PollUntil(() => IsIdle(LocalPlayer.GetAnimation()), timeoutMs, cancellationToken, PollMs);
-}
-
-internal static class KeyboardTokenResolver
-{
-	public static bool TryResolve(string? token, out Keyboard.VirtualKey key)
-	{
-		key = default;
-		if (string.IsNullOrWhiteSpace(token))
-			return false;
-
-		var normalized = token.Trim().ToUpperInvariant();
-
-		// Enum.TryParse also accepts bare integers ("1" would become (VirtualKey)1, the left mouse
-		// button), but a digit token always means the digit key — handled below.
-		if (!char.IsDigit(normalized[0]) &&
-			Enum.TryParse<Keyboard.VirtualKey>(normalized, ignoreCase: true, out var named))
-		{
-			key = named;
-			return true;
-		}
-
-		if (normalized.StartsWith("NUMPAD", StringComparison.OrdinalIgnoreCase) &&
-			int.TryParse(normalized["NUMPAD".Length..], out var numpad) &&
-			numpad is >= 0 and <= 9)
-		{
-			key = (Keyboard.VirtualKey)(0x60 + numpad);
-			return true;
-		}
-
-		if (normalized.Length == 1 && normalized[0] is >= 'A' and <= 'Z')
-		{
-			key = (Keyboard.VirtualKey)normalized[0];
-			return true;
-		}
-
-		if (normalized.Length == 1 && normalized[0] is >= '0' and <= '9')
-		{
-			key = (Keyboard.VirtualKey)normalized[0];
-			return true;
-		}
-
-		if (normalized.Length is 2 or 3 &&
-			normalized[0] == 'F' &&
-			int.TryParse(normalized[1..], out var fn) &&
-			fn is >= 1 and <= 12)
-		{
-			key = (Keyboard.VirtualKey)(0x6F + fn);
-			return true;
-		}
-
-		return false;
-	}
-
-	/// <summary>
-	/// Taps a resolved key, preferring the direct game-input path for letter/digit keybinds
-	/// (immune to window focus and ImGui capture; falls back to the message queue internally).
-	/// </summary>
-	public static bool Press(Keyboard.VirtualKey key)
-	{
-		var vk = (int)key;
-		if (vk is >= '0' and <= '9' or >= 'A' and <= 'Z')
-			return Keyboard.TapChar((char)vk);
-		return Keyboard.Tap(vk);
-	}
 }

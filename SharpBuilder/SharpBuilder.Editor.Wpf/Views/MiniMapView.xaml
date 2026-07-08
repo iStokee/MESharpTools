@@ -1,0 +1,141 @@
+<UserControl
+    x:Class="SharpBuilder.Editor.Wpf.Views.MiniMapView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="http://metro.mahapps.com/winfx/xaml/controls"
+    xmlns:converters="clr-namespace:SharpBuilder.Editor.Wpf.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+    xmlns:mahApps="http://metro.mahapps.com/winfx/xaml/controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="clr-namespace:SharpBuilder.Core.Models;assembly=SharpBuilder.Core"
+    xmlns:utils="clr-namespace:SharpBuilder.Editor.Wpf.Utilities"
+    xmlns:viewModels="clr-namespace:SharpBuilder.Editor.Wpf.ViewModels"
+    mc:Ignorable="d">
+
+    <!--
+        Draggable canvas mini-map overlay: node dots, viewport indicator, and the auto-hide
+        countdown. The hosting editor pushes viewport/zoom updates and the visibility mode.
+        Extracted from NodeEditorControl.xaml.
+    -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/EditorStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Border
+        x:Name="MiniMapPanel"
+        Width="166"
+        Height="134"
+        Margin="0,0,16,16"
+        Padding="5"
+        HorizontalAlignment="Right"
+        VerticalAlignment="Bottom"
+        Background="#CC0E1420"
+        BorderBrush="{StaticResource PanelBorderBrush}"
+        BorderThickness="1"
+        CornerRadius="8">
+        <Border.RenderTransform>
+            <TranslateTransform x:Name="MiniMapTranslate" />
+        </Border.RenderTransform>
+        <Border.Effect>
+            <DropShadowEffect
+                BlurRadius="14"
+                Opacity="0.4"
+                ShadowDepth="2" />
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!--  Drag handle  -->
+            <Thumb
+                Grid.Row="0"
+                Height="16"
+                Cursor="SizeAll"
+                DragDelta="MiniMapPanel_DragDelta"
+                ToolTip="Drag to move the mini-map">
+                <Thumb.Template>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="#1FFFFFFF" CornerRadius="4">
+                            <StackPanel
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal">
+                                <iconPacks:PackIconMaterial
+                                    Width="10"
+                                    Height="10"
+                                    VerticalAlignment="Center"
+                                    Foreground="{DynamicResource MahApps.Brushes.Gray4}"
+                                    Kind="CursorMove" />
+                                <TextBlock
+                                    Margin="5,0,0,0"
+                                    VerticalAlignment="Center"
+                                    FontSize="9.5"
+                                    FontWeight="SemiBold"
+                                    Foreground="{DynamicResource MahApps.Brushes.Gray4}"
+                                    Text="MAP" />
+                            </StackPanel>
+                        </Border>
+                    </ControlTemplate>
+                </Thumb.Template>
+            </Thumb>
+
+            <Border
+                Grid.Row="1"
+                Margin="0,4,0,0"
+                ClipToBounds="True">
+                <Canvas x:Name="MiniMapCanvas" ClipToBounds="True">
+                    <ItemsControl ItemsSource="{Binding Script.Nodes}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding X, Converter={StaticResource MiniMapCoordinateConverter}}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Y, Converter={StaticResource MiniMapCoordinateConverter}}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Rectangle
+                                    Width="10"
+                                    Height="7"
+                                    Fill="{Binding DefinitionId, Converter={StaticResource NodeVisualConverter}, ConverterParameter=Brush}"
+                                    Opacity="0.82"
+                                    Stroke="#DDFFFFFF"
+                                    StrokeThickness="0.5" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <!--  Viewport indicator — updated from code-behind on scroll/zoom.  -->
+                    <Rectangle
+                        x:Name="MiniMapViewport"
+                        Fill="#284AB6FF"
+                        Stroke="{StaticResource EditorPrimaryBrush}"
+                        StrokeThickness="1" />
+                </Canvas>
+            </Border>
+
+            <!--  Auto-hide countdown bar (visible timer); hidden when always-on.  -->
+            <Rectangle
+                x:Name="MiniMapTimerBar"
+                Grid.Row="2"
+                Height="3"
+                Margin="0,4,0,0"
+                HorizontalAlignment="Left"
+                Fill="{StaticResource EditorPrimaryBrush}"
+                RadiusX="1.5"
+                RadiusY="1.5"
+                Visibility="Collapsed" />
+        </Grid>
+    </Border>
+</UserControl>

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SharpBuilder.Core.Models;
 using SharpBuilder.Core.Services;
@@ -18,7 +19,7 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 /// stub today (only "Local"); routing canvases to *other* sessions is a later phase that needs ME-side
 /// cross-process dispatch.
 /// </summary>
-public sealed partial class WorkspaceViewModel : INotifyPropertyChanged, IDisposable
+public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
 {
 	private readonly NodeCatalogService _catalog;
 	private readonly GraphScriptService _scriptService;
@@ -217,8 +218,4 @@ public sealed partial class WorkspaceViewModel : INotifyPropertyChanged, IDispos
 		Canvases.Clear();
 	}
 
-	public event PropertyChangedEventHandler? PropertyChanged;
-
-	private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-		=> PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }

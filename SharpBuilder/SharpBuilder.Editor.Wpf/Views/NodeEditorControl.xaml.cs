@@ -50,15 +50,9 @@ public partial class NodeEditorControl : UserControl
 	private const double ZoomMax = 3.0;
 	private const double ZoomStep = 0.1;
 
-	// Catalog drag-to-canvas state
-	private Point _paletteDragStart;
-	private NodeDefinition? _paletteDragDefinition;
-	private const string PaletteDragFormat = "SharpBuilderNodeDefinition";
-
-	// Mini-map auto-hide
-	private const double MiniMapAutoHideSeconds = 1.8;
-	private const double MiniMapTimerBarFullWidth = 154;
 	private NodeEditorViewModel? _observedViewModel;
+
+	private bool MiniMapAlwaysVisible => _observedViewModel?.MiniMapAlwaysVisible ?? true;
 
 	public NodeEditorControl()
 	{
@@ -69,7 +63,7 @@ public partial class NodeEditorControl : UserControl
 		CanvasScrollViewer.LostMouseCapture += (_, _) => ResetCanvasGestures();
 
 		DataContextChanged += OnDataContextChanged;
-		Loaded += (_, _) => ApplyMiniMapVisibilityMode();
+		Loaded += (_, _) => MiniMap.SetAlwaysVisible(MiniMapAlwaysVisible);
 	}
 
 	private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -81,13 +75,13 @@ public partial class NodeEditorControl : UserControl
 		if (_observedViewModel != null)
 			_observedViewModel.PropertyChanged += OnViewModelPropertyChanged;
 
-		ApplyMiniMapVisibilityMode();
+		MiniMap.SetAlwaysVisible(MiniMapAlwaysVisible);
 	}
 
 	private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
 	{
 		if (e.PropertyName == nameof(NodeEditorViewModel.MiniMapAlwaysVisible))
-			ApplyMiniMapVisibilityMode();
+			MiniMap.SetAlwaysVisible(MiniMapAlwaysVisible);
 	}
 
 	private void ResetCanvasGestures()
@@ -195,7 +189,7 @@ public partial class NodeEditorControl : UserControl
 		CanvasScrollViewer.ScrollToHorizontalOffset(Math.Max(0, contentX * _zoomLevel - anchor.X));
 		CanvasScrollViewer.ScrollToVerticalOffset(Math.Max(0, contentY * _zoomLevel - anchor.Y));
 
-		UpdateMiniMapViewport();
+		MiniMap.UpdateViewport(CanvasScrollViewer, _zoomLevel);
 	}
 
 	private void FitGraphToView()
@@ -232,120 +226,18 @@ public partial class NodeEditorControl : UserControl
 		var centerY = bounds.Y + bounds.Height / 2;
 		CanvasScrollViewer.ScrollToHorizontalOffset(Math.Max(0, centerX * _zoomLevel - CanvasScrollViewer.ViewportWidth / 2));
 		CanvasScrollViewer.ScrollToVerticalOffset(Math.Max(0, centerY * _zoomLevel - CanvasScrollViewer.ViewportHeight / 2));
-		UpdateMiniMapViewport();
+		MiniMap.UpdateViewport(CanvasScrollViewer, _zoomLevel);
 	}
 
 	#endregion
-
-	#region Mini map
-
-	// Must match MiniMapCoordinateConverter.Scale / Offset so the viewport box lines up with the dots.
-	private const double MiniMapScale = 0.055;
-	private const double MiniMapOffset = 4;
 
 	private void CanvasScrollViewer_OnScrollChanged(object sender, ScrollChangedEventArgs e)
 	{
-		UpdateMiniMapViewport();
+		MiniMap.UpdateViewport(CanvasScrollViewer, _zoomLevel);
 
 		// A real pan/scroll (not just a layout pass) briefly reveals the auto-hide mini-map.
 		if (e.HorizontalChange != 0 || e.VerticalChange != 0)
-			ShowMiniMapTransient();
-	}
-
-	private bool MiniMapAlwaysVisible => _observedViewModel?.MiniMapAlwaysVisible ?? true;
-
-	/// <summary>Applies the persisted mini-map mode: always-on, or hidden until the next pan.</summary>
-	private void ApplyMiniMapVisibilityMode()
-	{
-		if (MiniMapPanel == null)
-			return;
-
-		MiniMapPanel.BeginAnimation(OpacityProperty, null);
-		MiniMapTimerBar.BeginAnimation(WidthProperty, null);
-
-		if (MiniMapAlwaysVisible)
-		{
-			MiniMapPanel.Opacity = 1;
-			MiniMapPanel.Visibility = Visibility.Visible;
-			MiniMapTimerBar.Visibility = Visibility.Collapsed;
-		}
-		else
-		{
-			MiniMapPanel.Visibility = Visibility.Collapsed;
-		}
-	}
-
-	/// <summary>In auto-hide mode, shows the mini-map and restarts the visible countdown before it fades.</summary>
-	private void ShowMiniMapTransient()
-	{
-		if (MiniMapPanel == null || MiniMapAlwaysVisible)
-			return;
-
-		MiniMapPanel.BeginAnimation(OpacityProperty, null);
-		MiniMapPanel.Opacity = 1;
-		MiniMapPanel.Visibility = Visibility.Visible;
-
-		// Countdown bar shrinks over the hold time, then the panel fades out.
-		MiniMapTimerBar.Visibility = Visibility.Visible;
-		MiniMapTimerBar.BeginAnimation(WidthProperty, null);
-		var shrink = new DoubleAnimation(MiniMapTimerBarFullWidth, 0, TimeSpan.FromSeconds(MiniMapAutoHideSeconds));
-		MiniMapTimerBar.BeginAnimation(WidthProperty, shrink);
-
-		var fade = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.35))
-		{
-			BeginTime = TimeSpan.FromSeconds(MiniMapAutoHideSeconds)
-		};
-		fade.Completed += (_, _) =>
-		{
-			if (!MiniMapAlwaysVisible)
-				MiniMapPanel.Visibility = Visibility.Collapsed;
-		};
-		MiniMapPanel.BeginAnimation(OpacityProperty, fade);
-	}
-
-	private void MiniMapPanel_DragDelta(object sender, DragDeltaEventArgs e)
-	{
-		if (MiniMapPanel == null)
-			return;
-
-		// Panel is anchored bottom-right; translate is negative going left/up. Clamp so it stays on-canvas.
-		var host = MiniMapPanel.Parent as FrameworkElement;
-		var maxLeft = host != null ? Math.Max(0, host.ActualWidth - MiniMapPanel.ActualWidth - 24) : 600;
-		var maxUp = host != null ? Math.Max(0, host.ActualHeight - MiniMapPanel.ActualHeight - 24) : 400;
-
-		MiniMapTranslate.X = Math.Clamp(MiniMapTranslate.X + e.HorizontalChange, -maxLeft, 24);
-		MiniMapTranslate.Y = Math.Clamp(MiniMapTranslate.Y + e.VerticalChange, -maxUp, 24);
-		e.Handled = true;
-	}
-
-	/// <summary>Positions the opaque overlay rectangle so it tracks the visible viewport on the mini map.</summary>
-	private void UpdateMiniMapViewport()
-	{
-		if (MiniMapViewport == null || _zoomLevel <= 0)
-			return;
-
-		// Visible region in canvas (unscaled) coordinates.
-		var canvasLeft = CanvasScrollViewer.HorizontalOffset / _zoomLevel;
-		var canvasTop = CanvasScrollViewer.VerticalOffset / _zoomLevel;
-		var canvasWidth = CanvasScrollViewer.ViewportWidth / _zoomLevel;
-		var canvasHeight = CanvasScrollViewer.ViewportHeight / _zoomLevel;
-
-		Canvas.SetLeft(MiniMapViewport, canvasLeft * MiniMapScale + MiniMapOffset);
-		Canvas.SetTop(MiniMapViewport, canvasTop * MiniMapScale + MiniMapOffset);
-		MiniMapViewport.Width = Math.Max(2, canvasWidth * MiniMapScale);
-		MiniMapViewport.Height = Math.Max(2, canvasHeight * MiniMapScale);
-	}
-
-	#endregion
-
-	private void DashboardResize_DragDelta(object sender, DragDeltaEventArgs e)
-	{
-		if (sender is Thumb { DataContext: NodeModel node })
-		{
-			node.DashboardWidth += e.HorizontalChange;
-			node.DashboardHeight += e.VerticalChange;
-			e.Handled = true;
-		}
+			MiniMap.ShowTransient();
 	}
 
 	private void NodeMouseDown(object sender, MouseButtonEventArgs e)
@@ -442,15 +334,15 @@ public partial class NodeEditorControl : UserControl
 		if (e.LeftButton == MouseButtonState.Pressed)
 		{
 			// Don't hijack built-in scroll bar interactions.
-			if (HasVisualParent<ScrollBar>(sourceElement) ||
-			    HasVisualParent<Track>(sourceElement) ||
-			    HasVisualParent<RepeatButton>(sourceElement))
+			if (Utilities.VisualTreeUtils.HasVisualParent<ScrollBar>(sourceElement) ||
+			    Utilities.VisualTreeUtils.HasVisualParent<Track>(sourceElement) ||
+			    Utilities.VisualTreeUtils.HasVisualParent<RepeatButton>(sourceElement))
 			{
 				return;
 			}
 
 			// Don't treat clicks on nodes as canvas background clicks.
-			if (HasVisualParent<Thumb>(sourceElement))
+			if (Utilities.VisualTreeUtils.HasVisualParent<Thumb>(sourceElement))
 			{
 				return;
 			}
@@ -460,7 +352,7 @@ public partial class NodeEditorControl : UserControl
 			                         sourceElement == CanvasScrollViewer ||
 			                         sourceElement == NodeCanvas ||
 			                         sourceElement == SelectionOverlay ||
-			                         HasVisualParent<Canvas>(sourceElement);
+			                         Utilities.VisualTreeUtils.HasVisualParent<Canvas>(sourceElement);
 
 			if (isCanvasBackground && DataContext is NodeEditorViewModel vm)
 			{
@@ -870,131 +762,20 @@ public partial class NodeEditorControl : UserControl
 		}
 	}
 
-	private void PaletteDefinitionCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-	{
-		// The press ended without a drag; drop the armed definition so a later mouse-move
-		// over the card (e.g. with the button held from elsewhere) can't start a stale drag.
-		_paletteDragDefinition = null;
-
-		if (DataContext is not NodeEditorViewModel vm)
-			return;
-
-		if (e.OriginalSource is DependencyObject sourceElement &&
-		    (HasVisualParent<ButtonBase>(sourceElement) || HasVisualParent<TextBox>(sourceElement) || HasVisualParent<ComboBox>(sourceElement)))
-		{
-			// Let interactive controls inside the card handle their own click behavior.
-			return;
-		}
-
-		if (sender is FrameworkElement card && card.DataContext is NodeDefinition definition)
-		{
-			ShowDefinitionInfoNearElement(vm, definition, card);
-			e.Handled = true;
-		}
-	}
-
-	private void PaletteDefinitionInfoButton_Click(object sender, RoutedEventArgs e)
-	{
-		if (DataContext is not NodeEditorViewModel vm)
-			return;
-
-		if (sender is FrameworkElement element && element.DataContext is NodeDefinition definition)
-		{
-			ShowDefinitionInfoNearElement(vm, definition, element);
-			e.Handled = true;
-		}
-	}
-
-	private void PaletteDefinitionCard_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-	{
-		// Arm a potential drag; the click (info) still fires via MouseLeftButtonUp if no drag starts.
-		if (sender is FrameworkElement { DataContext: NodeDefinition definition })
-		{
-			_paletteDragStart = e.GetPosition(this);
-			_paletteDragDefinition = definition;
-		}
-	}
-
-	private void PaletteDefinitionCard_MouseMove(object sender, MouseEventArgs e)
-	{
-		if (_paletteDragDefinition == null || e.LeftButton != MouseButtonState.Pressed)
-			return;
-
-		var pos = e.GetPosition(this);
-		if (Math.Abs(pos.X - _paletteDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
-		    Math.Abs(pos.Y - _paletteDragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
-			return;
-
-		var data = new DataObject(PaletteDragFormat, _paletteDragDefinition);
-		_paletteDragDefinition = null;
-		DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
-	}
-
 	private void CanvasContainer_OnDragOver(object sender, DragEventArgs e)
 	{
-		e.Effects = e.Data.GetDataPresent(PaletteDragFormat) ? DragDropEffects.Copy : DragDropEffects.None;
+		e.Effects = e.Data.GetDataPresent(CatalogPanel.PaletteDragFormat) ? DragDropEffects.Copy : DragDropEffects.None;
 		e.Handled = true;
 	}
 
 	private void CanvasContainer_OnDrop(object sender, DragEventArgs e)
 	{
-		if (DataContext is not NodeEditorViewModel vm || e.Data.GetData(PaletteDragFormat) is not NodeDefinition definition)
+		if (DataContext is not NodeEditorViewModel vm || e.Data.GetData(CatalogPanel.PaletteDragFormat) is not NodeDefinition definition)
 			return;
 
 		// Place the node card's top-left a little up-and-left of the drop point (card ~240 wide).
 		var p = e.GetPosition(CanvasContainer);
 		vm.DropNodeFromDefinition(definition, new Point(Math.Max(0, p.X - 120), Math.Max(0, p.Y - 24)));
 		e.Handled = true;
-	}
-
-	private void NodeInfoPopup_OnClosed(object sender, EventArgs e)
-	{
-		if (DataContext is NodeEditorViewModel vm && vm.IsNodeInfoOpen)
-		{
-			vm.IsNodeInfoOpen = false;
-		}
-	}
-
-	private void ShowDefinitionInfoNearElement(NodeEditorViewModel vm, NodeDefinition definition, FrameworkElement anchor)
-	{
-		vm.ShowDefinitionInfoCommand.Execute(definition);
-
-		// Anchor node info beside the clicked palette card/control.
-		NodeInfoPopup.PlacementTarget = anchor;
-		NodeInfoPopup.Placement = PlacementMode.Right;
-		NodeInfoPopup.HorizontalOffset = 10;
-		NodeInfoPopup.VerticalOffset = 0;
-		NodeInfoPopup.IsOpen = vm.IsNodeInfoOpen;
-	}
-
-	private static bool HasVisualParent<T>(DependencyObject? child) where T : DependencyObject
-	{
-		var current = child;
-		while (current != null)
-		{
-			if (current is T)
-			{
-				return true;
-			}
-			current = GetParentObject(current);
-		}
-
-		return false;
-	}
-
-	private static DependencyObject? GetParentObject(DependencyObject child)
-	{
-		if (child is FrameworkElement frameworkElement)
-		{
-			if (frameworkElement.Parent != null)
-				return frameworkElement.Parent;
-			if (frameworkElement.TemplatedParent != null)
-				return frameworkElement.TemplatedParent;
-		}
-
-		if (child is FrameworkContentElement frameworkContentElement && frameworkContentElement.Parent != null)
-			return frameworkContentElement.Parent;
-
-		return VisualTreeHelper.GetParent(child);
 	}
 }

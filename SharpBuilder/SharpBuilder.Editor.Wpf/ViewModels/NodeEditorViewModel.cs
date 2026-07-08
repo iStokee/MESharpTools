@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -29,7 +30,7 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 /// Backing view model for the SharpBuilder node editor. Handles script persistence, runtime execution,
 /// and light-weight visual state (selection, active trail).
 /// </summary>
-public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
+public partial class NodeEditorViewModel : ObservableObject, IDisposable
 {
 	private const int MaxRunTrailEntries = 32;
 
@@ -41,7 +42,6 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private readonly GraphEditHistory _editHistory = new();
 	private readonly GraphExplainService _explainService;
 	private readonly CaptureCalibrationService _captureCalibrationService = new();
-	private readonly DashboardRefreshService _dashboardRefreshService = new();
 	private readonly Queue<RunTrailEntry> _runTrail = new();
 	private readonly Dictionary<Guid, int> _runTrailNodeCounts = new();
 	private readonly Dictionary<Guid, int> _runTrailTransitionCounts = new();
@@ -85,41 +85,19 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	private string _nodeInfoDescription = string.Empty;
 	private bool _isDirty;
 	private bool _suppressDirty;
-	private bool _transitionsRefreshQueued;
-	private IDisposable? _activeGraphEditBatch;
+	private string? _activeGraphEditBatchLabel;
+	// Snapshot of the graph at the last recorded history entry; every Record diffs against it.
+	private GraphModel _shadowScript = null!;
+	private bool _propertyEditPending;
+	private DispatcherTimer? _propertyEditTimer;
 	private readonly Services.WindowSizeOption _customWindowSize = new("Custom", 1400, 900, isCustom: true);
 	private Services.WindowSizeOption? _selectedWindowSize;
 	private bool _suppressWindowSizeRequest;
 	private bool _isSettingsOpen;
 	private bool _isGraphExplanationOpen;
+	private bool _isValidationOpen;
+	private bool _isRunLogOpen;
 	private string _graphExplanationSummary = "Graph not explained yet";
-	private readonly DateTime _builderOpenedUtc = DateTime.UtcNow;
-	private DateTime _dashboardStartedUtc = DateTime.UtcNow;
-	// Graph runtime is accumulated across runs; while running we add the live span on top.
-	private TimeSpan _graphRunAccumulated = TimeSpan.Zero;
-	private DateTime? _graphRunStartedUtc;
-	private readonly DispatcherTimer _dashboardTimer;
-	private SkillSession? _dashboardSkillSession;
-	private readonly ItemTracker _itemTracker;
-	private bool _dashboardGameRefreshInProgress;
-	private bool _dashboardGameRefreshPending;
-	private int _dashboardRefreshVersion;
-	private bool _dashboardXpActiveOnly;
-	private bool _dashboardItemsActiveOnly = true;
-	private string _dashboardItemsStatus = "Item tracker idle";
-	private long _dashboardItemsGpPerHour;
-	private int _dashboardItemsActiveCount;
-	private string _dashboardRuntime = "00:00:00";
-	private string _dashboardUptime = "00:00:00";
-	private string _dashboardCurrentNode = "None";
-	private string _dashboardRunMode = "Idle";
-	private string _dashboardGraphSummary = "0 nodes / 0 transitions";
-	private string _dashboardSignalSummary = "0 signals";
-	private string _dashboardXpStatus = "XP tracker idle";
-	private string _dashboardSession = "No session yet";
-	private string _dashboardLastUpdated = "--";
-	private int _dashboardActiveSkillCount;
-	private int _dashboardTotalXpGained;
 
 	public NodeEditorViewModel()
 		: this(new NodeCatalogService())
@@ -182,14 +160,13 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		StepCommand = new AsyncRelayCommand(async () => await StartRunAsync(false));
 		StopCommand = new RelayCommand(StopRun, () => IsRunning);
 		ExplainGraphCommand = new RelayCommand(ExplainGraph);
+		ClearRunLogCommand = new RelayCommand(() => RunLog.Clear());
+		SelectValidationIssueCommand = new RelayCommand<ValidationIssue?>(SelectValidationIssue);
 		AddListItemCommand = new RelayCommand<NodeParamBinding?>(AddListEntry);
 		RemoveListItemCommand = new RelayCommand<(NodeParamBinding binding, string value)?>(RemoveListEntry);
 		CloseNodeInfoCommand = new RelayCommand(() => IsNodeInfoOpen = false);
 		ShowDefinitionInfoCommand = new RelayCommand<NodeDefinition?>(ShowDefinitionInfo);
 		CaptureFromGameCommand = new RelayCommand(CaptureFromGame, () => CanCaptureSelectedNode);
-		ResetTimerCommand = new RelayCommand(ResetGraphRuntime);
-		ResetXpCommand = new RelayCommand(ResetXpTracker);
-		ResetItemsCommand = new RelayCommand(ResetItemTracker);
 		_editHistory.Changed += (_, _) =>
 		{
 			OnPropertyChanged(nameof(CanUndo));
@@ -207,33 +184,17 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		_engine.TransitionTaken += OnTransitionTaken;
 		_engine.Completed += OnEngineCompleted;
 		_engine.Faulted += OnEngineFaulted;
+		_engine.DiagnosticSink = OnEngineDiagnostic;
 
-		DashboardSkills = new ObservableCollection<DashboardSkillRow>(
-			Enum.GetValues<SkillName>().Select(skill => new DashboardSkillRow(skill)));
-		DashboardSkillsView = CollectionViewSource.GetDefaultView(DashboardSkills);
-		DashboardSkillsView.Filter = FilterDashboardSkill;
 
-		_itemTracker = new ItemTracker(_dashboardStartedUtc);
-		DashboardItemsView = new CollectionViewSource { Source = _itemTracker.Rows }.View;
-		DashboardItemsView.Filter = FilterDashboardItem;
-
-		_dashboardTimer = new DispatcherTimer(DispatcherPriority.Background)
-		{
-			Interval = TimeSpan.FromSeconds(1)
-		};
-		_dashboardTimer.Tick += (_, _) =>
-		{
-			RefreshDashboard();
-			BeginDashboardGameRefresh();
-		};
-		_dashboardTimer.Start();
+		Dashboard = new DashboardViewModel(this);
 
 		_script = _scriptService.CreatePowerFishingTemplate();
 		AttachScript(_script);
 		_editHistory.Clear();
 		RefreshSignals();
-		RefreshDashboard();
-		BeginDashboardGameRefresh();
+		Dashboard.Refresh();
+		Dashboard.BeginGameRefresh();
 
 		// Seed initial panel collapse state from the persisted startup preferences.
 		if (Services.EditorPreferences.StartLeftCollapsed)
@@ -242,7 +203,14 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 			IsRightCollapsed = true;
 	}
 
-	public event PropertyChangedEventHandler? PropertyChanged;
+	/// <summary>Session dashboard (clocks, XP/item trackers) for this canvas.</summary>
+	public DashboardViewModel Dashboard { get; }
+
+	/// <summary>Title of the node the engine is currently executing, for dashboard display.</summary>
+	internal string? CurrentRunNodeTitle => _currentRunNode?.Title;
+
+	/// <summary>Whether the active run was started in loop mode, for dashboard display.</summary>
+	internal bool CurrentRunLooping => _currentRunLooping;
 
 	public ObservableCollection<RuntimeSignal> Signals { get; } = new();
 	public ObservableCollection<string> SignalSuggestions { get; } = new();
@@ -253,8 +221,6 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public ObservableCollection<NodeParamBinding> AdvancedParameterBindings { get; } = new();
 	public bool HasAdvancedParameters => AdvancedParameterBindings.Count > 0;
 	public ObservableCollection<string> NodeInfoUsageTips { get; } = new();
-	public ObservableCollection<DashboardSkillRow> DashboardSkills { get; }
-	public ICollectionView DashboardSkillsView { get; }
 	public ReadOnlyObservableCollection<NodeModel> SelectedNodes { get; }
 	// Keep collapse width large enough to show the toggle affordance plus padding.
 	public GridLength LeftColumnWidth
@@ -296,6 +262,12 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public IEnumerable<TransitionModel> AllTransitions =>
 		Script.Nodes.SelectMany(n => n.Transitions);
 
+	/// <summary>
+	/// Connector layer for the canvas: one entry per drawn edge, each keeping its own geometry in
+	/// sync with its endpoint nodes. Rebuilt on structural changes via <see cref="RebuildEdges"/>.
+	/// </summary>
+	public ObservableCollection<EdgeViewModel> Edges { get; } = new();
+
 	public GraphModel Script
 	{
 		get => _script;
@@ -320,24 +292,13 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 			if (ReferenceEquals(_selectedNode, value))
 				return;
 
+			// Leaving a node commits its in-progress property tweaks as one undo entry.
+			CommitPendingPropertyEdit();
 			UpdatePrimarySelection(value);
-
-			SelectedNodeDefinition = _selectedNode == null
-				? null
-				: _catalogService.GetDefinition(_selectedNode.DefinitionId);
-
-			OnPropertyChanged();
-			OnPropertyChanged(nameof(CanEditNode));
-			OnPropertyChanged(nameof(CanEditTransitions));
-			OnPropertyChanged(nameof(CanCaptureSelectedNode));
-			RemoveNodeCommand.NotifyCanExecuteChanged();
-			AddTransitionCommand.NotifyCanExecuteChanged();
-			SetAsStartCommand.NotifyCanExecuteChanged();
-			RemoveTransitionCommand.NotifyCanExecuteChanged();
-			CaptureFromGameCommand.NotifyCanExecuteChanged();
+			RefreshSelectedNodeDefinition();
+			NotifySelectionChanged();
 			CaptureStatus = "Click the target in-game, then Capture to fill this node.";
 			CaptureDriftState = "none";
-			RefreshParameterBindings();
 		}
 	}
 
@@ -379,231 +340,22 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 		{
 			if (_isRunning == value) return;
 			_isRunning = value;
-			if (value)
-			{
-				// Start (or resume) the graph runtime clock.
-				_graphRunStartedUtc = DateTime.UtcNow;
-			}
-			else if (_graphRunStartedUtc is { } startedUtc)
-			{
-				// Fold the just-finished span into the running total.
-				_graphRunAccumulated += DateTime.UtcNow - startedUtc;
-				_graphRunStartedUtc = null;
-			}
+			Dashboard?.OnRunStateChanged(value);
 			OnPropertyChanged();
 			StopCommand.NotifyCanExecuteChanged();
 		}
 	}
 
-	/// <summary>Total wall-clock time the graph has spent running this session (live while running).</summary>
-	private TimeSpan GraphRunElapsed =>
-		_graphRunAccumulated + (_graphRunStartedUtc is { } s ? DateTime.UtcNow - s : TimeSpan.Zero);
-
 	public bool IsLooping
 	{
 		get => _isLooping;
-		set
-		{
-			if (_isLooping == value) return;
-			_isLooping = value;
-			OnPropertyChanged();
-		}
+		set => SetProperty(ref _isLooping, value);
 	}
 
 	public string Status
 	{
 		get => _status;
-		set
-		{
-			if (_status == value) return;
-			_status = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public string DashboardRuntime
-	{
-		get => _dashboardRuntime;
-		private set
-		{
-			if (_dashboardRuntime == value) return;
-			_dashboardRuntime = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public string DashboardUptime
-	{
-		get => _dashboardUptime;
-		private set
-		{
-			if (_dashboardUptime == value) return;
-			_dashboardUptime = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public string DashboardCurrentNode
-	{
-		get => _dashboardCurrentNode;
-		private set
-		{
-			if (_dashboardCurrentNode == value) return;
-			_dashboardCurrentNode = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public string DashboardRunMode
-	{
-		get => _dashboardRunMode;
-		private set
-		{
-			if (_dashboardRunMode == value) return;
-			_dashboardRunMode = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public string DashboardGraphSummary
-	{
-		get => _dashboardGraphSummary;
-		private set
-		{
-			if (_dashboardGraphSummary == value) return;
-			_dashboardGraphSummary = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public string DashboardSignalSummary
-	{
-		get => _dashboardSignalSummary;
-		private set
-		{
-			if (_dashboardSignalSummary == value) return;
-			_dashboardSignalSummary = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public string DashboardXpStatus
-	{
-		get => _dashboardXpStatus;
-		private set
-		{
-			if (_dashboardXpStatus == value) return;
-			_dashboardXpStatus = value;
-			OnPropertyChanged();
-		}
-	}
-
-	/// <summary>Account/session the dashboard is reading from (player name, logged-out, or design mode).</summary>
-	public string DashboardSession
-	{
-		get => _dashboardSession;
-		private set
-		{
-			if (_dashboardSession == value) return;
-			_dashboardSession = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public string DashboardLastUpdated
-	{
-		get => _dashboardLastUpdated;
-		private set
-		{
-			if (_dashboardLastUpdated == value) return;
-			_dashboardLastUpdated = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public int DashboardActiveSkillCount
-	{
-		get => _dashboardActiveSkillCount;
-		private set
-		{
-			if (_dashboardActiveSkillCount == value) return;
-			_dashboardActiveSkillCount = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public int DashboardTotalXpGained
-	{
-		get => _dashboardTotalXpGained;
-		private set
-		{
-			if (_dashboardTotalXpGained == value) return;
-			_dashboardTotalXpGained = value;
-			OnPropertyChanged();
-		}
-	}
-
-	/// <summary>When true the XP table shows only skills that have gained XP this session.</summary>
-	public bool DashboardXpActiveOnly
-	{
-		get => _dashboardXpActiveOnly;
-		set
-		{
-			if (_dashboardXpActiveOnly == value) return;
-			_dashboardXpActiveOnly = value;
-			OnPropertyChanged();
-			DashboardSkillsView.Refresh();
-		}
-	}
-
-	// --- Items dashboard ---
-
-	public ICollectionView DashboardItemsView { get; }
-
-	/// <summary>When true the Items table shows only items that have moved this session.</summary>
-	public bool DashboardItemsActiveOnly
-	{
-		get => _dashboardItemsActiveOnly;
-		set
-		{
-			if (_dashboardItemsActiveOnly == value) return;
-			_dashboardItemsActiveOnly = value;
-			OnPropertyChanged();
-			DashboardItemsView.Refresh();
-		}
-	}
-
-	public string DashboardItemsStatus
-	{
-		get => _dashboardItemsStatus;
-		private set
-		{
-			if (_dashboardItemsStatus == value) return;
-			_dashboardItemsStatus = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public long DashboardItemsGpPerHour
-	{
-		get => _dashboardItemsGpPerHour;
-		private set
-		{
-			if (_dashboardItemsGpPerHour == value) return;
-			_dashboardItemsGpPerHour = value;
-			OnPropertyChanged();
-		}
-	}
-
-	public int DashboardItemsActiveCount
-	{
-		get => _dashboardItemsActiveCount;
-		private set
-		{
-			if (_dashboardItemsActiveCount == value) return;
-			_dashboardItemsActiveCount = value;
-			OnPropertyChanged();
-		}
+		set => SetProperty(ref _status, value);
 	}
 
 	public string? CurrentFilePath
@@ -644,12 +396,7 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public bool IsSettingsOpen
 	{
 		get => _isSettingsOpen;
-		set
-		{
-			if (_isSettingsOpen == value) return;
-			_isSettingsOpen = value;
-			OnPropertyChanged();
-		}
+		set => SetProperty(ref _isSettingsOpen, value);
 	}
 
 	// --- Startup / mini-map preferences (gear menu). Backed by the process-wide store so they
@@ -830,12 +577,21 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public bool IsGraphExplanationOpen
 	{
 		get => _isGraphExplanationOpen;
-		set
-		{
-			if (_isGraphExplanationOpen == value) return;
-			_isGraphExplanationOpen = value;
-			OnPropertyChanged();
-		}
+		set => SetProperty(ref _isGraphExplanationOpen, value);
+	}
+
+	/// <summary>True when the validation panel is expanded (auto-opens when a run is blocked).</summary>
+	public bool IsValidationOpen
+	{
+		get => _isValidationOpen;
+		set => SetProperty(ref _isValidationOpen, value);
+	}
+
+	/// <summary>True when the run log panel is expanded (auto-opens on engine faults).</summary>
+	public bool IsRunLogOpen
+	{
+		get => _isRunLogOpen;
+		set => SetProperty(ref _isRunLogOpen, value);
 	}
 
 	public string GraphExplanationSummary
@@ -874,50 +630,26 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public bool IsNodeInfoOpen
 	{
 		get => _isNodeInfoOpen;
-		set
-		{
-			if (_isNodeInfoOpen == value) return;
-			_isNodeInfoOpen = value;
-			OnPropertyChanged();
-		}
+		set => SetProperty(ref _isNodeInfoOpen, value);
 	}
 
 	public string NodeInfoTitle
 	{
 		get => _nodeInfoTitle;
-		private set
-		{
-			if (string.Equals(_nodeInfoTitle, value, StringComparison.Ordinal))
-				return;
-
-			_nodeInfoTitle = value;
-			OnPropertyChanged();
-		}
+		private set => SetProperty(ref _nodeInfoTitle, value);
 	}
 
 	public string NodeInfoDescription
 	{
 		get => _nodeInfoDescription;
-		private set
-		{
-			if (string.Equals(_nodeInfoDescription, value, StringComparison.Ordinal))
-				return;
-
-			_nodeInfoDescription = value;
-			OnPropertyChanged();
-		}
+		private set => SetProperty(ref _nodeInfoDescription, value);
 	}
 
 	/// <summary>True when the graph has edits that are not on disk yet.</summary>
 	public bool IsDirty
 	{
 		get => _isDirty;
-		private set
-		{
-			if (_isDirty == value) return;
-			_isDirty = value;
-			OnPropertyChanged();
-		}
+		private set => SetProperty(ref _isDirty, value);
 	}
 
 	/// <summary>True when the canvas has no nodes, used for the empty-state hint.</summary>
@@ -987,28 +719,32 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public IAsyncRelayCommand StepCommand { get; }
 	public IRelayCommand StopCommand { get; }
 	public IRelayCommand ExplainGraphCommand { get; }
+	public IRelayCommand ClearRunLogCommand { get; }
+	public IRelayCommand<ValidationIssue?> SelectValidationIssueCommand { get; }
 	public IRelayCommand<NodeParamBinding?> AddListItemCommand { get; }
 	public IRelayCommand<(NodeParamBinding binding, string value)?> RemoveListItemCommand { get; }
 	public IRelayCommand CloseNodeInfoCommand { get; }
 	public IRelayCommand<NodeDefinition?> ShowDefinitionInfoCommand { get; }
 	public IRelayCommand CaptureFromGameCommand { get; }
-	public IRelayCommand ResetTimerCommand { get; }
-	public IRelayCommand ResetXpCommand { get; }
-	public IRelayCommand ResetItemsCommand { get; }
 
 	public void Dispose()
 	{
 		try { DoActionDebugSignals.StopNativePump(); } catch { /* no session */ }
-		_dashboardTimer.Stop();
+		Dashboard.Dispose();
+		_propertyEditTimer?.Stop();
 		_runCts?.Cancel();
 		_runCts?.Dispose();
 		_runCts = null;
 		DetachScript();
+		foreach (var edge in Edges)
+			edge.Dispose();
+		Edges.Clear();
 		_engine.NodeEntered -= OnNodeEntered;
 		_engine.NodeCompleted -= OnNodeCompleted;
 		_engine.TransitionTaken -= OnTransitionTaken;
 		_engine.Completed -= OnEngineCompleted;
 		_engine.Faulted -= OnEngineFaulted;
+		_engine.DiagnosticSink = null;
 	}
 
 	public GraphConnectionRuleResult PreviewConnect(NodeModel? source, NodeModel? target)
@@ -1017,57 +753,88 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 	public GraphConnectionRuleResult PreviewRetarget(TransitionModel? transition, NodeModel? target)
 		=> _connectionRules.CanRetarget(Script, transition, target);
 
+	/// <summary>
+	/// Opens a gesture batch (e.g. a node drag): edits made until <see cref="CommitGraphEditBatch"/>
+	/// fold into a single undo entry. Any pending property edit is committed first so it stays a
+	/// separate entry.
+	/// </summary>
 	public void BeginGraphEditBatch(string label)
 	{
-		_activeGraphEditBatch ??= _editHistory.Batch(label, Script);
+		if (_activeGraphEditBatchLabel != null)
+			return;
+
+		CommitPendingPropertyEdit();
+		_activeGraphEditBatchLabel = label;
 	}
 
 	public void CommitGraphEditBatch()
 	{
-		if (_activeGraphEditBatch == null)
+		if (_activeGraphEditBatchLabel == null)
 			return;
 
-		_activeGraphEditBatch.Dispose();
-		_activeGraphEditBatch = null;
-		var beforeCanUndo = _editHistory.CanUndo;
-		_editHistory.CommitBatch(Script);
-		if (_editHistory.CanUndo != beforeCanUndo || IsDirty)
+		var label = _activeGraphEditBatchLabel;
+		_activeGraphEditBatchLabel = null;
+		RecordGraphEdit(label);
+	}
+
+	/// <summary>
+	/// Records the difference between the shadow snapshot (state at the last history entry) and the
+	/// live graph. No-op while an edit is being applied or a gesture batch is open.
+	/// </summary>
+	private void RecordGraphEdit(string label)
+	{
+		if (_editHistory.IsApplying || _activeGraphEditBatchLabel != null)
+			return;
+
+		// Whatever property deltas were pending are captured by this record.
+		_propertyEditPending = false;
+		_propertyEditTimer?.Stop();
+
+		var recorded = _editHistory.Record(label, _shadowScript, Script);
+		_shadowScript = GraphCloneService.Clone(Script);
+		if (recorded)
 		{
 			IsDirty = true;
 		}
 	}
 
-	private void RecordGraphEdit(string label, GraphModel before)
+	/// <summary>Turns debounced inspector/property edits into their own history entry.</summary>
+	private void CommitPendingPropertyEdit()
 	{
-		if (_editHistory.IsApplying)
+		if (!_propertyEditPending)
 			return;
 
-		var hadUndo = _editHistory.CanUndo;
-		_editHistory.Record(label, before, Script);
-		if (_editHistory.CanUndo || hadUndo)
-		{
-			IsDirty = true;
-		}
+		_propertyEditPending = false;
+		_propertyEditTimer?.Stop();
+		RecordGraphEdit("Edit properties");
 	}
 
 	private void UndoGraphEdit()
 	{
+		CommitPendingPropertyEdit();
+		var selection = CaptureSelection();
 		var graph = _editHistory.Undo(Script);
 		if (graph == null)
 			return;
 
 		Script = graph;
+		RestoreSelection(selection);
 		IsDirty = true;
 		Status = "Undid graph edit";
 	}
 
 	private void RedoGraphEdit()
 	{
+		// A pending property edit is a new edit: committing it clears the redo stack, which is the
+		// consistent outcome for "type, then hit redo".
+		CommitPendingPropertyEdit();
+		var selection = CaptureSelection();
 		var graph = _editHistory.Redo();
 		if (graph == null)
 			return;
 
 		Script = graph;
+		RestoreSelection(selection);
 		IsDirty = true;
 		Status = "Redid graph edit";
 	}
@@ -1091,11 +858,6 @@ public partial class NodeEditorViewModel : INotifyPropertyChanged, IDisposable
 			return width.Value;
 
 		return fallback;
-	}
-
-	protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-	{
-		PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 	}
 
 	private enum RunTrailEntryKind

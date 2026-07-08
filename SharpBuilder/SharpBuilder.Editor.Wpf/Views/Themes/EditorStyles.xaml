@@ -1,0 +1,234 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="clr-namespace:SharpBuilder.Editor.Wpf.Converters">
+
+    <!--
+        Shared editor chrome: converters, the panel/surface palette, and the pill-button styles
+        used across the SharpBuilder canvas. Extracted from NodeEditorControl.xaml.
+    -->
+        <converters:NodeVisualConverter x:Key="NodeVisualConverter" />
+        <converters:TransitionPortLabelConverter x:Key="TransitionPortLabelConverter" />
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:DefinitionIdVisibilityConverter x:Key="DefinitionIdVisibilityConverter" />
+        <converters:NodeParameterBoolConverter x:Key="NodeParameterBoolConverter" />
+        <converters:EqualityToVisibilityConverter x:Key="EqualityToVisibilityConverter" />
+        <converters:AccentBrushConverter x:Key="AccentBrushConverter" />
+        <converters:CatalogSortModeLabelConverter x:Key="CatalogSortModeLabelConverter" />
+        <converters:MiniMapCoordinateConverter x:Key="MiniMapCoordinateConverter" />
+        <SolidColorBrush x:Key="EditorPrimaryBrush" Color="#FF4AB6FF" />
+        <SolidColorBrush x:Key="EditorPrimaryMutedBrush" Color="#334AB6FF" />
+        <SolidColorBrush x:Key="EditorPrimarySurfaceBrush" Color="#1C4AB6FF" />
+
+        <!--  Panel / surface palette shared by the catalog, canvas, and inspector cards  -->
+        <SolidColorBrush x:Key="PanelSurfaceBrush" Color="#FF141A24" />
+        <SolidColorBrush x:Key="PanelHeaderBrush" Color="#FF1A2230" />
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#2A4D6A8C" />
+        <SolidColorBrush x:Key="RailSurfaceBrush" Color="#FF161D29" />
+
+        <!--  Elevated container shared by all three workspace columns  -->
+        <Style x:Key="PanelCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource PanelSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect
+                        BlurRadius="22"
+                        Direction="270"
+                        Opacity="0.34"
+                        ShadowDepth="3"
+                        Color="#000000" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--  Circular toggle used in panel headers and collapsed rails  -->
+        <Style x:Key="RailToggleButton" TargetType="ToggleButton">
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border
+                            x:Name="Bd"
+                            Background="{StaticResource EditorPrimarySurfaceBrush}"
+                            BorderBrush="{StaticResource EditorPrimaryMutedBrush}"
+                            BorderThickness="1"
+                            CornerRadius="16">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource EditorPrimaryMutedBrush}" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource EditorPrimaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource EditorPrimaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--  Vertical caption used on collapsed rails  -->
+        <Style x:Key="RailCaption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#FFC9D6E4" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="LayoutTransform">
+                <Setter.Value>
+                    <RotateTransform Angle="-90" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <DropShadowEffect
+            x:Key="NodeShadow"
+            BlurRadius="12"
+            Opacity="0.4"
+            ShadowDepth="2" />
+
+
+        <!--  Modern pill buttons used across the canvas toolbar  -->
+        <Style x:Key="ToolbarButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}" />
+            <Setter Property="Background" Value="#FF1E2838" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="8"
+                            SnapsToDevicePixels="True">
+                            <ContentPresenter
+                                Margin="{TemplateBinding Padding}"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.85" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.7" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style
+            x:Key="ToolbarRunButton"
+            BasedOn="{StaticResource ToolbarButton}"
+            TargetType="Button">
+            <Setter Property="BorderBrush" Value="#FF6EE86E" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Offset="0" Color="#FF2FA85A" />
+                        <GradientStop Offset="1" Color="#FF1F7E42" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style
+            x:Key="ToolbarStopButton"
+            BasedOn="{StaticResource ToolbarButton}"
+            TargetType="Button">
+            <Setter Property="BorderBrush" Value="#FFE86E6E" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Offset="0" Color="#FF8F3030" />
+                        <GradientStop Offset="1" Color="#FF6A2020" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--  Primary "Add" action on a catalog tile  -->
+        <Style
+            x:Key="CatalogAddButton"
+            BasedOn="{StaticResource ToolbarButton}"
+            TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource EditorPrimaryMutedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource EditorPrimaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="FontSize" Value="11.5" />
+        </Style>
+
+        <!--  Square secondary (icon-only) button on a catalog tile  -->
+        <Style
+            x:Key="CatalogIconButton"
+            BasedOn="{StaticResource ToolbarButton}"
+            TargetType="Button">
+            <Setter Property="Background" Value="#1AFFFFFF" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+
+        <Style
+            x:Key="ToolbarDeleteButton"
+            BasedOn="{StaticResource ToolbarButton}"
+            TargetType="Button">
+            <Setter Property="Background" Value="#33A83A3A" />
+            <Setter Property="BorderBrush" Value="#66E86E6E" />
+        </Style>
+
+        <!--  Slim file-operation buttons used in the inspector Script controls  -->
+        <Style
+            x:Key="ScriptControlButton"
+            BasedOn="{StaticResource ToolbarButton}"
+            TargetType="Button">
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="MinWidth" Value="58" />
+            <Setter Property="Padding" Value="6,3" />
+        </Style>
+
+        <Style
+            x:Key="ScriptControlSaveButton"
+            BasedOn="{StaticResource ScriptControlButton}"
+            TargetType="Button">
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Offset="0" Color="#FF2E6FB0" />
+                        <GradientStop Offset="1" Color="#FF1C3A57" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="BorderBrush" Value="{StaticResource EditorPrimaryBrush}" />
+        </Style>
+
+        <Style x:Key="EditorColumnHeader" TargetType="Border">
+            <Setter Property="Padding" Value="12,5" />
+            <Setter Property="Background" Value="{StaticResource PanelHeaderBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="13,13,0,0" />
+        </Style>
+</ResourceDictionary>

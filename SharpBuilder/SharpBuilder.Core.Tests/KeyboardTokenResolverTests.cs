@@ -44,6 +44,19 @@ public class KeyboardTokenResolverTests
 	}
 
 	[Theory]
+	[InlineData("CTRL", nameof(Keyboard.VirtualKey.Control))]
+	[InlineData("ctrl", nameof(Keyboard.VirtualKey.Control))]
+	[InlineData("RETURN", nameof(Keyboard.VirtualKey.Enter))]
+	[InlineData("ESC", nameof(Keyboard.VirtualKey.Escape))]
+	public void TryResolve_CommonAliases_MapToNamedKeys(string token, string expectedName)
+	{
+		// These aliases came from the keyboard.send macro parser; after unification every
+		// keybind-driven node must accept them.
+		Assert.True(KeyboardTokenResolver.TryResolve(token, out var key));
+		Assert.Equal(expectedName, key.ToString());
+	}
+
+	[Theory]
 	[InlineData("")]
 	[InlineData("   ")]
 	[InlineData("NotAKey")]

@@ -10,19 +10,21 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 
 public partial class NodeEditorViewModel
 {
-	private bool ConfirmDiscardUnsavedChanges()
-	{
-		if (!IsDirty)
-			return true;
-
-		var result = MessageBox.Show(
-			$"\"{Script.Name}\" has unsaved changes. Discard them?",
+	/// <summary>
+	/// Asks whether unsaved changes may be discarded. Defaults to a message box; swappable for
+	/// tests and for hosts that want their own prompt (same pattern as
+	/// <see cref="WorkspaceViewModel.ConfirmCloseDirtyCanvas"/>).
+	/// </summary>
+	public Func<GraphModel, bool> ConfirmDiscardDirtyGraph { get; set; } = script =>
+		MessageBox.Show(
+			$"\"{script.Name}\" has unsaved changes. Discard them?",
 			"Unsaved changes",
 			MessageBoxButton.YesNo,
 			MessageBoxImage.Warning,
-			MessageBoxResult.No);
-		return result == MessageBoxResult.Yes;
-	}
+			MessageBoxResult.No) == MessageBoxResult.Yes;
+
+	private bool ConfirmDiscardUnsavedChanges()
+		=> !IsDirty || ConfirmDiscardDirtyGraph(Script);
 
 	private void CreateBlankScript()
 	{

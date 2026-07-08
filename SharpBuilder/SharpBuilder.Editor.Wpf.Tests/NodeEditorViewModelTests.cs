@@ -319,6 +319,78 @@ public class NodeEditorViewModelTests
 	}
 
 	[Fact]
+	public void ParameterEdit_IsUndoable_AfterSelectionChangeCommitsIt()
+	{
+		using var vm = CreateViewModel();
+		var node = vm.Script.Nodes.Single(n => n.DefinitionId == "inventory.drop");
+		vm.SelectNode(node, toggle: false);
+		var parameter = node.Parameters.Single(p => p.Key == "items");
+		var original = parameter.RawValue;
+
+		parameter.RawValue = "Raw lobster";
+		// Switching selection commits the pending property edit as its own history entry.
+		vm.SelectNode(vm.Script.Nodes[0], toggle: false);
+
+		Assert.True(vm.CanUndo);
+		vm.UndoCommand.Execute(null);
+
+		var restored = vm.Script.Nodes.Single(n => n.Id == node.Id).Parameters.Single(p => p.Key == "items");
+		Assert.Equal(original, restored.RawValue);
+
+		vm.RedoCommand.Execute(null);
+		var redone = vm.Script.Nodes.Single(n => n.Id == node.Id).Parameters.Single(p => p.Key == "items");
+		Assert.Equal("Raw lobster", redone.RawValue);
+	}
+
+	[Fact]
+	public void NodeTitleEdit_IsCapturedByUndo()
+	{
+		using var vm = CreateViewModel();
+		var node = vm.Script.Nodes[1];
+		var original = node.Title;
+
+		node.Title = "Renamed node";
+		vm.UndoCommand.Execute(null); // undo flushes the pending property edit first, then pops it
+
+		Assert.Equal(original, vm.Script.Nodes.Single(n => n.Id == node.Id).Title);
+	}
+
+	[Fact]
+	public void UndoRedo_PreservesSelectionById()
+	{
+		using var vm = CreateViewModel();
+		var definition = vm.Definitions.Single(d => d.Id == "traversal.wait");
+		var keep = vm.Script.Nodes[1];
+
+		vm.CreateNodeFromDefinitionCommand.Execute(definition);
+		vm.SelectNode(keep, toggle: false);
+
+		vm.UndoCommand.Execute(null);
+
+		Assert.NotNull(vm.SelectedNode);
+		Assert.Equal(keep.Id, vm.SelectedNode!.Id);
+		Assert.Contains(vm.SelectedNodes, n => n.Id == keep.Id);
+
+		vm.RedoCommand.Execute(null);
+
+		Assert.NotNull(vm.SelectedNode);
+		Assert.Equal(keep.Id, vm.SelectedNode!.Id);
+	}
+
+	[Fact]
+	public void SelectionChange_Alone_DoesNotCreateUndoEntries()
+	{
+		using var vm = CreateViewModel();
+
+		vm.SelectNode(vm.Script.Nodes[1], toggle: false);
+		vm.SelectNode(vm.Script.Nodes[2], toggle: false);
+		vm.ClearSelection();
+
+		Assert.False(vm.CanUndo);
+		Assert.False(vm.IsDirty);
+	}
+
+	[Fact]
 	public void DeleteTransitionsIntersectingLine_RemovesCrossedTransition()
 	{
 		using var vm = CreateViewModel();
@@ -381,22 +453,42 @@ public class NodeEditorViewModelTests
 	}
 
 	[Fact]
-	public void MovingNode_InvalidatesConnectorLayerSoEdgesFollow()
+	public void MovingNode_UpdatesOnlyItsEdgesGeometry()
 	{
 		using var vm = CreateViewModel();
 		var node = vm.Script.Nodes[0];
-		var allTransitionsRaised = 0;
-		vm.PropertyChanged += (_, e) =>
-		{
-			if (e.PropertyName == nameof(NodeEditorViewModel.AllTransitions))
-				allTransitionsRaised++;
-		};
+		Assert.NotEmpty(vm.Edges);
 
-		// Dragging a node updates X then Y; the connector layer must rebuild so edges track it.
+		var touching = vm.Edges.Where(e => e.From.Id == node.Id || e.To.Id == node.Id).ToList();
+		var untouched = vm.Edges.Except(touching).ToList();
+		Assert.NotEmpty(touching);
+		var touchingBefore = touching.Select(e => e.Geometry).ToList();
+		var untouchedBefore = untouched.Select(e => e.Geometry).ToList();
+
+		// Dragging a node updates X then Y; only edges attached to it must recompute.
 		node.X += 24;
 		node.Y += 18;
 
-		Assert.True(allTransitionsRaised > 0);
+		for (var i = 0; i < touching.Count; i++)
+			Assert.NotSame(touchingBefore[i], touching[i].Geometry);
+		for (var i = 0; i < untouched.Count; i++)
+			Assert.Same(untouchedBefore[i], untouched[i].Geometry);
+	}
+
+	[Fact]
+	public void Edges_RebuildOnConnectAndRetarget()
+	{
+		using var vm = CreateViewModel();
+		var initialEdgeCount = vm.Edges.Count;
+		var from = vm.Script.Nodes[0];
+		var to = vm.Script.Nodes.First(n => n.Id != from.Id && from.Transitions.All(t => t.ToNodeId != n.Id));
+
+		vm.ConnectNodes(from, to);
+
+		Assert.Equal(initialEdgeCount + 1, vm.Edges.Count);
+		var edge = vm.Edges.Single(e => e.Transition.FromNodeId == from.Id && e.Transition.ToNodeId == to.Id);
+		Assert.Same(from, edge.From);
+		Assert.Same(to, edge.To);
 	}
 
 	[Fact]
@@ -437,15 +529,15 @@ public class NodeEditorViewModelTests
 	{
 		using var vm = CreateViewModel();
 
-		Assert.NotNull(vm.DashboardItemsView);
-		Assert.True(vm.DashboardItemsActiveOnly);   // items default to showing only what moved
-		Assert.False(vm.DashboardXpActiveOnly);     // XP defaults to all skills
+		Assert.NotNull(vm.Dashboard.ItemsView);
+		Assert.True(vm.Dashboard.ItemsActiveOnly);   // items default to showing only what moved
+		Assert.False(vm.Dashboard.XpActiveOnly);     // XP defaults to all skills
 
-		vm.DashboardXpActiveOnly = true;
-		vm.DashboardItemsActiveOnly = false;
+		vm.Dashboard.XpActiveOnly = true;
+		vm.Dashboard.ItemsActiveOnly = false;
 
-		Assert.True(vm.DashboardXpActiveOnly);
-		Assert.False(vm.DashboardItemsActiveOnly);
+		Assert.True(vm.Dashboard.XpActiveOnly);
+		Assert.False(vm.Dashboard.ItemsActiveOnly);
 	}
 
 	[Fact]

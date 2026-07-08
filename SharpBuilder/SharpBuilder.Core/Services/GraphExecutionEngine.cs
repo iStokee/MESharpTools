@@ -30,6 +30,12 @@ public class GraphExecutionEngine
 	public int MinRetryDelayMilliseconds { get; set; } = 250;
 
 	/// <summary>
+	/// Receives engine diagnostics (node exceptions, subscriber failures). Console output is the
+	/// fallback so headless runs still log; UIs set this to surface diagnostics in a run log.
+	/// </summary>
+	public Action<string>? DiagnosticSink { get; set; }
+
+	/// <summary>
 	/// Consecutive zero-dwell node executions allowed before the engine inserts a 1ms breather.
 	/// </summary>
 	private const int ZeroDwellStepLimit = 250;
@@ -67,6 +73,12 @@ public class GraphExecutionEngine
 		try
 		{
 			var terminalReached = false;
+
+			// The graph is fixed for the whole run (callers hand the engine a clone), so index the
+			// nodes once instead of scanning the list on every transition hop.
+			var nodesById = new Dictionary<Guid, NodeModel>(script.Nodes.Count);
+			foreach (var node in script.Nodes)
+				nodesById[node.Id] = node;
 
 			do
 			{
@@ -148,8 +160,9 @@ public class GraphExecutionEngine
 
 					PublishTransitionTaken(nextTransition);
 
-					current = script.Nodes.FirstOrDefault(n => n.Id == nextTransition.ToNodeId)
-						?? throw new InvalidOperationException(
+					current = nodesById.TryGetValue(nextTransition.ToNodeId, out var nextNode)
+						? nextNode
+						: throw new InvalidOperationException(
 							$"Transition '{nextTransition.Label}' from '{current.Title}' points to missing node {nextTransition.ToNodeId}.");
 				}
 			} while (loop && !terminalReached && !cancellationToken.IsCancellationRequested);
@@ -196,8 +209,11 @@ public class GraphExecutionEngine
 		// Edges gated on the execution result win first (in order). A status-gated edge
 		// may additionally carry a condition key, which must also match.
 		var requiredTrigger = status == NodeExecutionStatus.Fail ? TransitionTrigger.OnFail : TransitionTrigger.OnSuccess;
-		foreach (var transition in current.Transitions.Where(t => t.Trigger == requiredTrigger))
+		foreach (var transition in current.Transitions)
 		{
+			if (transition.Trigger != requiredTrigger)
+				continue;
+
 			if (transition.HasCondition &&
 			    (!signals.TryGetValue(transition.ConditionKey, out var gated) || gated != transition.ExpectedValue))
 				continue;
@@ -206,19 +222,29 @@ public class GraphExecutionEngine
 		}
 
 		// Then plain conditional edges (in order), skipping edges gated on the other status.
-		foreach (var transition in current.Transitions.Where(t => t.Trigger == TransitionTrigger.Any && t.HasCondition))
+		foreach (var transition in current.Transitions)
 		{
-			if (!signals.TryGetValue(transition.ConditionKey, out var value))
+			if (transition.Trigger != TransitionTrigger.Any || !transition.HasCondition)
 				continue;
 
-			if (value == transition.ExpectedValue)
+			if (signals.TryGetValue(transition.ConditionKey, out var value) && value == transition.ExpectedValue)
 				return transition;
 		}
 
 		// Then the declared fallback, then the first ungated edge.
-		var ungated = current.Transitions.Where(t => t.Trigger == TransitionTrigger.Any).ToList();
-		var fallback = ungated.FirstOrDefault(t => t.IsFallback);
-		return fallback ?? ungated.FirstOrDefault();
+		TransitionModel? firstUngated = null;
+		foreach (var transition in current.Transitions)
+		{
+			if (transition.Trigger != TransitionTrigger.Any)
+				continue;
+
+			if (transition.IsFallback)
+				return transition;
+
+			firstUngated ??= transition;
+		}
+
+		return firstUngated;
 	}
 
 	private NodeDefinition ResolveDefinition(NodeModel node)
@@ -254,7 +280,7 @@ public class GraphExecutionEngine
 		}
 		catch (Exception ex)
 		{
-			Console.WriteLine($"[SharpBuilder.Engine] Node '{context.Node.Title}' ({context.Definition.Id}) threw {ex.GetType().Name}: {ex.Message}; routing as failure.");
+			LogDiagnostic($"Node '{context.Node.Title}' ({context.Definition.Id}) threw {ex.GetType().Name}: {ex.Message}; routing as failure.");
 			return NodeExecutionResult.Fail();
 		}
 	}
@@ -299,7 +325,7 @@ public class GraphExecutionEngine
 			PublishEvent(() => handler(this, exception), nameof(Faulted));
 	}
 
-	private static void PublishEvent(Action raise, string eventName)
+	private void PublishEvent(Action raise, string eventName)
 	{
 		try
 		{
@@ -307,7 +333,20 @@ public class GraphExecutionEngine
 		}
 		catch (Exception ex)
 		{
-			Console.WriteLine($"[SharpBuilder.Engine] {eventName} subscriber threw {ex.GetType().Name}: {ex.Message}");
+			LogDiagnostic($"{eventName} subscriber threw {ex.GetType().Name}: {ex.Message}");
+		}
+	}
+
+	private void LogDiagnostic(string message)
+	{
+		Console.WriteLine($"[SharpBuilder.Engine] {message}");
+		try
+		{
+			DiagnosticSink?.Invoke(message);
+		}
+		catch
+		{
+			// A faulty sink must never take the engine down.
 		}
 	}
 
@@ -319,11 +358,14 @@ public class GraphExecutionEngine
 
 		foreach (var parameter in definition.Parameters)
 		{
-			var value = node.Parameters.FirstOrDefault(p => string.Equals(p.Key, parameter.Key, StringComparison.OrdinalIgnoreCase));
-			if (value == null)
-				continue;
+			foreach (var value in node.Parameters)
+			{
+				if (!string.Equals(value.Key, parameter.Key, StringComparison.OrdinalIgnoreCase))
+					continue;
 
-			map[parameter.Key] = value.GetTypedValue();
+				map[parameter.Key] = value.GetTypedValue();
+				break;
+			}
 		}
 
 		return map;

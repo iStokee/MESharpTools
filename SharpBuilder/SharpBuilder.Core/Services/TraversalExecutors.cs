@@ -167,30 +167,18 @@ internal sealed class SkillRequirementExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var skill = ParameterHelper.ToString(context.Parameters, "skill") ?? string.Empty;
+		var skill = (ParameterHelper.ToString(context.Parameters, "skill") ?? string.Empty).Trim();
 		var level = ParameterHelper.ToInt(context.Parameters, "level") ?? 0;
-		var skillName = skill.ToLowerInvariant() switch
+
+		if (!TryResolveSkill(skill, out var skillName))
 		{
-			"attack" => SkillName.Attack,
-			"strength" => SkillName.Strength,
-			"defence" => SkillName.Defence,
-			"defense" => SkillName.Defence,
-			"magic" => SkillName.Magic,
-			"ranged" => SkillName.Ranged,
-			"prayer" => SkillName.Prayer,
-			"mining" => SkillName.Mining,
-			"smithing" => SkillName.Smithing,
-			"fishing" => SkillName.Fishing,
-			"cooking" => SkillName.Cooking,
-			"crafting" => SkillName.Crafting,
-			"fletching" => SkillName.Fletching,
-			"woodcutting" => SkillName.Woodcutting,
-			"agility" => SkillName.Agility,
-			"slayer" => SkillName.Slayer,
-			"herblore" => SkillName.Herblore,
-			"runecrafting" => SkillName.Runecrafting,
-			_ => SkillName.Attack
-		};
+			// An unknown skill must fail loudly — defaulting to any skill could wrongly pass the gate.
+			Console.WriteLine($"[Executor] skills.requireLevel: unknown skill '{skill}'.");
+			return Task.FromResult(NodeExecutionResult.Fail(new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+			{
+				[$"skill.{skill}.met"] = false
+			}));
+		}
 
 		var current = Skills.Get(skillName).CurrentLevel;
 		var ok = current >= level;
@@ -199,6 +187,29 @@ internal sealed class SkillRequirementExecutor : INodeExecutor
 			[$"skill.{skill}.met"] = ok
 		};
 		return Task.FromResult(ok ? NodeExecutionResult.Success(outputs) : NodeExecutionResult.Fail(outputs));
+	}
+
+	private static bool TryResolveSkill(string token, out SkillName skill)
+	{
+		skill = default;
+		if (string.IsNullOrWhiteSpace(token))
+			return false;
+
+		if (Enum.TryParse(token, ignoreCase: true, out skill))
+			return true;
+
+		// Common spellings that don't match the enum names.
+		switch (token.ToLowerInvariant())
+		{
+			case "defense":
+				skill = SkillName.Defence;
+				return true;
+			case "runecraft":
+				skill = SkillName.Runecrafting;
+				return true;
+			default:
+				return false;
+		}
 	}
 }
 
@@ -217,14 +228,13 @@ internal sealed class KeyboardSendExecutor : INodeExecutor, IGameApiSelfManaged
 		var resolved = new List<Keyboard.VirtualKey>();
 		foreach (var token in tokens)
 		{
-			var key = ResolveKey(token);
-			if (key == null)
+			if (!KeyboardTokenResolver.TryResolve(token, out var key))
 			{
 				Console.WriteLine($"[Executor] Keyboard macro: unrecognized key token '{token}'.");
 				return NodeExecutionResult.Fail();
 			}
 
-			resolved.Add(key.Value);
+			resolved.Add(key);
 		}
 
 		// Single non-modifier key (the common case, e.g. an action-bar keybind): use the
@@ -258,28 +268,4 @@ internal sealed class KeyboardSendExecutor : INodeExecutor, IGameApiSelfManaged
 		return ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
 	}
 
-	private static Keyboard.VirtualKey? ResolveKey(string token)
-	{
-		var normalized = token.Trim().ToUpperInvariant();
-		if (normalized.Length == 0)
-			return null;
-
-		// Enum.TryParse also accepts bare integers ("1" would become (VirtualKey)1, the left mouse
-		// button), but a digit token always means the digit key — handled below.
-		if (!char.IsDigit(normalized[0]) &&
-			Enum.TryParse<Keyboard.VirtualKey>(normalized, ignoreCase: true, out var named))
-			return named;
-
-		return normalized switch
-		{
-			"CTRL" => Keyboard.VirtualKey.Control,
-			"RETURN" => Keyboard.VirtualKey.Enter,
-			"ESC" => Keyboard.VirtualKey.Escape,
-			_ when normalized.Length == 1 && normalized[0] is >= 'A' and <= 'Z' => (Keyboard.VirtualKey)normalized[0],
-			_ when normalized.Length == 1 && normalized[0] is >= '0' and <= '9' => (Keyboard.VirtualKey)normalized[0],
-			_ when normalized.Length is 2 or 3 && normalized[0] == 'F' &&
-			       int.TryParse(normalized[1..], out var fn) && fn is >= 1 and <= 12 => (Keyboard.VirtualKey)(0x6F + fn),
-			_ => null
-		};
-	}
 }

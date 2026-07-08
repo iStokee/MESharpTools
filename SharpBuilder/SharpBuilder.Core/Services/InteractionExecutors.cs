@@ -27,9 +27,9 @@ internal sealed class NpcInteractExecutor : INodeExecutor
 		var ignoreStar = ParameterHelper.ToBool(context.Parameters, "ignoreStar", false);
 		var minHealth = ParameterHelper.ToInt(context.Parameters, "minHealth") ?? 0;
 
-		var ok = ids.Count > 0 && Npcs.DoActionByIds(ids.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, ignoreStar: ignoreStar, minHealth: minHealth);
-		if (!ok && names.Count > 0)
-			ok = Npcs.DoActionByNames(names.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, ignoreStar: ignoreStar, minHealth: minHealth);
+		var ok = ExecutorHelpers.TryIdsThenNames(ids, names,
+			idArray => Npcs.DoActionByIds(idArray, actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, ignoreStar: ignoreStar, minHealth: minHealth),
+			nameArray => Npcs.DoActionByNames(nameArray, actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, ignoreStar: ignoreStar, minHealth: minHealth));
 
 		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
 	}
@@ -75,13 +75,7 @@ internal sealed class NpcFindExecutor : INodeExecutor
 			n.Distance <= maxDistance);
 
 		var signalKey = string.IsNullOrWhiteSpace(signal) ? "npcs.found" : signal.Trim();
-		var outputs = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
-		{
-			[signalKey] = found
-		};
-
-		var status = found == expected ? NodeExecutionStatus.Success : NodeExecutionStatus.Fail;
-		return Task.FromResult(new NodeExecutionResult(status, outputs));
+		return Task.FromResult(ExecutorHelpers.ConditionOutcome(signalKey, found, expected));
 	}
 }
 
@@ -98,9 +92,9 @@ internal sealed class NpcAttackExecutor : INodeExecutor
 		var offset = ParameterHelper.ToInt(context.Parameters, "offset") ?? Npcs.AttackNPC_route;
 		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
 
-		var ok = ids.Count > 0 && Npcs.DoActionByIds(ids.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance);
-		if (!ok && names.Count > 0)
-			ok = Npcs.DoActionByNames(names.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance);
+		var ok = ExecutorHelpers.TryIdsThenNames(ids, names,
+			idArray => Npcs.DoActionByIds(idArray, actionIndex: actionIndex, offset: offset, maxDistance: maxDistance),
+			nameArray => Npcs.DoActionByNames(nameArray, actionIndex: actionIndex, offset: offset, maxDistance: maxDistance));
 
 		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
 	}
@@ -121,9 +115,9 @@ internal sealed class ObjectInteractExecutor : INodeExecutor
 		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
 		var valid = ParameterHelper.ToBool(context.Parameters, "valid", false);
 
-		var ok = ids.Count > 0 && Objects.DoActionByIds(ids.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, valid: valid);
-		if (!ok && names.Count > 0)
-			ok = Objects.DoActionByNames(names.ToArray(), actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, valid: valid);
+		var ok = ExecutorHelpers.TryIdsThenNames(ids, names,
+			idArray => Objects.DoActionByIds(idArray, actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, valid: valid),
+			nameArray => Objects.DoActionByNames(nameArray, actionIndex: actionIndex, offset: offset, maxDistance: maxDistance, valid: valid));
 
 		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
 	}
@@ -162,13 +156,7 @@ internal sealed class ObjectFindExecutor : INodeExecutor
 			o.Distance <= maxDistance);
 
 		var signalKey = string.IsNullOrWhiteSpace(signal) ? "objects.found" : signal.Trim();
-		var outputs = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
-		{
-			[signalKey] = found
-		};
-
-		var status = found == expected ? NodeExecutionStatus.Success : NodeExecutionStatus.Fail;
-		return Task.FromResult(new NodeExecutionResult(status, outputs));
+		return Task.FromResult(ExecutorHelpers.ConditionOutcome(signalKey, found, expected));
 	}
 }
 
@@ -185,12 +173,7 @@ internal sealed class ObjectExistsExecutor : INodeExecutor
 			: Objects.GetAll().Where(o => string.IsNullOrWhiteSpace(name) || o.Name?.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
 
 		var exists = objs.Any();
-		var status = exists == expected ? NodeExecutionStatus.Success : NodeExecutionStatus.Fail;
-		var outputs = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
-		{
-			["objects.exists"] = exists
-		};
-		return Task.FromResult(new NodeExecutionResult(status, outputs));
+		return Task.FromResult(ExecutorHelpers.ConditionOutcome("objects.exists", exists, expected));
 	}
 }
 
@@ -236,71 +219,5 @@ internal static class InteractionActionResolver
 			},
 			_ => 0
 		};
-	}
-}
-
-internal static class InteractionParameterHelper
-{
-	public static string? ToString(IReadOnlyDictionary<string, object?> map, string key)
-		=> map.TryGetValue(key, out var val) ? val?.ToString() : null;
-
-	public static int? ToInt(IReadOnlyDictionary<string, object?> map, string key)
-	{
-		if (!map.TryGetValue(key, out var val) || val == null) return null;
-		if (val is int i) return i;
-		if (val is double d) return (int)d;
-		var text = val.ToString();
-		if (string.IsNullOrWhiteSpace(text)) return null;
-		if (int.TryParse(text, out var parsed)) return parsed;
-		return OffsetNameResolver.TryResolve(text, out parsed) ? parsed : null;
-	}
-
-	public static bool ToBool(IReadOnlyDictionary<string, object?> map, string key, bool fallback = false)
-	{
-		if (!map.TryGetValue(key, out var val) || val == null) return fallback;
-		if (val is bool b) return b;
-		return bool.TryParse(val.ToString(), out var parsed) ? parsed : fallback;
-	}
-
-	public static List<int> ToIntList(IReadOnlyDictionary<string, object?> map, string key)
-	{
-		if (!map.TryGetValue(key, out var val) || val == null) return new List<int>();
-		if (val is IEnumerable<string> listStrings)
-			return listStrings.Select(v => int.TryParse(v, out var i) ? i : (int?)null).Where(i => i.HasValue).Select(i => i!.Value).ToList();
-		if (val is IEnumerable<object> listObj)
-			return listObj.Select(v => int.TryParse(v?.ToString(), out var i) ? i : (int?)null).Where(i => i.HasValue).Select(i => i!.Value).ToList();
-		return val.ToString() is { } single && int.TryParse(single, out var parsed) ? new List<int> { parsed } : new List<int>();
-	}
-
-	public static List<string> ToStringList(IReadOnlyDictionary<string, object?> map, string key)
-	{
-		if (!map.TryGetValue(key, out var val) || val == null) return new List<string>();
-		if (val is IEnumerable<string> listStrings) return listStrings.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
-		if (val is IEnumerable<object> listObj) return listObj.Select(v => v?.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!;
-		var single = val.ToString();
-		return string.IsNullOrWhiteSpace(single) ? new List<string>() : new List<string> { single };
-	}
-
-	public static (List<int> Ids, List<string> Names) ToTargetLists(IReadOnlyDictionary<string, object?> map, string key)
-	{
-		var ids = new List<int>();
-		var names = new List<string>();
-
-		foreach (var entry in ToStringList(map, key))
-		{
-			var tokens = entry.Split(new[] { '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
-			foreach (var raw in tokens)
-			{
-				var token = raw.Trim();
-				if (token.Length == 0)
-					continue;
-				if (int.TryParse(token, out var id))
-					ids.Add(id);
-				else
-					names.Add(token);
-			}
-		}
-
-		return (ids, names);
 	}
 }

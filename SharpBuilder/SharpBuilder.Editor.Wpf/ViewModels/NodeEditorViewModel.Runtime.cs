@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,40 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 
 public partial class NodeEditorViewModel
 {
+	private const int MaxRunLogEntries = 500;
+
+	/// <summary>Bounded, newest-last log of run activity (node results, diagnostics, faults).</summary>
+	public ObservableCollection<RunLogEntry> RunLog { get; } = new();
+
+	/// <summary>Validation results from the last run attempt; items select their node when clicked.</summary>
+	public ObservableCollection<ValidationIssue> ValidationIssues { get; } = new();
+
+	/// <summary>
+	/// Appends a run-log entry, trimming the oldest lines past the cap. Must be called on the UI
+	/// thread (all callers already marshal through <see cref="RunOnUi"/> or run there).
+	/// </summary>
+	private void AppendRunLog(RunLogKind kind, string message)
+	{
+		RunLog.Add(new RunLogEntry(DateTime.Now, kind, message));
+		while (RunLog.Count > MaxRunLogEntries)
+			RunLog.RemoveAt(0);
+	}
+
+	private void OnEngineDiagnostic(string message)
+	{
+		RunOnUi(() => AppendRunLog(RunLogKind.Error, message));
+	}
+
+	private void SelectValidationIssue(ValidationIssue? issue)
+	{
+		if (issue?.NodeId is not { } nodeId)
+			return;
+
+		var node = Script.Nodes.FirstOrDefault(n => n.Id == nodeId);
+		if (node != null)
+			SelectNode(node, toggle: false);
+	}
+
 	private async Task StartRunAsync(bool loop)
 	{
 		if (IsRunning)
@@ -34,23 +69,25 @@ public partial class NodeEditorViewModel
 		}
 
 		var issues = _validator.Validate(Script, GameRuntime.IsGameApiAvailable);
-		var errors = issues.Where(i => i.Severity == ValidationSeverity.Error).ToList();
-		if (errors.Count > 0)
+		ValidationIssues.Clear();
+		foreach (var issue in issues)
+			ValidationIssues.Add(issue);
+
+		var errors = issues.Count(i => i.Severity == ValidationSeverity.Error);
+		if (errors > 0)
 		{
-			Status = errors.Any(e => e.Message.Contains("in-game API"))
+			Status = issues.Any(i => i.Severity == ValidationSeverity.Error && i.Message.Contains("in-game API"))
 				? "Design mode: game-backed nodes need the in-game script host"
-				: $"Validation failed ({errors.Count} error(s))";
-			MessageBox.Show(
-				string.Join(Environment.NewLine, issues.Select(i => i.ToString())),
-				"Cannot run script",
-				MessageBoxButton.OK,
-				MessageBoxImage.Warning);
+				: $"Validation failed ({errors} error(s))";
+			IsValidationOpen = true;
+			AppendRunLog(RunLogKind.Error, $"Run blocked by {errors} validation error(s) — see the Validation panel.");
 			return;
 		}
 
 		if (issues.Count > 0)
 		{
 			Status = $"Running with {issues.Count} warning(s)";
+			AppendRunLog(RunLogKind.Info, $"Running with {issues.Count} validation warning(s).");
 		}
 
 		var signals = BuildSignalMap();
@@ -62,6 +99,7 @@ public partial class NodeEditorViewModel
 		// (Step must not switch the toggle off for the next Start).
 		_currentRunLooping = loop;
 		Status = loop ? "Running (loop)" : "Running once";
+		AppendRunLog(RunLogKind.Info, loop ? "Run started (loop)." : "Run started (single pass).");
 
 		ClearTrail();
 		var runScript = GraphCloneService.Clone(Script);
@@ -81,6 +119,7 @@ public partial class NodeEditorViewModel
 			if (token.IsCancellationRequested)
 			{
 				Status = "Stopped";
+				AppendRunLog(RunLogKind.Info, "Run stopped.");
 			}
 		}
 	}
@@ -99,10 +138,28 @@ public partial class NodeEditorViewModel
 	{
 		try
 		{
-			return Signals
-				.Where(s => !string.IsNullOrWhiteSpace(s.Key))
-				.GroupBy(s => s.Key, StringComparer.OrdinalIgnoreCase)
-				.ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.OrdinalIgnoreCase);
+			var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+			List<string>? duplicates = null;
+			foreach (var signal in Signals)
+			{
+				if (string.IsNullOrWhiteSpace(signal.Key))
+					continue;
+
+				if (map.ContainsKey(signal.Key))
+					(duplicates ??= new List<string>()).Add(signal.Key);
+
+				// Last duplicate wins, but the user gets told instead of silently losing a value.
+				map[signal.Key] = signal.Value;
+			}
+
+			if (duplicates != null)
+			{
+				AppendRunLog(
+					RunLogKind.Fail,
+					$"Duplicate signal key(s): {string.Join(", ", duplicates.Distinct(StringComparer.OrdinalIgnoreCase))} — the last value wins.");
+			}
+
+			return map;
 		}
 		catch (Exception ex)
 		{
@@ -130,8 +187,8 @@ public partial class NodeEditorViewModel
 			node.IsCurrent = true;
 			RecordTrailNode(node);
 			Status = $"Entered {node.Title}";
-			RefreshDashboard();
-			BeginDashboardGameRefresh();
+			// Keep the current-node readout live; the 1 Hz dashboard timer owns everything else.
+			Dashboard.CurrentNode = node.Title;
 		});
 	}
 
@@ -143,6 +200,10 @@ public partial class NodeEditorViewModel
 			node.LastRunStatus = e.Result.Status == NodeExecutionStatus.Fail
 				? NodeRunStatus.Fail
 				: NodeRunStatus.Success;
+
+			AppendRunLog(
+				e.Result.Status == NodeExecutionStatus.Fail ? RunLogKind.Fail : RunLogKind.Success,
+				$"{node.Title}: {e.Result.Status}");
 
 			// Mirror executor outputs into the Signals panel so it reflects the live run.
 			if (e.Result.Outputs != null)
@@ -160,9 +221,6 @@ public partial class NodeEditorViewModel
 					}
 				}
 			}
-
-			RefreshDashboard();
-			BeginDashboardGameRefresh();
 		});
 	}
 
@@ -171,8 +229,6 @@ public partial class NodeEditorViewModel
 		RunOnUi(() =>
 		{
 			RecordTrailTransition(ResolveLiveTransition(transition) ?? transition);
-			RefreshDashboard();
-			BeginDashboardGameRefresh();
 		});
 	}
 
@@ -182,39 +238,40 @@ public partial class NodeEditorViewModel
 		{
 			IsRunning = false;
 			Status = "Cycle complete";
-			RefreshDashboard();
-			BeginDashboardGameRefresh();
+			AppendRunLog(RunLogKind.Info, "Cycle complete.");
+			Dashboard.Refresh();
 		});
 	}
 
 	private void OnEngineFaulted(object? sender, Exception ex)
 	{
+		// No modal here: a fault mid-run must not steal focus from the game. The run log and
+		// status line carry the details.
 		RunOnUi(() =>
 		{
 			IsRunning = false;
 			Status = $"Error: {ex.Message}";
-			RefreshDashboard();
-			BeginDashboardGameRefresh();
-			MessageBox.Show($"SharpBuilder engine failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+			AppendRunLog(RunLogKind.Error, $"Engine faulted: {ex.Message}");
+			IsRunLogOpen = true;
+			Dashboard.Refresh();
 		});
 	}
 
-	private static void RunOnUi(Action action)
+	/// <summary>
+	/// Queues UI feedback from engine events without blocking the engine thread — a fast graph must
+	/// never wait on the dispatcher between nodes. Falls back to inline execution when there is no
+	/// WPF application (unit tests) or we're already on the UI thread.
+	/// </summary>
+	internal static void RunOnUi(Action action)
 	{
-		if (Application.Current?.Dispatcher != null)
+		var dispatcher = Application.Current?.Dispatcher;
+		if (dispatcher == null || dispatcher.CheckAccess())
 		{
-			if (Application.Current.Dispatcher.CheckAccess())
-			{
-				action();
-			}
-			else
-			{
-				Application.Current.Dispatcher.Invoke(action);
-			}
+			action();
 		}
 		else
 		{
-			action();
+			dispatcher.BeginInvoke(action);
 		}
 	}
 

@@ -1,8 +1,5 @@
 using System;
-using System.Collections;
-using System.Globalization;
 using System.Windows;
-using System.Windows.Data;
 using System.Windows.Media;
 using SharpBuilder.Core.Models;
 using Point = System.Windows.Point;
@@ -10,11 +7,12 @@ using Point = System.Windows.Point;
 namespace SharpBuilder.Editor.Wpf.Converters;
 
 /// <summary>
-/// Creates a simple line geometry between two nodes on the canvas.
+/// Node-card port layout constants and the connector geometry builder shared by the edge layer
+/// (<see cref="ViewModels.EdgeViewModel"/>), wire previews, and marquee hit-testing.
 /// Edges leave the source out-port (right edge) and enter the target in-port (left edge);
 /// the port offsets must match the node template in NodeEditorControl.xaml.
 /// </summary>
-public class NodeConnectorConverter : IMultiValueConverter
+public static class NodeConnectorConverter
 {
 	public const double NodeWidth = 234;
 	public const double OutPortX = NodeWidth - 7;
@@ -47,43 +45,16 @@ public class NodeConnectorConverter : IMultiValueConverter
 		return new Rect(node.X, node.Y, NodeWidth, height);
 	}
 
-	public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+	/// <summary>
+	/// Builds the bezier connector between two node cards. Horizontal tangents make edges leave and
+	/// enter the ports cleanly, with a minimum bow for short or backward edges. The geometry is
+	/// frozen so the render thread can use it without cross-thread guards.
+	/// </summary>
+	public static Geometry BuildGeometry(NodeModel from, NodeModel to, TransitionModel? transition)
 	{
-		if (values.Length < 3)
-			return Geometry.Empty;
-
-		if (values[0] is not Guid fromId || values[1] is not Guid toId)
-			return Geometry.Empty;
-
-		if (values[2] is not IEnumerable nodesEnumerable)
-			return Geometry.Empty;
-
-		// Single pass over the live node collection — avoids allocating a List and a second
-		// scan per edge every time the connector layer rebuilds (which is once per drag frame).
-		NodeModel? from = null;
-		NodeModel? to = null;
-		foreach (var item in nodesEnumerable)
-		{
-			if (item is not NodeModel node)
-				continue;
-
-			if (from == null && node.Id == fromId)
-				from = node;
-			if (to == null && node.Id == toId)
-				to = node;
-			if (from != null && to != null)
-				break;
-		}
-
-		if (from == null || to == null)
-			return Geometry.Empty;
-
-		var transition = values.Length > 3 ? values[3] as TransitionModel : null;
 		var start = new Point(from.X + OutPortX, from.Y + GetOutPortY(from, transition));
 		var end = new Point(to.X + InPortX, to.Y + PortY);
 
-		// Horizontal bezier tangents so edges leave/enter the ports cleanly,
-		// with a minimum bow for short or backward edges.
 		var controlOffset = Math.Max(40, Math.Abs(end.X - start.X) / 2);
 		var control1 = new Point(start.X + controlOffset, start.Y);
 		var control2 = new Point(end.X - controlOffset, end.Y);
@@ -93,13 +64,8 @@ public class NodeConnectorConverter : IMultiValueConverter
 
 		var geometry = new PathGeometry();
 		geometry.Figures.Add(figure);
+		geometry.Freeze();
 		return geometry;
 	}
 
-	public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
-	{
-		var results = new object[targetTypes.Length];
-		Array.Fill(results, Binding.DoNothing);
-		return results;
-	}
 }

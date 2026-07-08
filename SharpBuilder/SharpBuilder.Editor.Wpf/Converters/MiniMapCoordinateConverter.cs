@@ -6,8 +6,14 @@ namespace SharpBuilder.Editor.Wpf.Converters;
 
 public sealed class MiniMapCoordinateConverter : IValueConverter
 {
-	public double Scale { get; set; } = 0.055;
-	public double Offset { get; set; } = 4;
+	/// <summary>Canvas→mini-map scale shared with the viewport-box math in NodeEditorControl.</summary>
+	public const double DefaultScale = 0.055;
+
+	/// <summary>Mini-map inner padding shared with the viewport-box math in NodeEditorControl.</summary>
+	public const double DefaultOffset = 4;
+
+	public double Scale { get; set; } = DefaultScale;
+	public double Offset { get; set; } = DefaultOffset;
 
 	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
 	{

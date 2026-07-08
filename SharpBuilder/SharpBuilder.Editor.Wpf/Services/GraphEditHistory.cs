@@ -5,15 +5,18 @@ using SharpBuilder.Core.Services;
 
 namespace SharpBuilder.Editor.Wpf.Services;
 
+/// <summary>
+/// Undo/redo stack of whole-graph snapshots. Stored snapshots are treated as immutable: callers
+/// hand in a pristine "before" clone (ownership transfers here), the live "after" graph is cloned
+/// on record, and applying an entry hands back a fresh clone — so no snapshot is ever mutated.
+/// </summary>
 public sealed class GraphEditHistory
 {
 	private sealed record Edit(string Label, GraphModel Before, GraphModel After);
 
-	private readonly Stack<Edit> _undo = new();
-	private readonly Stack<Edit> _redo = new();
-	private GraphModel? _batchBefore;
-	private string? _batchLabel;
-	private int _batchDepth;
+	// List-as-stack (push/pop at the end) so trimming the oldest entry is a cheap RemoveAt(0).
+	private readonly List<Edit> _undo = new();
+	private readonly List<Edit> _redo = new();
 
 	public int MaxSize { get; set; } = 80;
 	public bool IsApplying { get; private set; }
@@ -26,42 +29,23 @@ public sealed class GraphEditHistory
 	{
 		_undo.Clear();
 		_redo.Clear();
-		_batchBefore = null;
-		_batchLabel = null;
-		_batchDepth = 0;
 		OnChanged();
 	}
 
-	public void Record(string label, GraphModel before, GraphModel after)
+	/// <summary>
+	/// Records an edit. <paramref name="before"/> must be a dedicated clone (it is stored as-is);
+	/// <paramref name="after"/> may be the live graph (it is cloned). Returns false when the edit
+	/// is a no-op and nothing was recorded.
+	/// </summary>
+	public bool Record(string label, GraphModel before, GraphModel after)
 	{
-		if (IsApplying || GraphEquals(before, after))
-			return;
+		if (IsApplying || GraphCompareService.AreEquivalent(before, after))
+			return false;
 
-		PushUndo(new Edit(label, GraphCloneService.Clone(before), GraphCloneService.Clone(after)));
+		PushUndo(new Edit(label, before, GraphCloneService.Clone(after)));
 		_redo.Clear();
 		OnChanged();
-	}
-
-	public IDisposable Batch(string label, GraphModel current)
-	{
-		if (_batchDepth == 0)
-		{
-			_batchBefore = GraphCloneService.Clone(current);
-			_batchLabel = label;
-		}
-
-		_batchDepth++;
-		return new BatchScope(this);
-	}
-
-	public void CommitBatch(GraphModel current)
-	{
-		if (_batchDepth != 0 || _batchBefore == null)
-			return;
-
-		Record(_batchLabel ?? "Edit graph", _batchBefore, current);
-		_batchBefore = null;
-		_batchLabel = null;
+		return true;
 	}
 
 	public GraphModel? Undo(GraphModel current)
@@ -69,8 +53,8 @@ public sealed class GraphEditHistory
 		if (!CanUndo)
 			return null;
 
-		var edit = _undo.Pop();
-		_redo.Push(new Edit(edit.Label, GraphCloneService.Clone(edit.Before), GraphCloneService.Clone(current)));
+		var edit = Pop(_undo);
+		_redo.Add(new Edit(edit.Label, edit.Before, GraphCloneService.Clone(current)));
 		OnChanged();
 		return Apply(edit.Before);
 	}
@@ -80,7 +64,7 @@ public sealed class GraphEditHistory
 		if (!CanRedo)
 			return null;
 
-		var edit = _redo.Pop();
+		var edit = Pop(_redo);
 		PushUndo(edit);
 		OnChanged();
 		return Apply(edit.After);
@@ -91,6 +75,7 @@ public sealed class GraphEditHistory
 		IsApplying = true;
 		try
 		{
+			// Hand out a clone so the live document can keep mutating without corrupting the snapshot.
 			return GraphCloneService.Clone(graph);
 		}
 		finally
@@ -101,35 +86,17 @@ public sealed class GraphEditHistory
 
 	private void PushUndo(Edit edit)
 	{
-		_undo.Push(edit);
+		_undo.Add(edit);
 		while (_undo.Count > MaxSize)
-		{
-			var keep = _undo.Take(MaxSize).Reverse().ToArray();
-			_undo.Clear();
-			foreach (var item in keep)
-				_undo.Push(item);
-		}
+			_undo.RemoveAt(0);
 	}
 
-	private static bool GraphEquals(GraphModel a, GraphModel b)
-		=> Newtonsoft.Json.JsonConvert.SerializeObject(a) == Newtonsoft.Json.JsonConvert.SerializeObject(b);
+	private static Edit Pop(List<Edit> stack)
+	{
+		var edit = stack[^1];
+		stack.RemoveAt(stack.Count - 1);
+		return edit;
+	}
 
 	private void OnChanged() => Changed?.Invoke(this, EventArgs.Empty);
-
-	private sealed class BatchScope : IDisposable
-	{
-		private readonly GraphEditHistory _history;
-		private bool _disposed;
-
-		public BatchScope(GraphEditHistory history) => _history = history;
-
-		public void Dispose()
-		{
-			if (_disposed)
-				return;
-
-			_disposed = true;
-			_history._batchDepth = Math.Max(0, _history._batchDepth - 1);
-		}
-	}
 }

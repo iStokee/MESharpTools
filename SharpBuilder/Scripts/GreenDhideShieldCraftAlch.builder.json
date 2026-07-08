@@ -4,7 +4,7 @@
   "Description": "Area-agnostic bank/portable crafter loop for crafting and high-alching green dragonhide shields.",
   "Author": "SharpBuilder",
   "StartNodeId": "6548f167-feb0-4e90-b889-4daf4b9dfa66",
-  "UpdatedAt": "2026-06-22T03:01:38.1537065Z",
+  "UpdatedAt": "2026-07-08T13:41:41.7844269Z",
   "SchemaVersion": 2,
   "Nodes": [
     {
@@ -90,9 +90,9 @@
       "Y": 260.0,
       "DashboardWidth": 520.0,
       "DashboardHeight": 430.0,
-      "DwellMilliseconds": 250,
+      "DwellMilliseconds": 600,
       "ActionText": "Bank.Open() against nearest bank NPC/object",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -103,7 +103,7 @@
           "ConditionKey": "",
           "ExpectedValue": true,
           "IsFallback": true,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         }
       ],
@@ -122,7 +122,7 @@
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 250,
       "ActionText": "Deposit all before loading preset",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -133,7 +133,7 @@
           "ConditionKey": "",
           "ExpectedValue": true,
           "IsFallback": true,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         }
       ],
@@ -162,12 +162,12 @@
       "DefinitionTitle": "Load bank preset",
       "Type": 1,
       "X": 120.0,
-      "Y": 560.0,
+      "Y": 559.0,
       "DashboardWidth": 520.0,
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 250,
       "ActionText": "Press bank preset keybind once bank is open",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -179,7 +179,7 @@
           "ExpectedValue": true,
           "Trigger": 1,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         },
         {
@@ -207,14 +207,14 @@
           "Key": "keybind",
           "Type": 0,
           "AllowMultiple": false,
-          "RawValue": "1",
+          "RawValue": "2",
           "BoolValue": false
         },
         {
           "Key": "preset",
           "Type": 1,
           "AllowMultiple": false,
-          "RawValue": "1",
+          "RawValue": "2",
           "BoolValue": false
         },
         {
@@ -228,7 +228,7 @@
           "Key": "waitMs",
           "Type": 1,
           "AllowMultiple": false,
-          "RawValue": "1200",
+          "RawValue": "2000",
           "BoolValue": false
         }
       ]
@@ -244,10 +244,10 @@
       "Y": 710.0,
       "DashboardWidth": 520.0,
       "DashboardHeight": 430.0,
-      "DwellMilliseconds": 500,
+      "DwellMilliseconds": 600,
       "ActionText": "Close before crafting",
-      "IsActive": false,
-      "IsSelected": false,
+      "IsActive": true,
+      "IsSelected": true,
       "Transitions": [
         {
           "Id": "2589b660-b97e-4b86-9bff-1e199d6f1ec3",
@@ -257,7 +257,7 @@
           "ConditionKey": "",
           "ExpectedValue": true,
           "IsFallback": true,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         }
       ],
@@ -300,7 +300,7 @@
           "ExpectedValue": true,
           "Trigger": 2,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         }
       ],
@@ -415,12 +415,12 @@
       "DefinitionTitle": "Inventory count",
       "Type": 2,
       "X": 440.0,
-      "Y": 500.0,
+      "Y": 499.0,
       "DashboardWidth": 520.0,
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 100,
       "ActionText": "Verify the loaded preset supplied 26 green dragon leather",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -432,7 +432,7 @@
           "ExpectedValue": true,
           "Trigger": 1,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         },
         {
@@ -444,7 +444,7 @@
           "ExpectedValue": true,
           "Trigger": 2,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         }
       ],
@@ -492,7 +492,7 @@
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 100,
       "ActionText": "Verify the loaded preset supplied 13 nature runes",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -504,7 +504,7 @@
           "ExpectedValue": true,
           "Trigger": 1,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         },
         {
@@ -564,7 +564,7 @@
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 100,
       "ActionText": "Preset did not provide required materials/runes",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [],
       "Parameters": []
@@ -582,7 +582,7 @@
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 150,
       "ActionText": "Scan local area for a portable crafter",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -593,7 +593,7 @@
           "ConditionKey": "hasPortableCrafter",
           "ExpectedValue": true,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": true
         },
         {
@@ -659,7 +659,7 @@
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 650,
       "ActionText": "Click nearby portable crafter to open production",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -671,7 +671,7 @@
           "ExpectedValue": true,
           "Trigger": 1,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         },
         {
@@ -713,7 +713,7 @@
           "Key": "offset",
           "Type": 3,
           "AllowMultiple": false,
-          "RawValue": "GeneralObject_route0 = 3696",
+          "RawValue": "GeneralObject_route0 = 2512",
           "BoolValue": false
         },
         {
@@ -797,7 +797,7 @@
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 250,
       "ActionText": "Craft green dragonhide shields (already-selected product, preset amount)",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -809,7 +809,7 @@
           "ExpectedValue": true,
           "Trigger": 1,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         },
         {
@@ -862,7 +862,7 @@
       "DashboardHeight": 430.0,
       "DwellMilliseconds": 250,
       "ActionText": "Press high-alch keybind and wait through animation until shields are gone",
-      "IsActive": false,
+      "IsActive": true,
       "IsSelected": false,
       "Transitions": [
         {
@@ -874,7 +874,7 @@
           "ExpectedValue": true,
           "Trigger": 1,
           "IsFallback": false,
-          "IsActive": false,
+          "IsActive": true,
           "HasCondition": false
         },
         {
@@ -998,9 +998,9 @@
         },
         {
           "Key": "itemOffset",
-          "Type": 1,
+          "Type": 3,
           "AllowMultiple": false,
-          "RawValue": "1472",
+          "RawValue": "GeneralInterface_route1 = -400",
           "BoolValue": false
         }
       ]
