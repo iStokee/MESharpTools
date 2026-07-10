@@ -24,6 +24,7 @@ namespace MESharp.Services
         private static TcpListener? _listener;
         private static CancellationTokenSource? _cts;
         private static int _port;
+        private static string? _mutationToken;
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -45,29 +46,37 @@ namespace MESharp.Services
             lock (ServerSync)
             {
                 if (_listener != null)
-                    return $"http://127.0.0.1:{_port}/";
+                    return BuildMapUrl();
 
                 var listener = new TcpListener(IPAddress.Loopback, 0);
                 listener.Start();
                 _listener = listener;
                 _port = ((IPEndPoint)listener.LocalEndpoint).Port;
-                _cts = new CancellationTokenSource();
+                var serverCts = new CancellationTokenSource();
+                _cts = serverCts;
+                _mutationToken = MapServerRequestSecurity.CreateToken();
 
-                var token = _cts.Token;
+                var token = serverCts.Token;
                 _ = Task.Run(async () =>
                 {
-                    while (!token.IsCancellationRequested)
+                    try
                     {
-                        TcpClient client;
-                        try { client = await listener.AcceptTcpClientAsync(token).ConfigureAwait(false); }
-                        catch { break; }
-                        _ = Task.Run(() => HandleClient(client), token);
+                        while (!token.IsCancellationRequested)
+                        {
+                            TcpClient client;
+                            try { client = await listener.AcceptTcpClientAsync(token).ConfigureAwait(false); }
+                            catch { break; }
+                            _ = Task.Run(() => HandleClient(client), token);
+                        }
                     }
-                }, token);
+                    finally { serverCts.Dispose(); }
+                }, CancellationToken.None);
 
-                return $"http://127.0.0.1:{_port}/";
+                return BuildMapUrl();
             }
         }
+
+        private static string BuildMapUrl() => $"http://127.0.0.1:{_port}/#mapToken={_mutationToken}";
 
         public static void Stop()
         {
@@ -77,6 +86,7 @@ namespace MESharp.Services
                 try { _listener?.Stop(); } catch { }
                 _listener = null;
                 _cts = null;
+                _mutationToken = null;
             }
 
             // In-flight travel started from the map must not outlive the server —
@@ -112,7 +122,7 @@ namespace MESharp.Services
                     var requestLine = ReadRequestLine(stream);
                     var method = ParseMethod(requestLine);
                     var path = ParsePath(requestLine);
-                    var requestBody = ReadHeadersAndBody(stream, out var host);
+                    var requestBody = ReadHeadersAndBody(stream, out var host, out var mapToken);
 
                     // DNS-rebinding guard: the browser always sends the Host it navigated to.
                     // Anything other than this loopback listener gets refused, so a hostile web
@@ -121,6 +131,13 @@ namespace MESharp.Services
                     {
                         WriteResponse(stream, "403 Forbidden", "text/plain",
                             Encoding.UTF8.GetBytes("Forbidden: unexpected Host header."));
+                        return;
+                    }
+
+                    if (method == "POST" && !MapServerRequestSecurity.IsValidToken(mapToken, _mutationToken))
+                    {
+                        WriteResponse(stream, "403 Forbidden", "application/json",
+                            JsonSerializer.SerializeToUtf8Bytes(new { succeeded = false, error = "Invalid map request token." }, JsonOptions));
                         return;
                     }
 
@@ -154,7 +171,7 @@ namespace MESharp.Services
                             break;
 
                         case "/coverage.json":
-                            body = JsonSerializer.SerializeToUtf8Bytes(GetCoverageState(), JsonOptions);
+                            body = JsonSerializer.SerializeToUtf8Bytes(GetCoverageState(ParseQuery(requestLine)), JsonOptions);
                             contentType = "application/json";
                             break;
 
@@ -390,12 +407,28 @@ namespace MESharp.Services
         }
 
         /// <summary>The observed world-knowledge layer: every obstacle prior pulses have surveyed.</summary>
-        private static object GetCoverageState()
+        private static object GetCoverageState(System.Collections.Generic.Dictionary<string, string> q)
         {
             try
             {
                 var now = DateTime.UtcNow;
-                var obstacles = PulseStore.Default.AllKnown()
+                var plane = QInt(q, "plane", int.MinValue);
+                var minX = QInt(q, "minX", int.MinValue);
+                var maxX = QInt(q, "maxX", int.MinValue);
+                var minY = QInt(q, "minY", int.MinValue);
+                var maxY = QInt(q, "maxY", int.MinValue);
+                if (plane == int.MinValue || minX == int.MinValue || maxX == int.MinValue ||
+                    minY == int.MinValue || maxY == int.MinValue)
+                {
+                    return new { available = true, obstacles = Array.Empty<object>(), note = "viewport required" };
+                }
+
+                var width = (long)maxX - minX + 1;
+                var height = (long)maxY - minY + 1;
+                if (width <= 0 || height <= 0 || width * height > 1_000_000L)
+                    return new { available = true, obstacles = Array.Empty<object>(), note = "zoom in" };
+
+                var obstacles = PulseStore.Default.KnownObstaclesInBounds(plane, minX, minY, maxX, maxY, minConfidence: 0)
                     .Select(o => new
                     {
                         x = o.X,
@@ -408,12 +441,7 @@ namespace MESharp.Services
                         confidence = Math.Round(PulseConfidence.Compute(o, now), 2)
                     })
                     .ToArray();
-                return new
-                {
-                    available = true,
-                    gridsAvailable = CollisionPathfinder.IsAvailable(),
-                    obstacles
-                };
+                return new { available = true, gridsAvailable = CollisionPathfinder.IsAvailable(), obstacles };
             }
             catch
             {
@@ -433,7 +461,7 @@ namespace MESharp.Services
         /// The task's outcome (including exceptions, which were previously unobserved and
         /// therefore invisible) is captured into the travel status served with /player.json.
         /// </summary>
-        private static void StartTravelTask(string description, Func<CancellationToken, Task> run)
+        private static void StartTravelTask(string description, Func<CancellationToken, Task<bool>> run)
         {
             CancellationTokenSource myCts;
             lock (TravelSync)
@@ -451,8 +479,8 @@ namespace MESharp.Services
                 string status;
                 try
                 {
-                    await run(ct).ConfigureAwait(false);
-                    status = description + " finished.";
+                    var succeeded = await run(ct).ConfigureAwait(false);
+                    status = MapTravelStatus.FromResult(description, succeeded, ct.IsCancellationRequested);
                 }
                 catch (OperationCanceledException)
                 {
@@ -470,8 +498,10 @@ namespace MESharp.Services
                     {
                         _travelStatus = status;
                         _travelRunning = false;
+                        _travelCts = null;
                     }
                 }
+                myCts.Dispose();
             }, CancellationToken.None);
         }
 
@@ -806,28 +836,33 @@ namespace MESharp.Services
                 // Click-awareness: doors/shortcuts/stairs clicked while recording
                 // surface as obstacle candidates (native DoAction hook via the pump).
                 DoActionDebugSignals.StartNativePump();
-                _recordCts = new CancellationTokenSource();
-                var ct = _recordCts.Token;
+                var recordCts = new CancellationTokenSource();
+                _recordCts = recordCts;
+                var ct = recordCts.Token;
 
                 _ = Task.Run(async () =>
                 {
-                    while (!ct.IsCancellationRequested)
+                    try
                     {
-                        try
+                        while (!ct.IsCancellationRequested)
                         {
-                            var pos = Traversal.GetCurrentPosition();
-                            if (pos.X > 0 || pos.Y > 0)
+                            try
                             {
-                                lock (RecordSync)
-                                    _recordSamples?.Add(new WebwalkRecordedSample { Position = pos });
+                                var pos = Traversal.GetCurrentPosition();
+                                if (pos.X > 0 || pos.Y > 0)
+                                {
+                                    lock (RecordSync)
+                                        _recordSamples?.Add(new WebwalkRecordedSample { Position = pos });
+                                }
                             }
-                        }
-                        catch { /* no session this tick — keep sampling */ }
+                            catch { /* no session this tick — keep sampling */ }
 
-                        try { await Task.Delay(RecordSampleIntervalMs, ct).ConfigureAwait(false); }
-                        catch { break; }
+                            try { await Task.Delay(RecordSampleIntervalMs, ct).ConfigureAwait(false); }
+                            catch { break; }
+                        }
                     }
-                }, ct);
+                    finally { recordCts.Dispose(); }
+                }, CancellationToken.None);
 
                 return new { succeeded = true, message = "Recording started — walk the path, then stop." };
             }
@@ -1051,9 +1086,10 @@ namespace MESharp.Services
         }
 
         /// <summary>Consumes headers and returns the request body (POST) using Content-Length.</summary>
-        private static string ReadHeadersAndBody(NetworkStream stream, out string? host)
+        private static string ReadHeadersAndBody(NetworkStream stream, out string? host, out string? mapToken)
         {
             host = null;
+            mapToken = null;
             var contentLength = 0;
             string line;
             while ((line = ReadRequestLine(stream)).Length > 0)
@@ -1070,6 +1106,10 @@ namespace MESharp.Services
                 else if (name.Equals("Host", StringComparison.OrdinalIgnoreCase))
                 {
                     host = value;
+                }
+                else if (name.Equals(MapServerRequestSecurity.TokenHeaderName, StringComparison.OrdinalIgnoreCase))
+                {
+                    mapToken = value;
                 }
             }
 

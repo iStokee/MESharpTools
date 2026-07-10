@@ -1,9 +1,23 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using MESharp.API;
 
 namespace SharpBuilder.Core.Services;
+
+/// <summary>
+/// Single console log shape for all node executors: [SharpBuilder.{Area}] {NodeTitle}: {message}.
+/// The Runner console is the log sink, so every executor diagnostic must go through here to stay
+/// greppable per subsystem (MakeX, Alch, Bank, Input, ...).
+/// </summary>
+internal static class ExecutorLog
+{
+	public static void Write(string area, NodeExecutionContext context, string message)
+	{
+		Console.WriteLine($"[SharpBuilder.{area}] {context.Node.Title}: {message}");
+	}
+}
 
 /// <summary>
 /// Shared building blocks for node executors: condition outcomes, quantity parsing, and the
@@ -31,6 +45,17 @@ internal static class ExecutorHelpers
 	{
 		var signal = ParameterHelper.ToString(parameters, "signal");
 		return string.IsNullOrWhiteSpace(signal) ? fallback : signal.Trim();
+	}
+
+	/// <summary>
+	/// True when the inventory item matches any of the target ids, or any target name as a
+	/// case-insensitive substring — the matching rule shared by the repeat-until-done inventory nodes.
+	/// </summary>
+	public static bool MatchesTarget(Inventory.Item item, List<int> ids, List<string> names)
+	{
+		return item.Id > 0 &&
+			(ids.Contains(item.Id) ||
+			 names.Any(name => item.Name?.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0));
 	}
 
 	/// <summary>Tries the id-array dispatch first, then the name-array dispatch, skipping empty lists.</summary>

@@ -19,14 +19,16 @@ internal sealed class MakeXMakeItemExecutor : INodeExecutor, IGameApiSelfManaged
 
 		try
 		{
-			MakeXExecutorLog.Write(context, $"begin slot={(slot?.ToString() ?? "(already selected)")} category=\"{category ?? string.Empty}\" waitComplete={waitComplete}");
+			ExecutorLog.Write("MakeX", context, $"begin slot={(slot?.ToString() ?? "(already selected)")} category=\"{category ?? string.Empty}\" waitComplete={waitComplete}");
 
 			var initiallyOpen = await GameLane.Run(() => MakeX.IsOpen(), cancellationToken);
-			MakeXExecutorLog.Write(context, $"isOpen(before)={initiallyOpen}");
+			ExecutorLog.Write("MakeX", context, $"isOpen(before)={initiallyOpen}");
 			if (!initiallyOpen)
 			{
-				var opened = await GameLane.PollUntil(() => MakeX.IsOpen(), 5000, cancellationToken);
-				MakeXExecutorLog.Write(context, $"waitForOpen(5000)={opened}");
+				// 10s: the opening click from the previous node may still be walking the player to
+				// the portable/booth before the interface can appear.
+				var opened = await GameLane.PollUntil(() => MakeX.IsOpen(), 10000, cancellationToken);
+				ExecutorLog.Write("MakeX", context, $"waitForOpen(10000)={opened}");
 				if (!opened)
 				{
 					return NodeExecutionResult.Fail();
@@ -35,9 +37,9 @@ internal sealed class MakeXMakeItemExecutor : INodeExecutor, IGameApiSelfManaged
 
 			if (!string.IsNullOrWhiteSpace(category))
 			{
-				MakeXExecutorLog.Write(context, $"selectCategory(\"{category}\")");
+				ExecutorLog.Write("MakeX", context, $"selectCategory(\"{category}\")");
 				var categorySelected = await GameLane.Run(() => MakeX.SelectCategory(category), cancellationToken);
-				MakeXExecutorLog.Write(context, $"selectCategory result={categorySelected}");
+				ExecutorLog.Write("MakeX", context, $"selectCategory result={categorySelected}");
 				await Task.Delay(250, cancellationToken);
 				if (!categorySelected)
 				{
@@ -50,7 +52,7 @@ internal sealed class MakeXMakeItemExecutor : INodeExecutor, IGameApiSelfManaged
 			if (slot.HasValue)
 			{
 				var selected = await GameLane.Run(() => MakeX.SelectSlot(slot.Value), cancellationToken);
-				MakeXExecutorLog.Write(context, $"selectSlot({slot.Value})={selected}");
+				ExecutorLog.Write("MakeX", context, $"selectSlot({slot.Value})={selected}");
 				if (!selected)
 				{
 					return NodeExecutionResult.Fail();
@@ -59,23 +61,17 @@ internal sealed class MakeXMakeItemExecutor : INodeExecutor, IGameApiSelfManaged
 				await Task.Delay(250, cancellationToken);
 			}
 
-			MakeXExecutorLog.Write(context, "craft() clicking make button at preset amount");
+			ExecutorLog.Write("MakeX", context, "craft() clicking make button at preset amount");
 			var (ok, openAfter, craftingAfter) = await GameLane.Run(() =>
 			{
 				var clicked = MakeX.Craft();
 				return (clicked, MakeX.IsOpen(), MakeX.IsCrafting());
 			}, cancellationToken);
-			MakeXExecutorLog.Write(context, $"craft()={ok} isOpen(afterCraftClick)={openAfter} isCrafting={craftingAfter}");
+			ExecutorLog.Write("MakeX", context, $"craft()={ok} isOpen(afterCraftClick)={openAfter} isCrafting={craftingAfter}");
 
 			if (ok && waitComplete)
 			{
-				// Give the make a moment to actually start so the poll doesn't see the progress
-				// window (1251) as not-yet-open and return immediately.
-				await Task.Delay(800, cancellationToken);
-				var complete = await GameLane.PollUntil(() => !MakeX.IsCrafting(), 60000, cancellationToken);
-				var (openNow, craftingNow) = await GameLane.Run(() => (MakeX.IsOpen(), MakeX.IsCrafting()), cancellationToken);
-				MakeXExecutorLog.Write(context, $"waitForCraftComplete={complete} isOpen={openNow} isCrafting={craftingNow}");
-				ok = complete;
+				ok = await MakeXCraftWait.WaitForCraftAndIdle(context, cancellationToken);
 			}
 
 			return ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
@@ -86,7 +82,7 @@ internal sealed class MakeXMakeItemExecutor : INodeExecutor, IGameApiSelfManaged
 		}
 		catch (Exception ex)
 		{
-			MakeXExecutorLog.Write(context, $"exception: {ex.GetType().Name}: {ex.Message}");
+			ExecutorLog.Write("MakeX", context, $"exception: {ex.GetType().Name}: {ex.Message}");
 			return NodeExecutionResult.Fail();
 		}
 	}
@@ -98,7 +94,7 @@ internal sealed class MakeXIsOpenExecutor : INodeExecutor
 	{
 		var expected = ParameterHelper.ToBool(context.Parameters, "expected", true);
 		var isOpen = MakeX.IsOpen();
-		MakeXExecutorLog.Write(context, $"isOpen={isOpen} expected={expected}");
+		ExecutorLog.Write("MakeX", context, $"isOpen={isOpen} expected={expected}");
 
 		var outputs = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
 		{
@@ -118,15 +114,15 @@ internal sealed class MakeXSelectItemExecutor : INodeExecutor
 		var item = ParameterHelper.ToString(context.Parameters, "item");
 		if (string.IsNullOrWhiteSpace(item))
 		{
-			MakeXExecutorLog.Write(context, "missing required item parameter");
+			ExecutorLog.Write("MakeX", context, "missing required item parameter");
 			return Task.FromResult(NodeExecutionResult.Fail());
 		}
 
 		var rows = MakeX.GetItems();
-		MakeXExecutorLog.Write(context, $"visibleRows={rows.Count} {MakeXExecutorLog.FormatRows(rows)}");
+		ExecutorLog.Write("MakeX", context, $"visibleRows={rows.Count} {MakeXExecutorLog.FormatRows(rows)}");
 
 		var ok = int.TryParse(item, out var id) ? MakeX.SelectItem(id) : MakeX.SelectItem(item);
-		MakeXExecutorLog.Write(context, $"selectItem(\"{item}\")={ok}");
+		ExecutorLog.Write("MakeX", context, $"selectItem(\"{item}\")={ok}");
 		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
 	}
 }
@@ -138,12 +134,12 @@ internal sealed class MakeXSelectCategoryExecutor : INodeExecutor
 		var category = ParameterHelper.ToString(context.Parameters, "category");
 		if (string.IsNullOrWhiteSpace(category))
 		{
-			MakeXExecutorLog.Write(context, "missing required category parameter");
+			ExecutorLog.Write("MakeX", context, "missing required category parameter");
 			return Task.FromResult(NodeExecutionResult.Fail());
 		}
 
 		var ok = MakeX.SelectCategory(category);
-		MakeXExecutorLog.Write(context, $"selectCategory(\"{category}\")={ok}");
+		ExecutorLog.Write("MakeX", context, $"selectCategory(\"{category}\")={ok}");
 		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
 	}
 }
@@ -155,12 +151,12 @@ internal sealed class MakeXSetAmountExecutor : INodeExecutor
 		var amount = ParameterHelper.ToInt(context.Parameters, "amount");
 		if (!amount.HasValue || amount.Value <= 0)
 		{
-			MakeXExecutorLog.Write(context, $"invalid amount={amount?.ToString() ?? "null"}");
+			ExecutorLog.Write("MakeX", context, $"invalid amount={amount?.ToString() ?? "null"}");
 			return Task.FromResult(NodeExecutionResult.Fail());
 		}
 
 		var ok = MakeX.SetAmount(amount.Value);
-		MakeXExecutorLog.Write(context, $"setAmount({amount.Value})={ok}");
+		ExecutorLog.Write("MakeX", context, $"setAmount({amount.Value})={ok}");
 		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
 	}
 }
@@ -177,16 +173,36 @@ internal sealed class MakeXCraftExecutor : INodeExecutor, IGameApiSelfManaged
 			var clicked = MakeX.Craft(amount);
 			return (clicked, MakeX.IsOpen(), MakeX.IsCrafting());
 		}, cancellationToken);
-		MakeXExecutorLog.Write(context, $"craft({amount?.ToString() ?? "null"})={ok} isOpen(afterCraftClick)={openAfter} isCrafting={craftingAfter}");
+		ExecutorLog.Write("MakeX", context, $"craft({amount?.ToString() ?? "null"})={ok} isOpen(afterCraftClick)={openAfter} isCrafting={craftingAfter}");
 		if (ok && waitComplete)
 		{
-			var complete = await GameLane.PollUntil(() => !MakeX.IsCrafting(), 60000, cancellationToken);
-			var (openNow, craftingNow) = await GameLane.Run(() => (MakeX.IsOpen(), MakeX.IsCrafting()), cancellationToken);
-			MakeXExecutorLog.Write(context, $"waitForCraftComplete={complete} isOpen={openNow} isCrafting={craftingNow}");
-			ok = complete;
+			ok = await MakeXCraftWait.WaitForCraftAndIdle(context, cancellationToken);
 		}
 
 		return ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
+	}
+}
+
+// Shared craft-completion wait for the make executors. Sleeps stay OFF the game-API lane so the
+// dashboard keeps reading XP/items while a long make runs.
+internal static class MakeXCraftWait
+{
+	public static async Task<bool> WaitForCraftAndIdle(NodeExecutionContext context, CancellationToken cancellationToken)
+	{
+		// Wait for the make to actually start (progress window 1251) instead of a fixed delay, so a
+		// slow start can't make the completion poll pass while crafting is still pending.
+		var started = await GameLane.PollUntil(() => MakeX.IsCrafting(), 2000, cancellationToken);
+
+		var complete = await GameLane.PollUntil(() => !MakeX.IsCrafting(), 60000, cancellationToken);
+
+		// The progress window closes before the final craft animation finishes; downstream nodes
+		// (e.g. high alch) get their input swallowed if they act mid-animation. Idle = animation <= 0
+		// in this client build. Best-effort: an idle timeout does not fail the node.
+		var idle = await GameLane.PollUntil(() => LocalPlayer.GetAnimation() <= 0, 5000, cancellationToken);
+
+		var (openNow, craftingNow) = await GameLane.Run(() => (MakeX.IsOpen(), MakeX.IsCrafting()), cancellationToken);
+		ExecutorLog.Write("MakeX", context, $"craftStarted={started} waitForCraftComplete={complete} playerIdle={idle} isOpen={openNow} isCrafting={craftingNow}");
+		return complete;
 	}
 }
 
@@ -197,18 +213,13 @@ internal sealed class MakeXWaitCompleteExecutor : INodeExecutor, IGameApiSelfMan
 		var timeoutMs = ParameterHelper.ToInt(context.Parameters, "timeoutMs") ?? 60000;
 		var done = await GameLane.PollUntil(() => !MakeX.IsCrafting(), timeoutMs, cancellationToken);
 		var (openNow, craftingNow) = await GameLane.Run(() => (MakeX.IsOpen(), MakeX.IsCrafting()), cancellationToken);
-		MakeXExecutorLog.Write(context, $"waitForCraftComplete({timeoutMs})={done} isOpen={openNow} isCrafting={craftingNow}");
+		ExecutorLog.Write("MakeX", context, $"waitForCraftComplete({timeoutMs})={done} isOpen={openNow} isCrafting={craftingNow}");
 		return done ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
 	}
 }
 
 internal static class MakeXExecutorLog
 {
-	public static void Write(NodeExecutionContext context, string message)
-	{
-		Console.WriteLine($"[SharpBuilder.MakeX] {context.Node.Title}: {message}");
-	}
-
 	public static string FormatRows(IReadOnlyList<MakeXItem> rows)
 	{
 		if (rows.Count == 0)

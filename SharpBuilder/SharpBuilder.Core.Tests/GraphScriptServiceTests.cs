@@ -63,6 +63,61 @@ public class GraphScriptServiceTests
 	}
 
 	[Fact]
+	public async Task SaveAndLoad_ExcludesRuntimeVisualState()
+	{
+		var service = new GraphScriptService(_catalog);
+		var graph = service.CreatePowerFishingTemplate();
+		var node = graph.Nodes[0];
+		var transition = node.Transitions[0];
+		node.IsActive = true;
+		node.IsCurrent = true;
+		node.IsSelected = true;
+		node.LastRunStatus = NodeRunStatus.Success;
+		transition.IsActive = true;
+		var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.builder.json");
+
+		try
+		{
+			await service.SaveAsync(graph, path);
+			var json = await File.ReadAllTextAsync(path);
+			var loaded = await service.LoadAsync(path);
+
+			Assert.DoesNotContain("\"IsActive\"", json);
+			Assert.DoesNotContain("\"IsSelected\"", json);
+			Assert.DoesNotContain("\"IsCurrent\"", json);
+			Assert.DoesNotContain("\"LastRunStatus\"", json);
+			Assert.NotNull(loaded);
+			var loadedNode = Assert.Single(loaded!.Nodes, n => n.Id == node.Id);
+			Assert.False(loadedNode.IsActive);
+			Assert.False(loadedNode.IsSelected);
+			Assert.False(loadedNode.IsCurrent);
+			Assert.Equal(NodeRunStatus.None, loadedNode.LastRunStatus);
+			Assert.All(loadedNode.Transitions, loadedTransition => Assert.False(loadedTransition.IsActive));
+		}
+		finally
+		{
+			File.Delete(path);
+			File.Delete(path + ".tmp");
+		}
+	}
+
+	[Fact]
+	public void GraphClone_PreservesDashboardDimensions()
+	{
+		var graph = Graph(Node(NodeCatalogDefaults.ScriptDashboardId, title: "Dashboard"));
+		var node = graph.Nodes[0];
+		node.DashboardWidth = 760;
+		node.DashboardHeight = 540;
+
+		var clone = GraphCloneService.Clone(graph);
+		var clonedNode = Assert.Single(clone.Nodes);
+
+		Assert.Equal(760, clonedNode.DashboardWidth);
+		Assert.Equal(540, clonedNode.DashboardHeight);
+		Assert.True(GraphCompareService.AreEquivalent(graph, clone));
+	}
+
+	[Fact]
 	public async Task TryLoadAsync_ReturnsErrorForMissingOrInvalidFiles()
 	{
 		var service = new GraphScriptService(_catalog);
@@ -233,6 +288,14 @@ public class GraphScriptServiceTests
 		Assert.Equal("Green dhide shield craft-alch", graph!.Name);
 		Assert.Contains(graph.Nodes, n => n.DefinitionId == "bank.loadPreset");
 		Assert.Contains(graph.Nodes, n => n.DefinitionId == "inventory.alchAll");
+		Assert.All(graph.Nodes, node =>
+		{
+			Assert.False(node.IsActive);
+			Assert.False(node.IsSelected);
+			Assert.False(node.IsCurrent);
+			Assert.Equal(NodeRunStatus.None, node.LastRunStatus);
+			Assert.All(node.Transitions, transition => Assert.False(transition.IsActive));
+		});
 	}
 
 	[Fact]

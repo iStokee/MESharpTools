@@ -38,6 +38,8 @@ public partial class NodeEditorControl : UserControl
 	private Point _wireStartPoint;
 	private System.Windows.Shapes.Path? _wirePreviewPath;
 	private TextBlock? _wirePreviewText;
+	private NodeModel? _wirePreviewTarget;
+	private GraphConnectionRuleResult? _wirePreviewRule;
 
 	// Edge cutting state (Shift + drag on the canvas)
 	private bool _isCutting;
@@ -103,6 +105,8 @@ public partial class NodeEditorControl : UserControl
 			_isWiring = false;
 			_wireSourceNode = null;
 			_retargetTransition = null;
+			_wirePreviewTarget = null;
+			_wirePreviewRule = null;
 			if (_wirePreviewPath != null)
 			{
 				SelectionOverlay?.Children.Remove(_wirePreviewPath);
@@ -430,6 +434,8 @@ public partial class NodeEditorControl : UserControl
 		_wireSourceNode = source;
 		_retargetTransition = retarget;
 		_wireStartPoint = start;
+		_wirePreviewTarget = null;
+		_wirePreviewRule = null;
 
 		if (_wirePreviewPath == null)
 		{
@@ -480,9 +486,15 @@ public partial class NodeEditorControl : UserControl
 			return;
 
 		var target = HitTestNode(cursor);
-		var rule = _retargetTransition == null
-			? vm.PreviewConnect(_wireSourceNode, target)
-			: vm.PreviewRetarget(_retargetTransition, target);
+		if (_wirePreviewRule == null || !ReferenceEquals(target, _wirePreviewTarget))
+		{
+			_wirePreviewTarget = target;
+			_wirePreviewRule = _retargetTransition == null
+				? vm.PreviewConnect(_wireSourceNode, target)
+				: vm.PreviewRetarget(_retargetTransition, target);
+		}
+
+		var rule = _wirePreviewRule!;
 
 		_wirePreviewPath.Stroke = new SolidColorBrush(rule.CanConnect
 			? (rule.Severity == GraphConnectionRuleSeverity.Warning ? Color.FromRgb(0xFF, 0xC8, 0x57) : Color.FromRgb(0x4A, 0xB6, 0xFF))
@@ -515,6 +527,8 @@ public partial class NodeEditorControl : UserControl
 		_isWiring = false;
 		_wireSourceNode = null;
 		_retargetTransition = null;
+		_wirePreviewTarget = null;
+		_wirePreviewRule = null;
 
 		if (_wirePreviewPath != null)
 		{

@@ -173,7 +173,7 @@ internal sealed class SkillRequirementExecutor : INodeExecutor
 		if (!TryResolveSkill(skill, out var skillName))
 		{
 			// An unknown skill must fail loudly — defaulting to any skill could wrongly pass the gate.
-			Console.WriteLine($"[Executor] skills.requireLevel: unknown skill '{skill}'.");
+			ExecutorLog.Write("Skills", context, $"unknown skill '{skill}'");
 			return Task.FromResult(NodeExecutionResult.Fail(new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
 			{
 				[$"skill.{skill}.met"] = false
@@ -230,7 +230,7 @@ internal sealed class KeyboardSendExecutor : INodeExecutor, IGameApiSelfManaged
 		{
 			if (!KeyboardTokenResolver.TryResolve(token, out var key))
 			{
-				Console.WriteLine($"[Executor] Keyboard macro: unrecognized key token '{token}'.");
+				ExecutorLog.Write("Input", context, $"unrecognized key token '{token}'");
 				return NodeExecutionResult.Fail();
 			}
 

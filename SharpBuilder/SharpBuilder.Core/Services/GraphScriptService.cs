@@ -461,7 +461,7 @@ public class GraphScriptService
 		SetParameterValue(leatherKeybind, "delayMs", "650");
 
 		var makeShield = MakeNode(_catalogService.GetDefinition("makex.makeItem")!,
-			"Make shields", NodeType.Action, 1080, 170, dwell: 250,
+			"Make shields", NodeType.Action, 1080, 170, dwell: 1200,
 			actionText: "Craft green dragonhide shields (already-selected product, preset amount)");
 		SetParameterValue(makeShield, "slot", "");
 		SetParameterValue(makeShield, "category", "");
@@ -479,7 +479,7 @@ public class GraphScriptService
 		SetParameterValue(alch, "recastMode", "ItemDisappears");
 		SetParameterValue(alch, "disappearTimeoutMs", "3500");
 		SetParameterValue(alch, "postTargetDelayMs", "2500");
-		SetParameterValue(alch, "startTimeoutMs", "1500");
+		SetParameterValue(alch, "startTimeoutMs", "3000");
 		SetParameterValue(alch, "finishTimeoutMs", "5000");
 		SetParameterValue(alch, "betweenCastsMs", "250");
 		SetParameterValue(alch, "inventoryRoot", "0");

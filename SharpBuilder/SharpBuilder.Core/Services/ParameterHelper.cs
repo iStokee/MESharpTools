@@ -75,6 +75,20 @@ internal static class ParameterHelper
 		return (ids, names);
 	}
 
+	/// <summary>
+	/// Target resolution for interaction nodes whose catalog uses a mixed name/id list plus an
+	/// optional dedicated id parameter (npcs.interact, npcs.attack, objects.interact).
+	/// </summary>
+	public static (List<int> Ids, List<string> Names) ToTargetListsWithId(
+		IReadOnlyDictionary<string, object?> map, string listKey, string idKey)
+	{
+		var (ids, names) = ToTargetLists(map, listKey);
+		var id = ToInt(map, idKey);
+		if (id.HasValue && !ids.Contains(id.Value))
+			ids.Add(id.Value);
+		return (ids, names);
+	}
+
 	public static List<(int x, int y, int z)> ToCoordinateList(IReadOnlyDictionary<string, object?> map, string key)
 	{
 		var output = new List<(int, int, int)>();

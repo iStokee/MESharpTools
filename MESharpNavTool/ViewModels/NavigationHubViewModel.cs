@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -46,6 +47,7 @@ namespace MESharp.ViewModels
         private string _validationDetail = "Graph has not been validated yet.";
         private string _validationState = "busy"; // ok | warn | error | busy
         private bool _isValidating;
+        private CancellationTokenSource? _validationCts;
 
         // ── Live status strip ────────────────────────────────────────────────
         private System.Windows.Threading.DispatcherTimer? _statusTimer;
@@ -329,6 +331,8 @@ namespace MESharp.ViewModels
             ValidationText = "Validating…";
 
             var dispatcher = Application.Current?.Dispatcher;
+            var validationCts = new CancellationTokenSource();
+            _validationCts = validationCts;
             Task.Run(() =>
             {
                 string text, detail, state;
@@ -375,16 +379,43 @@ namespace MESharp.ViewModels
 
                 void Apply()
                 {
-                    ValidationState = state;
-                    ValidationText = text;
-                    ValidationDetail = detail;
-                    if (stats != null) GraphStatsText = stats;
-                    _nodeCache = null; // graph may have changed; refresh nearest-node cache
-                    _isValidating = false;
+                    try
+                    {
+                        if (_disposed || validationCts.IsCancellationRequested)
+                        {
+                            if (ReferenceEquals(_validationCts, validationCts))
+                                _isValidating = false;
+                            return;
+                        }
+
+                        ValidationState = state;
+                        ValidationText = text;
+                        ValidationDetail = detail;
+                        if (stats != null) GraphStatsText = stats;
+                        _nodeCache = null; // graph may have changed; refresh nearest-node cache
+                        _isValidating = false;
+                    }
+                    finally
+                    {
+                        if (ReferenceEquals(_validationCts, validationCts))
+                            _validationCts = null;
+                        validationCts.Dispose();
+                    }
                 }
 
-                if (dispatcher != null) dispatcher.Invoke(Apply);
-                else Apply();
+                try
+                {
+                    if (dispatcher != null)
+                        dispatcher.BeginInvoke((Action)Apply);
+                    else
+                        Apply();
+                }
+                catch
+                {
+                    if (ReferenceEquals(_validationCts, validationCts))
+                        _isValidating = false;
+                    validationCts.Dispose();
+                }
             });
         }
 
@@ -392,6 +423,7 @@ namespace MESharp.ViewModels
         {
             if (_disposed) return;
             _disposed = true;
+            try { _validationCts?.Cancel(); } catch { }
             Services.CoverageMapServer.FocusRequested -= OnMapFocusRequested;
             _statusTimer?.Stop();
 

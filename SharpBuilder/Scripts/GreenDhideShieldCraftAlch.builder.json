@@ -795,7 +795,7 @@
       "Y": 170.0,
       "DashboardWidth": 520.0,
       "DashboardHeight": 430.0,
-      "DwellMilliseconds": 250,
+      "DwellMilliseconds": 1200,
       "ActionText": "Craft green dragonhide shields (already-selected product, preset amount)",
       "IsActive": true,
       "IsSelected": false,
@@ -965,7 +965,7 @@
           "Key": "startTimeoutMs",
           "Type": 1,
           "AllowMultiple": false,
-          "RawValue": "1500",
+          "RawValue": "3000",
           "BoolValue": false
         },
         {

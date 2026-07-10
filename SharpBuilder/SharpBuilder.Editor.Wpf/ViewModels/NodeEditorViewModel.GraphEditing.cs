@@ -24,6 +24,9 @@ public partial class NodeEditorViewModel
 
 	private void CreateNodeFromDefinition(NodeDefinition? definition, Point? dropPosition)
 	{
+		if (IsReadOnly)
+			return;
+
 		if (definition == null)
 			return;
 
@@ -79,6 +82,9 @@ public partial class NodeEditorViewModel
 
 	private void RemoveNodes(IEnumerable<NodeModel> nodes, string label)
 	{
+		if (IsReadOnly)
+			return;
+
 		var targets = nodes.Where(n => Script.Nodes.Contains(n)).Distinct().ToList();
 		if (targets.Count == 0)
 			return;
@@ -118,6 +124,9 @@ public partial class NodeEditorViewModel
 
 	private void AddTransition()
 	{
+		if (IsReadOnly)
+			return;
+
 		if (SelectedNode == null || Script.Nodes.Count < 2)
 			return;
 
@@ -150,6 +159,9 @@ public partial class NodeEditorViewModel
 	/// </summary>
 	public void ConnectNodes(NodeModel from, NodeModel to)
 	{
+		if (IsReadOnly)
+			return;
+
 		var rule = _connectionRules.CanConnect(Script, from, to);
 		if (!rule.CanConnect)
 		{
@@ -182,6 +194,9 @@ public partial class NodeEditorViewModel
 	/// </summary>
 	public void RetargetTransition(TransitionModel transition, NodeModel target)
 	{
+		if (IsReadOnly)
+			return;
+
 		var rule = _connectionRules.CanRetarget(Script, transition, target);
 		var source = Script.Nodes.FirstOrDefault(n => n.Transitions.Contains(transition));
 		if (!rule.CanConnect)
@@ -210,6 +225,9 @@ public partial class NodeEditorViewModel
 	/// </summary>
 	private void MoveTransition(TransitionModel? transition, int direction)
 	{
+		if (IsReadOnly)
+			return;
+
 		if (transition == null)
 			return;
 
@@ -230,6 +248,9 @@ public partial class NodeEditorViewModel
 
 	private void RemoveTransition(TransitionModel? transition)
 	{
+		if (IsReadOnly)
+			return;
+
 		if (SelectedNode == null || transition == null)
 			return;
 
@@ -245,6 +266,9 @@ public partial class NodeEditorViewModel
 
 	private void SetSelectedAsStart()
 	{
+		if (IsReadOnly)
+			return;
+
 		if (SelectedNode == null)
 			return;
 
@@ -314,6 +338,9 @@ public partial class NodeEditorViewModel
 	/// <summary>Removes a known set of transitions (e.g. the result of a confirmed cut gesture) as one undoable edit.</summary>
 	public int DeleteTransitions(IReadOnlyList<(NodeModel Node, TransitionModel Transition)> items)
 	{
+		if (IsReadOnly)
+			return 0;
+
 		if (items == null || items.Count == 0)
 			return 0;
 

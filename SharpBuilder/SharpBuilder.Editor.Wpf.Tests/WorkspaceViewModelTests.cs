@@ -32,6 +32,8 @@ public class WorkspaceViewModelTests
 
 		Assert.Equal(2, ws.Canvases.Count);
 		Assert.Same(ws.Canvases[1], ws.ActiveCanvas);
+		Assert.True(ws.ActiveCanvas!.Editor.Dashboard.IsRefreshActive);
+		Assert.False(ws.Canvases[0].Editor.Dashboard.IsRefreshActive);
 	}
 
 	[Fact]

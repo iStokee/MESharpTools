@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -61,7 +62,7 @@ namespace MESharp.ViewModels
     /// flagging (tier-3). Reads/writes go through the in-process <see cref="VerificationLedger"/>
     /// repository; passive auto-resolve is driven elsewhere (Traversal) when capture is enabled.
     /// </summary>
-    public sealed class VerificationDeskViewModel : BaseViewModel, IActivatableViewModel
+    public sealed class VerificationDeskViewModel : BaseViewModel, IActivatableViewModel, IDisposable
     {
         private static readonly string[] StateFilters = { "all", "open", "claimed", "staged", "resolved" };
         private static readonly string[] SignalFilters =
@@ -73,6 +74,8 @@ namespace MESharp.ViewModels
         private string _status = "";
         private VerificationTaskRow? _selected;
         private int _openCount, _stagedCount, _resolvedCount, _avgConfidence;
+        private readonly CancellationTokenSource _shutdownCts = new();
+        private bool _disposed;
 
         public ObservableCollection<VerificationTaskRow> Tasks { get; } = new();
         public IReadOnlyList<string> StateFilterOptions => StateFilters;
@@ -138,11 +141,15 @@ namespace MESharp.ViewModels
         public ICommand ShowOnMapCommand { get; }
         public ICommand HelpCommand { get; }
 
-        public void OnActivated() => Refresh();
+        public void OnActivated()
+        {
+            if (!_disposed) Refresh();
+        }
         public void OnDeactivated() { }
 
         private void Refresh()
         {
+            if (_disposed) return;
             try
             {
                 var query = new LedgerQuery
@@ -343,16 +350,25 @@ namespace MESharp.ViewModels
 
         private void RunBackground(string operation, Func<string> work)
         {
+            if (_disposed) return;
             Status = operation + "…";
             var dispatcher = Application.Current?.Dispatcher;
+            var ct = _shutdownCts.Token;
             Task.Run(() =>
             {
                 string summary;
-                try { summary = work(); }
+                try
+                {
+                    ct.ThrowIfCancellationRequested();
+                    summary = work();
+                    ct.ThrowIfCancellationRequested();
+                }
+                catch (OperationCanceledException) { return; }
                 catch (Exception ex) { summary = "Failed: " + ex.Message; }
 
                 void Done()
                 {
+                    if (_disposed) return;
                     Status = summary;
                     Refresh();
                     CommandManager.InvalidateRequerySuggested();
@@ -360,6 +376,15 @@ namespace MESharp.ViewModels
                 if (dispatcher != null) dispatcher.BeginInvoke(Done);
                 else Done();
             });
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try { _shutdownCts.Cancel(); } catch { }
+            // Background ledger operations may still be observing this token. Let the
+            // view-model become collectible with its source once they have unwound.
         }
     }
 }

@@ -31,6 +31,7 @@ public sealed partial class DashboardViewModel : ObservableObject, IDisposable
 	private SkillSession? _skillSession;
 	private bool _gameRefreshInProgress;
 	private bool _gameRefreshPending;
+	private bool _isRefreshActive;
 	private int _refreshVersion;
 	// Graph runtime is accumulated across runs; while running we add the live span on top.
 	private TimeSpan _graphRunAccumulated = TimeSpan.Zero;
@@ -80,12 +81,38 @@ public sealed partial class DashboardViewModel : ObservableObject, IDisposable
 			Refresh();
 			BeginGameRefresh();
 		};
+	}
+
+	/// <summary>
+	/// Starts or stops this canvas's periodic game-state reads. The workspace activates only its
+	/// visible local canvas, preventing inactive tabs from competing for the game-API lane.
+	/// </summary>
+	internal void SetRefreshActive(bool active)
+	{
+		if (_isRefreshActive == active)
+			return;
+
+		_isRefreshActive = active;
+		_refreshVersion++;
+		_gameRefreshPending = false;
+
+		if (!active)
+		{
+			_timer.Stop();
+			return;
+		}
+
 		_timer.Start();
+		Refresh();
+		BeginGameRefresh();
 	}
 
 	public ObservableCollection<DashboardSkillRow> Skills { get; }
 	public ICollectionView SkillsView { get; }
 	public ICollectionView ItemsView { get; }
+
+	/// <summary>Whether this canvas currently owns the workspace's periodic game-state refresh slot.</summary>
+	public bool IsRefreshActive => _isRefreshActive;
 
 	public IRelayCommand ResetTimerCommand { get; }
 	public IRelayCommand ResetXpCommand { get; }
@@ -159,6 +186,9 @@ public sealed partial class DashboardViewModel : ObservableObject, IDisposable
 
 	internal void BeginGameRefresh()
 	{
+		if (!_isRefreshActive)
+			return;
+
 		if (_gameRefreshInProgress)
 		{
 			_gameRefreshPending = true;
@@ -184,7 +214,7 @@ public sealed partial class DashboardViewModel : ObservableObject, IDisposable
 				{
 					_gameRefreshInProgress = false;
 
-					if (version != _refreshVersion)
+					if (!_isRefreshActive || version != _refreshVersion)
 						return;
 
 					if (task.IsFaulted)
@@ -271,5 +301,9 @@ public sealed partial class DashboardViewModel : ObservableObject, IDisposable
 			.FirstOrDefault(p => string.Equals(p.Key, "showOnlyActiveXp", StringComparison.OrdinalIgnoreCase))
 			?.BoolValue == true;
 
-	public void Dispose() => _timer.Stop();
+	public void Dispose()
+	{
+		SetRefreshActive(false);
+		_timer.Stop();
+	}
 }

@@ -98,6 +98,8 @@ public partial class NodeEditorViewModel : ObservableObject, IDisposable
 	private bool _isValidationOpen;
 	private bool _isRunLogOpen;
 	private string _graphExplanationSummary = "Graph not explained yet";
+	private bool _isReadOnly;
+	private string? _readOnlyReason;
 
 	public NodeEditorViewModel()
 		: this(new NodeCatalogService())
@@ -135,30 +137,30 @@ public partial class NodeEditorViewModel : ObservableObject, IDisposable
 		_selectedWindowSize = _customWindowSize;
 		SelectedNodes = new ReadOnlyObservableCollection<NodeModel>(_selectedNodes);
 
-		AddNodeCommand = new RelayCommand(AddNode);
-		CreateNodeFromDefinitionCommand = new RelayCommand<NodeDefinition?>(AddNodeFromDefinition);
-		RemoveNodeCommand = new RelayCommand(RemoveSelectedNode, () => SelectedNode != null);
-		AddTransitionCommand = new RelayCommand(AddTransition, () => SelectedNode != null && Script.Nodes.Count > 1);
-		RemoveTransitionCommand = new RelayCommand<TransitionModel?>(RemoveTransition, _ => SelectedNode != null);
-		MoveTransitionUpCommand = new RelayCommand<TransitionModel?>(t => MoveTransition(t, -1), _ => SelectedNode != null);
-		MoveTransitionDownCommand = new RelayCommand<TransitionModel?>(t => MoveTransition(t, 1), _ => SelectedNode != null);
-		SetAsStartCommand = new RelayCommand(SetSelectedAsStart, () => SelectedNode != null);
+		AddNodeCommand = new RelayCommand(AddNode, CanModifyGraph);
+		CreateNodeFromDefinitionCommand = new RelayCommand<NodeDefinition?>(AddNodeFromDefinition, _ => CanModifyGraph());
+		RemoveNodeCommand = new RelayCommand(RemoveSelectedNode, () => CanModifyGraph() && SelectedNode != null);
+		AddTransitionCommand = new RelayCommand(AddTransition, () => CanModifyGraph() && SelectedNode != null && Script.Nodes.Count > 1);
+		RemoveTransitionCommand = new RelayCommand<TransitionModel?>(RemoveTransition, _ => CanModifyGraph() && SelectedNode != null);
+		MoveTransitionUpCommand = new RelayCommand<TransitionModel?>(t => MoveTransition(t, -1), _ => CanModifyGraph() && SelectedNode != null);
+		MoveTransitionDownCommand = new RelayCommand<TransitionModel?>(t => MoveTransition(t, 1), _ => CanModifyGraph() && SelectedNode != null);
+		SetAsStartCommand = new RelayCommand(SetSelectedAsStart, () => CanModifyGraph() && SelectedNode != null);
 		ClearTrailCommand = new RelayCommand(ClearTrail);
-		DeleteSelectedCommand = new RelayCommand(DeleteSelection);
-		UndoCommand = new RelayCommand(UndoGraphEdit, () => _editHistory.CanUndo);
-		RedoCommand = new RelayCommand(RedoGraphEdit, () => _editHistory.CanRedo);
+		DeleteSelectedCommand = new RelayCommand(DeleteSelection, CanModifyGraph);
+		UndoCommand = new RelayCommand(UndoGraphEdit, () => CanModifyGraph() && _editHistory.CanUndo);
+		RedoCommand = new RelayCommand(RedoGraphEdit, () => CanModifyGraph() && _editHistory.CanRedo);
 		ToggleLeftPanelCommand = new RelayCommand(() => IsLeftCollapsed = !IsLeftCollapsed);
 		ToggleRightPanelCommand = new RelayCommand(() => IsRightCollapsed = !IsRightCollapsed);
 
-		NewScriptCommand = new RelayCommand(CreateBlankScript);
-		LoadScriptCommand = new AsyncRelayCommand(LoadScriptAsync);
-		SaveScriptCommand = new AsyncRelayCommand(SaveScriptAsync);
-		ExportScriptCommand = new AsyncRelayCommand(ExportScriptAsync);
-		LoadTemplateCommand = new RelayCommand(LoadTemplate);
+		NewScriptCommand = new RelayCommand(CreateBlankScript, CanModifyGraph);
+		LoadScriptCommand = new AsyncRelayCommand(LoadScriptAsync, CanModifyGraph);
+		SaveScriptCommand = new AsyncRelayCommand(SaveScriptAsync, CanModifyGraph);
+		ExportScriptCommand = new AsyncRelayCommand(ExportScriptAsync, CanModifyGraph);
+		LoadTemplateCommand = new RelayCommand(LoadTemplate, CanModifyGraph);
 
-		StartCommand = new AsyncRelayCommand(async () => await StartRunAsync(_isLooping));
-		StepCommand = new AsyncRelayCommand(async () => await StartRunAsync(false));
-		StopCommand = new RelayCommand(StopRun, () => IsRunning);
+		StartCommand = new AsyncRelayCommand(async () => await StartRunAsync(_isLooping), CanModifyGraph);
+		StepCommand = new AsyncRelayCommand(async () => await StartRunAsync(false), CanModifyGraph);
+		StopCommand = new RelayCommand(StopRun, () => !IsReadOnly && IsRunning);
 		ExplainGraphCommand = new RelayCommand(ExplainGraph);
 		ClearRunLogCommand = new RelayCommand(() => RunLog.Clear());
 		SelectValidationIssueCommand = new RelayCommand<ValidationIssue?>(SelectValidationIssue);
@@ -166,7 +168,7 @@ public partial class NodeEditorViewModel : ObservableObject, IDisposable
 		RemoveListItemCommand = new RelayCommand<(NodeParamBinding binding, string value)?>(RemoveListEntry);
 		CloseNodeInfoCommand = new RelayCommand(() => IsNodeInfoOpen = false);
 		ShowDefinitionInfoCommand = new RelayCommand<NodeDefinition?>(ShowDefinitionInfo);
-		CaptureFromGameCommand = new RelayCommand(CaptureFromGame, () => CanCaptureSelectedNode);
+		CaptureFromGameCommand = new RelayCommand(CaptureFromGame, () => CanModifyGraph() && CanCaptureSelectedNode);
 		_editHistory.Changed += (_, _) =>
 		{
 			OnPropertyChanged(nameof(CanUndo));
@@ -194,7 +196,6 @@ public partial class NodeEditorViewModel : ObservableObject, IDisposable
 		_editHistory.Clear();
 		RefreshSignals();
 		Dashboard.Refresh();
-		Dashboard.BeginGameRefresh();
 
 		// Seed initial panel collapse state from the persisted startup preferences.
 		if (Services.EditorPreferences.StartLeftCollapsed)
@@ -205,6 +206,53 @@ public partial class NodeEditorViewModel : ObservableObject, IDisposable
 
 	/// <summary>Session dashboard (clocks, XP/item trackers) for this canvas.</summary>
 	public DashboardViewModel Dashboard { get; }
+
+	/// <summary>True when this canvas mirrors a remote session and must not change its local graph copy.</summary>
+	public bool IsReadOnly
+	{
+		get => _isReadOnly;
+		private set
+		{
+			if (_isReadOnly == value)
+				return;
+
+			_isReadOnly = value;
+			OnPropertyChanged();
+			OnPropertyChanged(nameof(IsEditorEnabled));
+			NotifyEditCommandStateChanged();
+		}
+	}
+
+	/// <summary>Inverse read-only flag for the editor surface's enabled state.</summary>
+	public bool IsEditorEnabled => !IsReadOnly;
+
+	public string? ReadOnlyReason
+	{
+		get => _readOnlyReason;
+		private set => SetProperty(ref _readOnlyReason, value);
+	}
+
+	/// <summary>Sets observer mode and prevents local editing/runs from diverging from the remote agent.</summary>
+	public void SetReadOnly(bool readOnly, string? reason = null)
+	{
+		if (readOnly)
+		{
+			StopRun();
+			ReadOnlyReason = string.IsNullOrWhiteSpace(reason) ? "Remote observer" : reason;
+			SetDashboardRefreshActive(false);
+			Status = ReadOnlyReason;
+		}
+		else
+		{
+			ReadOnlyReason = null;
+		}
+
+		IsReadOnly = readOnly;
+	}
+
+	/// <summary>Called by the workspace when this local canvas becomes active or inactive.</summary>
+	public void SetDashboardRefreshActive(bool active)
+		=> Dashboard.SetRefreshActive(active && !IsReadOnly);
 
 	/// <summary>Title of the node the engine is currently executing, for dashboard display.</summary>
 	internal string? CurrentRunNodeTitle => _currentRunNode?.Title;
@@ -308,7 +356,7 @@ public partial class NodeEditorViewModel : ObservableObject, IDisposable
 		set
 		{
 			_selectedNodeDefinition = value;
-			if (SelectedNode != null && value != null &&
+			if (!IsReadOnly && SelectedNode != null && value != null &&
 			    !string.Equals(SelectedNode.DefinitionId, value.Id, StringComparison.OrdinalIgnoreCase))
 			{
 				ApplyDefinitionToNode(SelectedNode, value);
@@ -727,8 +775,35 @@ public partial class NodeEditorViewModel : ObservableObject, IDisposable
 	public IRelayCommand<NodeDefinition?> ShowDefinitionInfoCommand { get; }
 	public IRelayCommand CaptureFromGameCommand { get; }
 
+	private bool CanModifyGraph() => !IsReadOnly;
+
+	private void NotifyEditCommandStateChanged()
+	{
+		AddNodeCommand.NotifyCanExecuteChanged();
+		CreateNodeFromDefinitionCommand.NotifyCanExecuteChanged();
+		RemoveNodeCommand.NotifyCanExecuteChanged();
+		AddTransitionCommand.NotifyCanExecuteChanged();
+		RemoveTransitionCommand.NotifyCanExecuteChanged();
+		MoveTransitionUpCommand.NotifyCanExecuteChanged();
+		MoveTransitionDownCommand.NotifyCanExecuteChanged();
+		SetAsStartCommand.NotifyCanExecuteChanged();
+		DeleteSelectedCommand.NotifyCanExecuteChanged();
+		UndoCommand.NotifyCanExecuteChanged();
+		RedoCommand.NotifyCanExecuteChanged();
+		NewScriptCommand.NotifyCanExecuteChanged();
+		LoadScriptCommand.NotifyCanExecuteChanged();
+		SaveScriptCommand.NotifyCanExecuteChanged();
+		ExportScriptCommand.NotifyCanExecuteChanged();
+		LoadTemplateCommand.NotifyCanExecuteChanged();
+		StartCommand.NotifyCanExecuteChanged();
+		StepCommand.NotifyCanExecuteChanged();
+		StopCommand.NotifyCanExecuteChanged();
+		CaptureFromGameCommand.NotifyCanExecuteChanged();
+	}
+
 	public void Dispose()
 	{
+		DisposeRuntimeUiQueue();
 		try { DoActionDebugSignals.StopNativePump(); } catch { /* no session */ }
 		Dashboard.Dispose();
 		_propertyEditTimer?.Stop();

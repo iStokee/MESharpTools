@@ -175,10 +175,14 @@ public partial class NodeEditorViewModel
 		if (e.PropertyName == nameof(TransitionModel.IsActive))
 			return;
 
-		RefreshSignals();
-		// Retargeting (or reordering) changes which nodes an edge spans; rebuild the layer.
-		RebuildEdges();
-		Dashboard.Refresh();
+		if (e.PropertyName == nameof(TransitionModel.ConditionKey))
+			RefreshSignals();
+
+		// Only endpoint changes alter connector geometry. Labels, trigger state, and condition values
+		// stay on the existing EdgeViewModel, so typing in the inspector no longer recreates every path.
+		if (e.PropertyName is nameof(TransitionModel.ToNodeId) or nameof(TransitionModel.FromNodeId))
+			RebuildEdges();
+
 		NotePropertyEdit();
 	}
 
@@ -211,8 +215,18 @@ public partial class NodeEditorViewModel
 		if (string.Equals(e.PropertyName, nameof(NodeParameterValue.RawValue), StringComparison.OrdinalIgnoreCase) ||
 		    string.Equals(e.PropertyName, nameof(NodeParameterValue.BoolValue), StringComparison.OrdinalIgnoreCase))
 		{
-			RefreshSignals();
-			Dashboard.Refresh();
+			if (sender is NodeParameterValue parameter &&
+			    string.Equals(parameter.Key, "signal", StringComparison.OrdinalIgnoreCase))
+			{
+				RefreshSignals();
+			}
+
+			if (sender is NodeParameterValue dashboardParameter &&
+			    string.Equals(dashboardParameter.Key, "showOnlyActiveXp", StringComparison.OrdinalIgnoreCase))
+			{
+				Dashboard.Refresh();
+			}
+
 			NotePropertyEdit();
 		}
 	}

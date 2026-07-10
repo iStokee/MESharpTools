@@ -87,14 +87,14 @@ public class NodeExecutorRegistry
 		// Inventory / equipment / bank
 		Register("inventory.contains", new InventoryContainsExecutor());
 		Register("inventory.count", new InventoryCountExecutor());
-			Register("inventory.drop", new InventoryItemsActionExecutor("drop", paceMs: 600));
-			Register("inventory.eat", new InventoryItemsActionExecutor("eat", paceMs: 1800));
-			Register("inventory.equip", new InventoryEquipExecutor());
-			Register("inventory.use", new InventoryUseExecutor());
-			Register("inventory.action", new InventoryMenuActionExecutor());
-			Register("inventory.useOn", new InventoryUseOnExecutor());
-			Register("inventory.note", new InventoryItemsActionExecutor("note", paceMs: 900));
-			Register("inventory.alchAll", new InventoryAlchAllExecutor());
+		Register("inventory.drop", new InventoryItemsActionExecutor("drop", paceMs: 600));
+		Register("inventory.eat", new InventoryItemsActionExecutor("eat", paceMs: 1800));
+		Register("inventory.equip", new InventoryEquipExecutor());
+		Register("inventory.use", new InventoryUseExecutor());
+		Register("inventory.action", new InventoryMenuActionExecutor());
+		Register("inventory.useOn", new InventoryUseOnExecutor());
+		Register("inventory.note", new InventoryItemsActionExecutor("note", paceMs: 900));
+		Register("inventory.alchAll", new InventoryAlchAllExecutor());
 		Register("equipment.contains", new EquipmentContainsExecutor());
 		Register("equipment.unequip", new EquipmentUnequipExecutor());
 		Register("bank.open", new BankOpenExecutor());
@@ -123,18 +123,18 @@ public class NodeExecutorRegistry
 		Register("loot.pickup", new LootPickupExecutor());
 
 		// Conditions / skills
-			Register("conditions.locationRadius", new LocationRadiusExecutor());
-			Register("conditions.healthPercent", new PercentResourceExecutor("health", () => LocalPlayer.GetHealthPercent()));
-			Register("conditions.prayerPercent", new PercentResourceExecutor("prayer", () => LocalPlayer.GetPrayerPercent()));
-			Register("conditions.cooldown", new CooldownExecutor());
-			Register("conditions.inCombat", new InCombatExecutor());
+		Register("conditions.locationRadius", new LocationRadiusExecutor());
+		Register("conditions.healthPercent", new PercentResourceExecutor("health", () => LocalPlayer.GetHealthPercent()));
+		Register("conditions.prayerPercent", new PercentResourceExecutor("prayer", () => LocalPlayer.GetPrayerPercent()));
+		Register("conditions.cooldown", new CooldownExecutor());
+		Register("conditions.inCombat", new InCombatExecutor());
 		Register("conditions.inventoryFull", new InventoryFullExecutor());
 		Register("skills.requireLevel", new SkillRequirementExecutor());
 		Register("combat.quickHeal", new QuickHealExecutor());
-			Register("combat.quickPrayer", new QuickPrayerExecutor());
-			Register("familiar.check", new FamiliarCheckExecutor());
-			Register("familiar.action", new FamiliarActionExecutor());
-			Register("familiar.summon", new FamiliarSummonExecutor());
+		Register("combat.quickPrayer", new QuickPrayerExecutor());
+		Register("familiar.check", new FamiliarCheckExecutor());
+		Register("familiar.action", new FamiliarActionExecutor());
+		Register("familiar.summon", new FamiliarSummonExecutor());
 
 		// Trade
 		Register("trade.accept", new NotImplementedExecutor("Trade accept"));

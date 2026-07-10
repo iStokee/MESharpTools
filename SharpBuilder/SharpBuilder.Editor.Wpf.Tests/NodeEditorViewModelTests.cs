@@ -59,6 +59,25 @@ public class NodeEditorViewModelTests
 	}
 
 	[Fact]
+	public void ReadOnlyMode_DisablesGraphMutatingCommandsAndKeepsTheGraphIntact()
+	{
+		using var vm = CreateViewModel();
+		var count = vm.Script.Nodes.Count;
+		var definition = vm.Definitions.Single(d => d.Id == "traversal.wait");
+
+		vm.SetReadOnly(true, "Observing session 42 — read-only");
+
+		Assert.True(vm.IsReadOnly);
+		Assert.False(vm.IsEditorEnabled);
+		Assert.Equal("Observing session 42 — read-only", vm.Status);
+		Assert.False(vm.CreateNodeFromDefinitionCommand.CanExecute(definition));
+		Assert.False(vm.StartCommand.CanExecute(null));
+
+		vm.CreateNodeFromDefinitionCommand.Execute(definition);
+		Assert.Equal(count, vm.Script.Nodes.Count);
+	}
+
+	[Fact]
 	public void CreateNodeFromDefinition_AddsNodeWithParametersAndSelectsIt()
 	{
 		using var vm = CreateViewModel();
@@ -160,6 +179,17 @@ public class NodeEditorViewModelTests
 		Assert.Same(from, vm.SelectedNode);
 		Assert.Same(transition, vm.SelectedTransition);
 		Assert.Contains("already links", vm.Status);
+	}
+
+	[Fact]
+	public void TransitionMetadataEdit_ReusesExistingEdgeVisual()
+	{
+		using var vm = CreateViewModel();
+		var edge = Assert.Single(vm.Edges, e => e.Transition == vm.Script.Nodes[0].Transitions[0]);
+
+		edge.Transition.Label = "Renamed route";
+
+		Assert.Same(edge, Assert.Single(vm.Edges, e => e.Transition == edge.Transition));
 	}
 
 	[Fact]
@@ -286,6 +316,29 @@ public class NodeEditorViewModelTests
 		Assert.Equal(firstOriginal.Y, restoredFirst.Y);
 		Assert.Equal(secondOriginal.X, restoredSecond.X);
 		Assert.Equal(secondOriginal.Y, restoredSecond.Y);
+	}
+
+	[Fact]
+	public void GraphEditBatch_UndoRedoPreservesDashboardDimensions()
+	{
+		using var vm = CreateViewModel();
+		var node = vm.Script.Nodes[0];
+		var original = (node.DashboardWidth, node.DashboardHeight);
+
+		vm.BeginGraphEditBatch("Resize dashboard");
+		node.DashboardWidth = 760;
+		node.DashboardHeight = 540;
+		vm.CommitGraphEditBatch();
+
+		vm.UndoCommand.Execute(null);
+		var undone = Assert.Single(vm.Script.Nodes, n => n.Id == node.Id);
+		Assert.Equal(original.DashboardWidth, undone.DashboardWidth);
+		Assert.Equal(original.DashboardHeight, undone.DashboardHeight);
+
+		vm.RedoCommand.Execute(null);
+		var redone = Assert.Single(vm.Script.Nodes, n => n.Id == node.Id);
+		Assert.Equal(760, redone.DashboardWidth);
+		Assert.Equal(540, redone.DashboardHeight);
 	}
 
 	[Fact]

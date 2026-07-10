@@ -11,17 +11,11 @@ internal sealed class NpcInteractExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "target");
-		// Keep compatibility with older parameter keys; current native dispatch is exact-name/id based.
-		_ = ParameterHelper.ToBool(context.Parameters, "allowPartial", false) ||
-		    ParameterHelper.ToBool(context.Parameters, "acceptPartial", false);
-
+		var (ids, names) = ParameterHelper.ToTargetListsWithId(context.Parameters, "name", "id");
 		if (ids.Count == 0 && names.Count == 0)
 			return Task.FromResult(NodeExecutionResult.Fail());
 
-		var option = ParameterHelper.ToString(context.Parameters, "option");
-		var actionIndex = ParameterHelper.ToInt(context.Parameters, "actionIndex") ??
-			InteractionActionResolver.ResolveActionIndex(option, InteractionKind.Npc);
+		var actionIndex = ParameterHelper.ToInt(context.Parameters, "actionIndex") ?? 44;
 		var offset = ParameterHelper.ToInt(context.Parameters, "offset") ?? Npcs.InteractNPC_route;
 		var maxDistance = ParameterHelper.ToInt(context.Parameters, "maxDistance") ?? int.MaxValue;
 		var ignoreStar = ParameterHelper.ToBool(context.Parameters, "ignoreStar", false);
@@ -83,10 +77,7 @@ internal sealed class NpcAttackExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "name");
-		var id = ParameterHelper.ToInt(context.Parameters, "id");
-		if (id.HasValue && !ids.Contains(id.Value))
-			ids.Add(id.Value);
+		var (ids, names) = ParameterHelper.ToTargetListsWithId(context.Parameters, "name", "id");
 
 		var actionIndex = ParameterHelper.ToInt(context.Parameters, "actionIndex") ?? Npcs.AttackNpcAction;
 		var offset = ParameterHelper.ToInt(context.Parameters, "offset") ?? Npcs.AttackNPC_route;
@@ -104,10 +95,7 @@ internal sealed class ObjectInteractExecutor : INodeExecutor
 {
 	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "name");
-		var id = ParameterHelper.ToInt(context.Parameters, "id");
-		if (id.HasValue && !ids.Contains(id.Value))
-			ids.Add(id.Value);
+		var (ids, names) = ParameterHelper.ToTargetListsWithId(context.Parameters, "name", "id");
 		var option = ParameterHelper.ToString(context.Parameters, "option");
 		var actionIndex = ParameterHelper.ToInt(context.Parameters, "actionIndex") ??
 			InteractionActionResolver.ResolveActionIndex(option, InteractionKind.Object);

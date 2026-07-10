@@ -26,6 +26,7 @@ internal sealed class SharpBuilderHostWindow : Window
         var scriptService = new GraphScriptService(catalog);
         var executionEngine = new GraphExecutionEngine(catalog, new NodeExecutorRegistry());
         var vm = new NodeEditorViewModel(scriptService, executionEngine, catalog);
+		vm.SetDashboardRefreshActive(true);
 
         // Dispose the view model when the window closes so its dashboard DispatcherTimer is
         // stopped. Otherwise the timer keeps ticking on the shared WPF dispatcher (pinning this

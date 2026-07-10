@@ -16,6 +16,13 @@ namespace SharpBuilder.Editor.Wpf.ViewModels;
 public partial class NodeEditorViewModel
 {
 	private const int MaxRunLogEntries = 500;
+	private const int MaxRuntimeUiActionsPerDispatch = 128;
+	private const int MaxPendingRuntimeUiActions = 1024;
+	private readonly object _runtimeUiQueueSync = new();
+	private readonly Queue<RuntimeUiUpdate> _runtimeUiQueue = new();
+	private bool _runtimeUiDrainScheduled;
+	private bool _runtimeUiQueueDisposed;
+	private bool _runtimeUiUpdatesDropped;
 
 	/// <summary>Bounded, newest-last log of run activity (node results, diagnostics, faults).</summary>
 	public ObservableCollection<RunLogEntry> RunLog { get; } = new();
@@ -36,7 +43,7 @@ public partial class NodeEditorViewModel
 
 	private void OnEngineDiagnostic(string message)
 	{
-		RunOnUi(() => AppendRunLog(RunLogKind.Error, message));
+		QueueRuntimeUi(() => AppendRunLog(RunLogKind.Error, message), critical: true);
 	}
 
 	private void SelectValidationIssue(ValidationIssue? issue)
@@ -51,6 +58,12 @@ public partial class NodeEditorViewModel
 
 	private async Task StartRunAsync(bool loop)
 	{
+		if (IsReadOnly)
+		{
+			Status = ReadOnlyReason ?? "Remote observer is read-only";
+			return;
+		}
+
 		if (IsRunning)
 			return;
 
@@ -170,7 +183,7 @@ public partial class NodeEditorViewModel
 
 	private void OnNodeEntered(object? sender, NodeModel node)
 	{
-		RunOnUi(() =>
+		QueueRuntimeUi(() =>
 		{
 			node = ResolveLiveNode(node) ?? node;
 			if (_currentRunNode != null && !ReferenceEquals(_currentRunNode, node))
@@ -194,7 +207,7 @@ public partial class NodeEditorViewModel
 
 	private void OnNodeCompleted(object? sender, (NodeModel Node, NodeExecutionResult Result) e)
 	{
-		RunOnUi(() =>
+		QueueRuntimeUi(() =>
 		{
 			var node = ResolveLiveNode(e.Node) ?? e.Node;
 			node.LastRunStatus = e.Result.Status == NodeExecutionStatus.Fail
@@ -226,7 +239,7 @@ public partial class NodeEditorViewModel
 
 	private void OnTransitionTaken(object? sender, TransitionModel transition)
 	{
-		RunOnUi(() =>
+		QueueRuntimeUi(() =>
 		{
 			RecordTrailTransition(ResolveLiveTransition(transition) ?? transition);
 		});
@@ -234,27 +247,27 @@ public partial class NodeEditorViewModel
 
 	private void OnEngineCompleted(object? sender, EventArgs e)
 	{
-		RunOnUi(() =>
+		QueueRuntimeUi(() =>
 		{
 			IsRunning = false;
 			Status = "Cycle complete";
 			AppendRunLog(RunLogKind.Info, "Cycle complete.");
 			Dashboard.Refresh();
-		});
+		}, critical: true);
 	}
 
 	private void OnEngineFaulted(object? sender, Exception ex)
 	{
 		// No modal here: a fault mid-run must not steal focus from the game. The run log and
 		// status line carry the details.
-		RunOnUi(() =>
+		QueueRuntimeUi(() =>
 		{
 			IsRunning = false;
 			Status = $"Error: {ex.Message}";
 			AppendRunLog(RunLogKind.Error, $"Engine faulted: {ex.Message}");
 			IsRunLogOpen = true;
 			Dashboard.Refresh();
-		});
+		}, critical: true);
 	}
 
 	/// <summary>
@@ -274,6 +287,103 @@ public partial class NodeEditorViewModel
 			dispatcher.BeginInvoke(action);
 		}
 	}
+
+	/// <summary>
+	/// Batches engine feedback into bounded dispatcher turns. A fast graph now posts at most one
+	/// dispatcher work item at a time instead of one per node/edge event, keeping input responsive.
+	/// </summary>
+	private void QueueRuntimeUi(Action action, bool critical = false)
+	{
+		var dispatcher = Application.Current?.Dispatcher;
+		if (dispatcher == null || dispatcher.CheckAccess())
+		{
+			action();
+			return;
+		}
+
+		var scheduleDrain = false;
+		lock (_runtimeUiQueueSync)
+		{
+			if (_runtimeUiQueueDisposed)
+				return;
+
+			if (_runtimeUiQueue.Count >= MaxPendingRuntimeUiActions)
+			{
+				_runtimeUiUpdatesDropped = true;
+				if (!critical)
+					return;
+
+				// Keep terminal/errors visible even when a zero-dwell graph outruns the UI.
+				_runtimeUiQueue.Dequeue();
+			}
+
+			_runtimeUiQueue.Enqueue(new RuntimeUiUpdate(action));
+			if (!_runtimeUiDrainScheduled)
+			{
+				_runtimeUiDrainScheduled = true;
+				scheduleDrain = true;
+			}
+		}
+
+		if (scheduleDrain)
+			ScheduleRuntimeUiDrain(dispatcher);
+	}
+
+	private void ScheduleRuntimeUiDrain(System.Windows.Threading.Dispatcher dispatcher)
+	{
+		try
+		{
+			dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(DrainRuntimeUiQueue));
+		}
+		catch (InvalidOperationException)
+		{
+			lock (_runtimeUiQueueSync)
+			{
+				_runtimeUiDrainScheduled = false;
+				_runtimeUiQueue.Clear();
+			}
+		}
+	}
+
+	private void DrainRuntimeUiQueue()
+	{
+		var actions = new List<RuntimeUiUpdate>(MaxRuntimeUiActionsPerDispatch);
+		var scheduleNext = false;
+		var droppedUpdates = false;
+		lock (_runtimeUiQueueSync)
+		{
+			while (actions.Count < MaxRuntimeUiActionsPerDispatch && _runtimeUiQueue.Count > 0)
+				actions.Add(_runtimeUiQueue.Dequeue());
+
+			droppedUpdates = _runtimeUiUpdatesDropped;
+			_runtimeUiUpdatesDropped = false;
+
+			if (_runtimeUiQueue.Count == 0)
+				_runtimeUiDrainScheduled = false;
+			else
+				scheduleNext = true;
+		}
+
+		if (droppedUpdates)
+			AppendRunLog(RunLogKind.Info, "UI feedback was coalesced while the graph ran faster than the editor could render.");
+
+		foreach (var update in actions)
+			update.Action();
+
+		if (scheduleNext && Application.Current?.Dispatcher is { } dispatcher)
+			ScheduleRuntimeUiDrain(dispatcher);
+	}
+
+	private void DisposeRuntimeUiQueue()
+	{
+		lock (_runtimeUiQueueSync)
+		{
+			_runtimeUiQueueDisposed = true;
+			_runtimeUiQueue.Clear();
+		}
+	}
+
+	private readonly record struct RuntimeUiUpdate(Action Action);
 
 	private NodeModel? ResolveLiveNode(NodeModel node)
 		=> Script.Nodes.FirstOrDefault(n => n.Id == node.Id);

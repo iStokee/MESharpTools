@@ -65,6 +65,10 @@ internal sealed class InventoryItemsActionExecutor : INodeExecutor, IGameApiSelf
 		_paceMs = paceMs;
 	}
 
+	// Actions that fail to shrink the match count (dropped click, lag) are retried this many times
+	// in a row before the pass gives up — mirrors InventoryAlchAllExecutor.
+	private const int MaxConsecutiveNoProgress = 3;
+
 	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
 		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "items");
@@ -75,6 +79,7 @@ internal sealed class InventoryItemsActionExecutor : INodeExecutor, IGameApiSelf
 		var limit = plan.Limit;
 
 		var performed = 0;
+		var consecutiveNoProgress = 0;
 		while (performed < limit)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
@@ -92,24 +97,39 @@ internal sealed class InventoryItemsActionExecutor : INodeExecutor, IGameApiSelf
 			if (performed >= limit)
 				break;
 
-			await Task.Delay(_paceMs, cancellationToken);
-
-			var after = await GameLane.Run(() => FindMatches(ids, names), cancellationToken);
-			if (TotalAmount(after) >= before)
+			// Wait for the action to actually land instead of only sleeping the pace delay; a lag
+			// spike otherwise reads an unchanged count and used to abort the whole pass.
+			var progressed = await GameLane.PollUntil(
+				() => TotalAmount(FindMatches(ids, names)) < before,
+				Math.Max(_paceMs * 2, 1500),
+				cancellationToken);
+			if (progressed)
+			{
+				consecutiveNoProgress = 0;
+			}
+			else if (++consecutiveNoProgress >= MaxConsecutiveNoProgress)
+			{
+				ExecutorLog.Write("Inventory", context, $"{_verb} made no progress {consecutiveNoProgress} times in a row; leaving pass");
 				break;
+			}
+
+			await Task.Delay(_paceMs, cancellationToken);
 		}
 
 		var remaining = await GameLane.Run(() => FindMatches(ids, names), cancellationToken);
 		var ok = plan.IsSatisfied(performed, remaining.Count == 0);
+		if (ok)
+			return NodeExecutionResult.Success();
 
-		return ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
+		// Retry (engine-bounded) instead of Fail: an unfinished pass is usually transient; genuinely
+		// stuck states still reach the fail edge once the engine's retry cap trips.
+		ExecutorLog.Write("Inventory", context, $"{_verb} pass incomplete (performed={performed} remaining={remaining.Count}); requesting retry");
+		return NodeExecutionResult.Retry();
 	}
 
 	private static List<Inventory.Item> FindMatches(List<int> ids, List<string> names)
 		=> Inventory.GetAll()
-			.Where(i => i.Id > 0 &&
-				(ids.Contains(i.Id) ||
-				 names.Any(n => i.Name?.IndexOf(n, StringComparison.OrdinalIgnoreCase) >= 0)))
+			.Where(i => ExecutorHelpers.MatchesTarget(i, ids, names))
 			.ToList();
 
 	private static ulong TotalAmount(List<Inventory.Item> items)
@@ -158,8 +178,10 @@ internal sealed class InventoryEquipExecutor : INodeExecutor, IGameApiSelfManage
 			if (!await GameLane.Run(() => Inventory.Contains(id), cancellationToken))
 				continue;
 			anyFound = true;
-			allOk &= await GameLane.Run(() => Inventory.Equip(id), cancellationToken);
-			await Task.Delay(600, cancellationToken);
+			// Verify the item is actually worn instead of sleeping blind after the click,
+			// mirroring EquipmentUnequipExecutor's worn-state check.
+			allOk &= await GameLane.Run(() => Inventory.Equip(id), cancellationToken) &&
+				await GameLane.PollUntil(() => Equipment.ContainsById(id), 2000, cancellationToken);
 		}
 
 		foreach (var name in names)
@@ -168,8 +190,8 @@ internal sealed class InventoryEquipExecutor : INodeExecutor, IGameApiSelfManage
 			if (!await GameLane.Run(() => Inventory.Contains(name), cancellationToken))
 				continue;
 			anyFound = true;
-			allOk &= await GameLane.Run(() => Inventory.Equip(name), cancellationToken);
-			await Task.Delay(600, cancellationToken);
+			allOk &= await GameLane.Run(() => Inventory.Equip(name), cancellationToken) &&
+				await GameLane.PollUntil(() => Equipment.ContainsByName(name), 2000, cancellationToken);
 		}
 
 		return anyFound && allOk ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
@@ -264,31 +286,69 @@ internal sealed class InventoryUseOnExecutor : INodeExecutor
 	}
 }
 
-internal sealed class BankOpenExecutor : INodeExecutor
+// Self-managed: the open click and the interface-open poll are gated per call so the dashboard
+// keeps reading while the player walks to the booth.
+internal sealed class BankOpenExecutor : INodeExecutor, IGameApiSelfManaged
 {
-	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
+	// Covers walking to the nearest booth/chest plus the interface-open tick.
+	private const int OpenTimeoutMs = 8000;
+
+	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
-		var success = Bank.IsOpen || Bank.Open();
-		return Task.FromResult(success ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
+		if (await GameLane.Run(() => Bank.IsOpen, cancellationToken))
+			return NodeExecutionResult.Success();
+
+		var clicked = await GameLane.Run(() => Bank.Open(), cancellationToken);
+		var open = clicked && await GameLane.PollUntil(() => Bank.IsOpen, OpenTimeoutMs, cancellationToken);
+		if (open)
+			return NodeExecutionResult.Success();
+
+		// Retry (engine-bounded) instead of Fail: a click dropped mid-animation or a slow walk is
+		// transient, and this node's edge is typically an ungated fallback that would otherwise
+		// march into deposit/preset with the bank closed.
+		ExecutorLog.Write("Bank", context, $"bank not open (clicked={clicked}, waited {OpenTimeoutMs}ms); requesting retry");
+		return NodeExecutionResult.Retry();
 	}
 }
 
-internal sealed class BankDepositAllExecutor : INodeExecutor
+// Self-managed: gates the deposit click and each verification read separately.
+internal sealed class BankDepositAllExecutor : INodeExecutor, IGameApiSelfManaged
 {
-	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
+	private const int EmptyTimeoutMs = 3000;
+	private const int PollMs = 100;
+
+	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
 		var exceptIds = ParameterHelper.ToIntList(context.Parameters, "exceptIds");
 		var exceptNames = ParameterHelper.ToStringList(context.Parameters, "exceptNames");
 
-		bool ok;
-		if (exceptIds.Count > 0)
-			ok = Bank.DepositAllExcept(exceptIds.ToArray());
-		else if (exceptNames.Count > 0)
-			ok = Bank.DepositAllExcept(exceptNames.ToArray());
-		else
-			ok = Bank.DepositAll();
+		if (await GameLane.Run(() => IsEmptyExcept(exceptIds, exceptNames), cancellationToken))
+			return NodeExecutionResult.Success();
 
-		return Task.FromResult(ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail());
+		var clicked = await GameLane.Run(() =>
+		{
+			if (exceptIds.Count > 0)
+				return Bank.DepositAllExcept(exceptIds.ToArray());
+			if (exceptNames.Count > 0)
+				return Bank.DepositAllExcept(exceptNames.ToArray());
+			return Bank.DepositAll();
+		}, cancellationToken);
+
+		var emptied = clicked &&
+			await GameLane.PollUntil(() => IsEmptyExcept(exceptIds, exceptNames), EmptyTimeoutMs, cancellationToken, PollMs);
+		if (emptied)
+			return NodeExecutionResult.Success();
+
+		ExecutorLog.Write("Bank", context, $"inventory not emptied (clicked={clicked}, waited {EmptyTimeoutMs}ms); requesting retry");
+		return NodeExecutionResult.Retry();
+	}
+
+	private static bool IsEmptyExcept(List<int> exceptIds, List<string> exceptNames)
+	{
+		return !Inventory.GetAll().Any(item =>
+			item.Id > 0 &&
+			!exceptIds.Contains(item.Id) &&
+			!exceptNames.Any(n => item.Name?.IndexOf(n, StringComparison.OrdinalIgnoreCase) >= 0));
 	}
 }
 
@@ -315,11 +375,25 @@ internal sealed class BankWithdrawExecutor : INodeExecutor
 // Self-managed: gate the preset action, then wait for the load to settle off the lane.
 internal sealed class BankLoadPresetExecutor : INodeExecutor, IGameApiSelfManaged
 {
+	// How long to wait for the bank interface if the preceding open is still settling.
+	private const int BankOpenGraceMs = 2000;
+	private const int PollMs = 100;
+
 	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
 		var method = (ParameterHelper.ToString(context.Parameters, "method") ?? "Keybind").Trim();
 		var loadLast = ParameterHelper.ToBool(context.Parameters, "loadLast", false);
 		var waitMs = Math.Max(0, ParameterHelper.ToInt(context.Parameters, "waitMs") ?? 1200);
+
+		// Never fire the preset action against a closed bank: the keybind path in particular would
+		// land on the action bar instead. Retry (engine-bounded) so a slow open can catch up.
+		if (!await GameLane.PollUntil(() => Bank.IsOpen, BankOpenGraceMs, cancellationToken, PollMs))
+		{
+			ExecutorLog.Write("Bank", context, "bank not open; refusing to send preset action, requesting retry");
+			return NodeExecutionResult.Retry();
+		}
+
+		var signatureBefore = await GameLane.Run(() => InventorySignature(), cancellationToken);
 
 		bool ok;
 		if (loadLast || method.Equals("LastPreset", StringComparison.OrdinalIgnoreCase))
@@ -341,20 +415,50 @@ internal sealed class BankLoadPresetExecutor : INodeExecutor, IGameApiSelfManage
 		}
 
 		if (ok && waitMs > 0)
-			await Task.Delay(waitMs, cancellationToken);
+		{
+			// Poll for the inventory to actually change instead of sleeping blind, so downstream
+			// supply checks don't read a not-yet-loaded inventory on a slow tick.
+			var changed = await GameLane.PollUntil(() => InventorySignature() != signatureBefore, waitMs, cancellationToken, PollMs);
+			ExecutorLog.Write("Bank", context, $"preset load inventoryChanged={changed} (waited up to {waitMs}ms)");
+		}
 
 		return ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
 	}
-}
 
-internal sealed class BankCloseExecutor : INodeExecutor
-{
-	public Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
+	private static int InventorySignature()
 	{
-		Bank.Close();
-		return Task.FromResult(NodeExecutionResult.Success());
+		var signature = 17;
+		foreach (var item in Inventory.GetAll())
+		{
+			if (item.Id <= 0)
+				continue;
+			signature = unchecked(signature * 31 + item.Id);
+			signature = unchecked(signature * 31 + (int)item.Amount);
+		}
+		return signature;
 	}
 }
+
+// Self-managed: gates the close click and each open-state read separately.
+internal sealed class BankCloseExecutor : INodeExecutor, IGameApiSelfManaged
+{
+	private const int CloseTimeoutMs = 2000;
+	private const int PollMs = 100;
+
+	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
+	{
+		if (!await GameLane.Run(() => Bank.IsOpen, cancellationToken))
+			return NodeExecutionResult.Success();
+
+		await GameLane.Run(() => Bank.Close(), cancellationToken);
+		if (await GameLane.PollUntil(() => !Bank.IsOpen, CloseTimeoutMs, cancellationToken, PollMs))
+			return NodeExecutionResult.Success();
+
+		ExecutorLog.Write("Bank", context, $"bank still open after close click (waited {CloseTimeoutMs}ms); requesting retry");
+		return NodeExecutionResult.Retry();
+	}
+}
+
 
 internal sealed class LootPickupExecutor : INodeExecutor
 {
@@ -392,29 +496,66 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 	// Treat any non-positive value as idle so animation start/end detection is build-agnostic.
 	private static bool IsIdle(int animation) => animation <= 0;
 
+	// Casts that fail to shrink the match count (swallowed keybind, misclick, lag) are retried up
+	// to this many times in a row before the node gives up.
+	private const int MaxConsecutiveFailedCasts = 3;
+
+	// How long the first iteration waits for matches to show up before concluding the inventory is
+	// really empty; freshly crafted items can lag a tick or two behind the make-x completion signal.
+	private const int EntryGraceMs = 2000;
+
+	// Cap on waiting for the player to go idle before pressing the alch keybind; a prior craft/alch
+	// animation still playing gets ability presses swallowed by the game.
+	private const int IdleBeforeCastMs = 4000;
+
 	public async Task<NodeExecutionResult> ExecuteAsync(NodeExecutionContext context, CancellationToken cancellationToken)
 	{
 		var (ids, names) = ParameterHelper.ToTargetLists(context.Parameters, "items");
 		if (ids.Count == 0 && names.Count == 0)
+		{
+			ExecutorLog.Write("Alch", context, "fail: no item ids/names configured");
 			return NodeExecutionResult.Fail();
+		}
 
 		var keybind = ParameterHelper.ToString(context.Parameters, "keybind");
 		if (!KeyboardTokenResolver.TryResolve(keybind, out var key))
+		{
+			ExecutorLog.Write("Alch", context, $"fail: unresolvable keybind \"{keybind ?? string.Empty}\"");
 			return NodeExecutionResult.Fail();
+		}
 
 		var options = AlchOptions.Parse(context.Parameters);
 
 		var casts = 0;
+		var consecutiveFailedCasts = 0;
+		var firstIteration = true;
 		while (casts < options.Plan.Limit)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 
 			var before = await GameLane.Run(() => CountMatches(ids, names, options.RequireAlchable), cancellationToken);
+			if (before == 0 && firstIteration)
+			{
+				// Grace poll: crafted items may not be visible in inventory yet.
+				await GameLane.PollUntil(() => CountMatches(ids, names, options.RequireAlchable) > 0, EntryGraceMs, cancellationToken, PollMs);
+				before = await GameLane.Run(() => CountMatches(ids, names, options.RequireAlchable), cancellationToken);
+				ExecutorLog.Write("Alch", context, $"entry grace poll finished count={before}");
+			}
+			firstIteration = false;
 			if (before == 0)
+			{
+				ExecutorLog.Write("Alch", context, "no matching items remain; leaving cast loop");
 				break;
+			}
+
+			var idle = await GameLane.PollUntil(() => IsIdle(LocalPlayer.GetAnimation()), IdleBeforeCastMs, cancellationToken, PollMs);
+			ExecutorLog.Write("Alch", context, $"cast #{casts + 1}: before={before} playerIdle={idle}");
 
 			if (!await GameLane.Run(() => KeyboardTokenResolver.Press(key), cancellationToken))
+			{
+				ExecutorLog.Write("Alch", context, "break: keybind press failed");
 				break;
+			}
 
 			var targetClickedAt = Environment.TickCount64;
 			if (options.ClickInventoryTarget)
@@ -424,9 +565,15 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 
 				var target = await GameLane.Run(() => FindFirstMatch(ids, names, options.RequireAlchable), cancellationToken);
 				if (target == null)
+				{
+					ExecutorLog.Write("Alch", context, "break: no clickable target found after keybind");
 					break;
+				}
 				if (!await GameLane.Run(() => ClickAlchTarget(target, options.InventoryRoot, options.ItemAction, options.ItemOffset), cancellationToken))
+				{
+					ExecutorLog.Write("Alch", context, $"break: target click failed id={target.Id} slot={target.Slot}");
 					break;
+				}
 
 				targetClickedAt = Environment.TickCount64;
 			}
@@ -441,6 +588,7 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 					await WaitForAnimationEnd(options.FinishTimeoutMs, cancellationToken);
 				else
 					await Task.Delay(Math.Min(options.FinishTimeoutMs, 1200), cancellationToken);
+				ExecutorLog.Write("Alch", context, $"cast #{casts + 1}: itemDisappeared=false animationStarted={animated}");
 			}
 
 			casts++;
@@ -455,7 +603,19 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 
 			var after = await GameLane.Run(() => CountMatches(ids, names, options.RequireAlchable), cancellationToken);
 			if (after >= before)
-				break;
+			{
+				consecutiveFailedCasts++;
+				ExecutorLog.Write("Alch", context, $"cast #{casts} did not reduce count (before={before} after={after}); consecutive failures={consecutiveFailedCasts}/{MaxConsecutiveFailedCasts}");
+				if (consecutiveFailedCasts >= MaxConsecutiveFailedCasts)
+				{
+					ExecutorLog.Write("Alch", context, "break: too many consecutive failed casts");
+					break;
+				}
+			}
+			else
+			{
+				consecutiveFailedCasts = 0;
+			}
 
 			if (options.BetweenCastsMs > 0)
 				await Task.Delay(options.BetweenCastsMs, cancellationToken);
@@ -463,8 +623,14 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 
 		var remaining = await GameLane.Run(() => CountMatches(ids, names, options.RequireAlchable), cancellationToken);
 		var ok = options.Plan.IsSatisfied(casts, remaining == 0);
+		ExecutorLog.Write("Alch", context, $"done casts={casts} remaining={remaining} ok={ok}");
+		if (ok)
+			return NodeExecutionResult.Success();
 
-		return ok ? NodeExecutionResult.Success() : NodeExecutionResult.Fail();
+		// Retry (engine-bounded) instead of Fail: an exit with items left is usually transient
+		// (swallowed keybind, lag spike). Genuinely stuck states (e.g. out of nature runes) still
+		// reach the fail edge once the engine's retry cap degrades this to a failure.
+		return NodeExecutionResult.Retry();
 	}
 
 	/// <summary>All tunables for the alch loop, parsed once so the loop body reads clean.</summary>
@@ -510,22 +676,14 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 	private static ulong CountMatches(List<int> ids, List<string> names, bool requireAlchable)
 	{
 		return Inventory.GetAll()
-			.Where(item => item.Id > 0)
-			.Where(item => !requireAlchable || item.IsAlchable)
-			.Where(item =>
-				ids.Contains(item.Id) ||
-				names.Any(name => item.Name?.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0))
+			.Where(item => (!requireAlchable || item.IsAlchable) && ExecutorHelpers.MatchesTarget(item, ids, names))
 			.Aggregate(0UL, (sum, item) => sum + Math.Max(1UL, item.Amount));
 	}
 
 	private static Inventory.Item? FindFirstMatch(List<int> ids, List<string> names, bool requireAlchable)
 	{
 		return Inventory.GetAll()
-			.Where(item => item.Id > 0)
-			.Where(item => !requireAlchable || item.IsAlchable)
-			.FirstOrDefault(item =>
-				ids.Contains(item.Id) ||
-				names.Any(name => item.Name?.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0));
+			.FirstOrDefault(item => (!requireAlchable || item.IsAlchable) && ExecutorHelpers.MatchesTarget(item, ids, names));
 	}
 
 	private static bool ClickAlchTarget(Inventory.Item item, int configuredRoot, int itemAction, int itemOffset)
@@ -575,3 +733,4 @@ internal sealed class InventoryAlchAllExecutor : INodeExecutor, IGameApiSelfMana
 	private static Task WaitForAnimationEnd(int timeoutMs, CancellationToken cancellationToken)
 		=> GameLane.PollUntil(() => IsIdle(LocalPlayer.GetAnimation()), timeoutMs, cancellationToken, PollMs);
 }
+

@@ -107,6 +107,8 @@ public class TransitionModel : ObservableObject
 		set => SetProperty(ref _isFallback, value);
 	}
 
+	/// <summary>Canvas run-trail state; never part of the saved graph document.</summary>
+	[JsonIgnore]
 	public bool IsActive
 	{
 		get => _isActive;
@@ -223,6 +225,8 @@ public class NodeModel : ObservableObject
 		set => SetProperty(ref _actionText, value ?? string.Empty);
 	}
 
+	/// <summary>Canvas run-trail state; never part of the saved graph document.</summary>
+	[JsonIgnore]
 	public bool IsActive
 	{
 		get => _isActive;
@@ -249,6 +253,8 @@ public class NodeModel : ObservableObject
 		set => SetProperty(ref _lastRunStatus, value);
 	}
 
+	/// <summary>Editor-only selection state; never part of the saved graph document.</summary>
+	[JsonIgnore]
 	public bool IsSelected
 	{
 		get => _isSelected;

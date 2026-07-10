@@ -306,7 +306,7 @@
                     DockPanel.Dock="Bottom"
                     FontSize="10"
                     Foreground="{DynamicResource App.MutedBrush}"
-                    Text="The map is the primary authoring surface; Routes and Graph Data are the table/detail editors."
+                    Text="Use Routes for manual draft edits; use Graph Data Recorder for a captured trail, then link it with an edge."
                     TextWrapping="Wrap" />
             </DockPanel>
         </Border>

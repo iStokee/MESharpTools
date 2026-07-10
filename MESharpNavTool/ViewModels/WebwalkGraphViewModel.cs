@@ -306,9 +306,11 @@ namespace MESharp.ViewModels
 
         private void StartRecording()
         {
+            // A new recording must be an independent trail. Retaining samples from the
+            // previous session causes segmentation to invent a teleport between sessions.
+            ResetRecordingSession();
             _lastRecordedPoint = null;
             _recordStartUtc = DateTime.UtcNow;
-            _recordedObstacles.Clear();
             // Click-awareness: the pump drains the native DoAction hook with real
             // timestamps + player tiles, so doors/shortcuts/stairs clicked while
             // recording become transition/obstacle candidates instead of invisible.
@@ -347,13 +349,18 @@ namespace MESharp.ViewModels
 
         private void ClearRecording()
         {
+            ResetRecordingSession();
+            AddLog("Recording cleared.");
+        }
+
+        private void ResetRecordingSession()
+        {
             _recordedSamples.Clear();
             _rawSamples.Clear();
             _recordedObstacles.Clear();
             RecordedTiles.Clear();
             _lastRecordedPoint = null;
             UpdateRecordingSummary();
-            AddLog("Recording cleared.");
         }
 
         private void RecordTick()

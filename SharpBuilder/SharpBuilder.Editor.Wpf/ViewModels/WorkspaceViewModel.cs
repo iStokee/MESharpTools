@@ -82,7 +82,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
 		set
 		{
 			if (ReferenceEquals(_activeCanvas, value)) return;
+			if (_activeCanvas != null)
+				_activeCanvas.Editor.SetDashboardRefreshActive(false);
 			_activeCanvas = value;
+			if (_activeCanvas != null && !_activeCanvas.IsRemote)
+				_activeCanvas.Editor.SetDashboardRefreshActive(true);
 			OnPropertyChanged();
 			OnPropertyChanged(nameof(HasActiveCanvas));
 			CloseCanvasCommand.NotifyCanExecuteChanged();

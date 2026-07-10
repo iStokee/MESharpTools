@@ -55,6 +55,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
                 <!-- Running pulse -->
@@ -69,7 +70,13 @@
                 <TextBlock Grid.Column="2" Text=" •" VerticalAlignment="Center" Foreground="#FFFFC857"
                            FontWeight="Bold" Visibility="Collapsed" x:Name="DirtyDot" />
 
-                <Button Grid.Column="3" Width="18" Height="18" Margin="8,0,0,0" Padding="0"
+                <Border Grid.Column="3" Margin="7,0,0,0" Padding="5,1" CornerRadius="4"
+                        Background="#334AB6FF" Visibility="Collapsed" x:Name="RemoteBadge"
+                        ToolTip="This canvas mirrors a remote session. Edit and run commands are disabled to avoid diverging from the agent's graph.">
+                    <TextBlock Text="REMOTE" FontSize="9" FontWeight="Bold" Foreground="#FFE6F4FF" />
+                </Border>
+
+                <Button Grid.Column="4" Width="18" Height="18" Margin="8,0,0,0" Padding="0"
                         VerticalAlignment="Center" Cursor="Hand"
                         Background="Transparent" BorderThickness="0" Foreground="#FFB7C0CE"
                         ToolTip="Close canvas"
@@ -97,6 +104,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsDirty}" Value="True">
                     <Setter TargetName="DirtyDot" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsRemote}" Value="True">
+                    <Setter TargetName="RemoteBadge" Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>

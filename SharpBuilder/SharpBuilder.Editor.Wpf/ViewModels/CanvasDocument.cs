@@ -93,7 +93,19 @@ public sealed class CanvasDocument : INotifyPropertyChanged, IDisposable
 	/// When this canvas observes a remote session, the attachment (agent client + event wiring)
 	/// lives here so closing the tab tears the connection down. Null for ordinary canvases.
 	/// </summary>
-	public IDisposable? RemoteAttachment { get; set; }
+	public IDisposable? RemoteAttachment
+	{
+		get => _remoteAttachment;
+		set
+		{
+			if (ReferenceEquals(_remoteAttachment, value))
+				return;
+
+			_remoteAttachment = value;
+			PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRemote)));
+		}
+	}
+	private IDisposable? _remoteAttachment;
 
 	/// <summary>True when this canvas mirrors a remote session's run rather than a local one.</summary>
 	public bool IsRemote => RemoteAttachment != null;

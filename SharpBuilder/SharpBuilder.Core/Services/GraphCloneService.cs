@@ -34,6 +34,8 @@ public static class GraphCloneService
 			Type = node.Type,
 			X = node.X,
 			Y = node.Y,
+			DashboardWidth = node.DashboardWidth,
+			DashboardHeight = node.DashboardHeight,
 			DwellMilliseconds = node.DwellMilliseconds,
 			ActionText = node.ActionText,
 			IsActive = node.IsActive,

@@ -201,7 +201,7 @@
                         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Margin="4">
                                 <TextBlock Style="{StaticResource HintText}" Margin="0,0,0,8"
-                                           Text="Walk in-game while the recorder samples your trail, then save it as a route — optionally wired straight into an edge between the From/To nodes set in the Edge tab." />
+                                           Text="Use this for captured trails: each new recording starts clean, can be segmented at teleports/dwells, then saved as routes and linked between nodes in the Edge tab. Use Routes for manual waypoint edits." />
 
                                 <Grid Margin="0,0,0,4">
                                     <Grid.ColumnDefinitions>

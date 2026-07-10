@@ -34,7 +34,7 @@ namespace MESharp.ViewModels
     /// <see cref="CollisionDeriver"/> / <see cref="ObstacleDeriver"/> in-process on a background
     /// thread — no external exe or SDK needed — then refreshes the live consumers.
     /// </summary>
-    public sealed class NavHealthViewModel : BaseViewModel, IActivatableViewModel
+    public sealed class NavHealthViewModel : BaseViewModel, IActivatableViewModel, IDisposable
     {
         private string _dumpDirectory;
         private string _dumpCommand = "";
@@ -44,6 +44,7 @@ namespace MESharp.ViewModels
         private string _busyOperation = "";
         private string _log = "";
         private CancellationTokenSource? _busyCts;
+        private bool _disposed;
 
         public ObservableCollection<HealthIndicator> Indicators { get; } = new();
 
@@ -150,7 +151,10 @@ namespace MESharp.ViewModels
         public ICommand ReloadCatalogCommand { get; }
         public ICommand ReloadGraphCommand { get; }
 
-        public void OnActivated() => Refresh();
+        public void OnActivated()
+        {
+            if (!_disposed) Refresh();
+        }
         public void OnDeactivated() { }
 
         // ── health snapshot ───────────────────────────────────────────────────────
@@ -162,6 +166,7 @@ namespace MESharp.ViewModels
 
         public void Refresh()
         {
+            if (_disposed) return;
             Indicators.Clear();
 
             // Collision grids
@@ -440,20 +445,20 @@ namespace MESharp.ViewModels
         /// </summary>
         private void RunBackground(string operation, Func<Action<string>, CancellationToken, string> work)
         {
-            if (IsBusy) return;
+            if (_disposed || IsBusy) return;
             IsBusy = true;
             BusyOperation = operation + "…";
             Append($"▶ {operation} (dump: {DumpDirectory})");
 
-            _busyCts?.Dispose();
-            _busyCts = new CancellationTokenSource();
-            var ct = _busyCts.Token;
+            var operationCts = new CancellationTokenSource();
+            _busyCts = operationCts;
+            var ct = operationCts.Token;
 
             var dispatcher = Application.Current?.Dispatcher;
             void Log(string line)
             {
-                if (dispatcher != null) dispatcher.BeginInvoke(() => Append(line));
-                else Append(line);
+                if (dispatcher != null) dispatcher.BeginInvoke(() => { if (!_disposed) Append(line); });
+                else if (!_disposed) Append(line);
             }
 
             Task.Run(() =>
@@ -474,6 +479,7 @@ namespace MESharp.ViewModels
 
                 void Done()
                 {
+                    if (_disposed) return;
                     Append(summary);
                     BusyOperation = "";
                     IsBusy = false;
@@ -481,7 +487,24 @@ namespace MESharp.ViewModels
                 }
                 if (dispatcher != null) dispatcher.BeginInvoke(Done);
                 else Done();
+
+                if (ReferenceEquals(_busyCts, operationCts))
+                {
+                    // The UI never starts a second operation while busy. Clear the
+                    // completed source so a hot-reload doesn't retain its wait handle.
+                    _busyCts = null;
+                }
+                operationCts.Dispose();
             });
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try { _busyCts?.Cancel(); } catch { }
+            // Do not dispose here: the worker may still be observing this token. Its
+            // completion path owns disposal once the operation has unwound.
         }
 
         // ── helpers ────────────────────────────────────────────────────────────────

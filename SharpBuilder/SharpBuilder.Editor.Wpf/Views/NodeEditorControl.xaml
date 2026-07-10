@@ -13,6 +13,7 @@
     xmlns:viewModels="clr-namespace:SharpBuilder.Editor.Wpf.ViewModels"
     xmlns:views="clr-namespace:SharpBuilder.Editor.Wpf.Views"
     x:Name="Root"
+    IsEnabled="{Binding IsEditorEnabled}"
     d:DataContext="{d:DesignInstance viewModels:NodeEditorViewModel,
                                      IsDesignTimeCreatable=True}"
     d:DesignHeight="900"
@@ -579,7 +580,7 @@
                                             VerticalAlignment="Center"
                                             Kind="CursorMove"
                                             Opacity="0.6"
-                                            ToolTip="Hold Space or Middle Mouse to pan the canvas" />
+                                            ToolTip="Canvas shortcuts: Space/Middle Mouse pans; Ctrl+Scroll zooms; drag the canvas to select; Ctrl+drag adds to selection; Shift+drag cuts crossed transitions; drag a port to connect or retarget." />
                                         <Border
                                             Width="1"
                                             Margin="1,2"

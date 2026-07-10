@@ -26,7 +26,7 @@ namespace MESharp.ViewModels
         public string Confidence { get; init; } = string.Empty;
     }
 
-    public sealed class DungeonImportViewModel : BaseViewModel, IActivatableViewModel
+    public sealed class DungeonImportViewModel : BaseViewModel, IActivatableViewModel, IDisposable
     {
         private DungeonMapOption? _selectedDungeon;
         private string _customMapTitle = string.Empty;
@@ -37,6 +37,8 @@ namespace MESharp.ViewModels
         private bool _replaceExactIds = true;
         private bool _replaceMatchingAreas = true;
         private WikiDungeonGraphFragment? _currentFragment;
+        private readonly System.Threading.CancellationTokenSource _shutdownCts = new();
+        private bool _disposed;
 
         public ObservableCollection<DungeonMapOption> DungeonOptions { get; } = new();
         public ObservableCollection<DungeonPreviewDisplay> PreviewItems { get; } = new();
@@ -111,6 +113,7 @@ namespace MESharp.ViewModels
 
         public void OnActivated()
         {
+            if (_disposed) return;
             if (DungeonOptions.Count == 0)
                 Status = "No starter dungeon maps are configured.";
         }
@@ -135,7 +138,7 @@ namespace MESharp.ViewModels
 
         private async Task FetchPreviewAsync()
         {
-            if (IsBusy) return;
+            if (_disposed || IsBusy) return;
             IsBusy = true;
             PreviewItems.Clear();
             _currentFragment = null;
@@ -146,8 +149,11 @@ namespace MESharp.ViewModels
 
             try
             {
-                var fragment = await RuneScapeWikiDungeonImporter.FetchAndBuildFragmentAsync(definition)
+                var fragment = await RuneScapeWikiDungeonImporter.FetchAndBuildFragmentAsync(
+                        definition,
+                        cancellationToken: _shutdownCts.Token)
                     .ConfigureAwait(true);
+                if (_disposed) return;
                 _currentFragment = fragment;
                 Summary = fragment.Summary;
                 foreach (var item in fragment.PreviewItems)
@@ -164,6 +170,11 @@ namespace MESharp.ViewModels
                 Status = $"Preview ready: {fragment.Summary}";
                 Append(Status);
             }
+            catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested)
+            {
+                // Closing the tool cancels the outstanding request without presenting a
+                // misleading failure in a window that no longer exists.
+            }
             catch (Exception ex)
             {
                 Status = $"Preview failed: {ex.Message}";
@@ -172,7 +183,7 @@ namespace MESharp.ViewModels
             }
             finally
             {
-                IsBusy = false;
+                if (!_disposed) IsBusy = false;
             }
         }
 
@@ -222,6 +233,15 @@ namespace MESharp.ViewModels
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher != null) dispatcher.BeginInvoke(CommandManager.InvalidateRequerySuggested);
             else CommandManager.InvalidateRequerySuggested();
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try { _shutdownCts.Cancel(); } catch { }
+            // The active HttpClient request observes this token; do not dispose the
+            // source until that awaited operation has completed.
         }
     }
 }

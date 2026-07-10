@@ -110,6 +110,7 @@ public sealed partial class WorkspaceViewModel
 			return;
 
 		SessionAgentClient? client = null;
+		CanvasDocument? canvas = null;
 		try
 		{
 			client = await SessionAgentClient.ConnectAsync(session.BuilderPipe);
@@ -129,7 +130,8 @@ public sealed partial class WorkspaceViewModel
 				graph = _scriptService.CreateNew($"Session {session.Pid} (no graph loaded)");
 			}
 
-			var canvas = AddCanvas(graph, activate: true);
+			canvas = AddCanvas(graph, activate: false);
+			canvas.Editor.SetReadOnly(true, $"Observing session {session.Pid} — read-only");
 			var observer = new RemoteRunObserver(canvas.Editor.Script);
 			var dispatcher = Application.Current?.Dispatcher;
 			client.EventReceived += evt =>
@@ -142,11 +144,17 @@ public sealed partial class WorkspaceViewModel
 			await client.SubscribeRunAsync();
 
 			canvas.RemoteAttachment = client;
+			ActiveCanvas = canvas;
 			SessionActionStatus = $"Observing session {session.Pid}" + (graphPath != null ? $" — {graph.Name}" : "");
 			client = null; // ownership transferred to the canvas
 		}
 		catch (Exception ex)
 		{
+			if (canvas != null && canvas.RemoteAttachment == null)
+			{
+				canvas.Editor.SetReadOnly(false);
+				canvas.Editor.Status = $"Observe failed: {ex.Message}";
+			}
 			SessionActionStatus = $"Observe failed for {session.Pid}: {ex.Message}";
 		}
 		finally
