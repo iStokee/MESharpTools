@@ -5,6 +5,7 @@
   <Project Path="MESharp.Tooling/MESharp.Tooling.csproj" />
   <Project Path="MESharpApiTool/MESharpApiTool.csproj" />
   <Project Path="MESharpDoActionTool/MESharpDoActionTool.csproj" />
+  <Project Path="MESharpFoundryTool/MESharpFoundryTool.csproj" />
   <Project Path="MESharpKnowledgeTool/MESharpKnowledgeTool.csproj" />
   <Project Path="MESharpMcpTool/MESharpMcpTool.csproj" />
   <Project Path="MESharpNavTool/MESharpNavTool.csproj" />
