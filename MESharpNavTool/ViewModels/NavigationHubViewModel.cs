@@ -54,6 +54,8 @@ namespace MESharp.ViewModels
         private string _playerTileText = "No session";
         private string _collisionText = "Collision: —";
         private string _collisionState = "off"; // ok | warn | off
+        private string _cacheText = "Live cache: —";
+        private string _cacheState = "off";
         private string _nearestNodeText = "Nearest node: —";
         private string _graphStatsText = "Graph: —";
         private bool _isRecordingActive;
@@ -113,6 +115,8 @@ namespace MESharp.ViewModels
         public string PlayerTileText { get => _playerTileText; private set => SetProperty(ref _playerTileText, value); }
         public string CollisionText { get => _collisionText; private set => SetProperty(ref _collisionText, value); }
         public string CollisionState { get => _collisionState; private set => SetProperty(ref _collisionState, value); }
+        public string CacheText { get => _cacheText; private set => SetProperty(ref _cacheText, value); }
+        public string CacheState { get => _cacheState; private set => SetProperty(ref _cacheState, value); }
         public string NearestNodeText { get => _nearestNodeText; private set => SetProperty(ref _nearestNodeText, value); }
         public string GraphStatsText { get => _graphStatsText; private set => SetProperty(ref _graphStatsText, value); }
 
@@ -248,11 +252,27 @@ namespace MESharp.ViewModels
                 PlayerTileText = "No session";
                 CollisionText = "Collision: —";
                 CollisionState = "off";
+                CacheText = "Live cache: —";
+                CacheState = "off";
                 NearestNodeText = "Nearest node: —";
                 return;
             }
 
             PlayerTileText = $"{pos.X}, {pos.Y} · plane {pos.Z}";
+
+            try
+            {
+                var live = CacheManager.GetLiveJs5Status();
+                CacheText = !live.IsSupported ? "Live cache: legacy DLL"
+                    : live.IsAvailable ? $"Live cache: {live.NodeCount:N0} archives"
+                    : "Live cache: unavailable";
+                CacheState = live.IsAvailable ? "ok" : live.IsSupported ? "warn" : "off";
+            }
+            catch
+            {
+                CacheText = "Live cache: —";
+                CacheState = "off";
+            }
 
             try
             {

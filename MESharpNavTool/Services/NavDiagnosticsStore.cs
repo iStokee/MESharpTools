@@ -27,11 +27,12 @@ namespace MESharp.Services
             // configures their own invocation. {output} in the args is replaced with DumpDirectory.
             public string? DumpCommand { get; set; }
             public string? DumpArguments { get; set; }
+            public string? CollisionAuditDatabase { get; set; }
         }
 
         public sealed record NavDiagnosticsSettings(
             string DumpDirectory, bool TreatWildernessDitchAsCrossable,
-            string DumpCommand, string DumpArguments);
+            string DumpCommand, string DumpArguments, string CollisionAuditDatabase);
 
         public static NavDiagnosticsSettings Load()
         {
@@ -44,12 +45,13 @@ namespace MESharp.Services
                     {
                         var dir = string.IsNullOrWhiteSpace(s.DumpDirectory) ? DefaultDumpDirectory : s.DumpDirectory!;
                         return new NavDiagnosticsSettings(dir, s.TreatWildernessDitchAsCrossable,
-                            s.DumpCommand ?? string.Empty, s.DumpArguments ?? string.Empty);
+                            s.DumpCommand ?? string.Empty, s.DumpArguments ?? string.Empty,
+                            s.CollisionAuditDatabase ?? string.Empty);
                     }
                 }
             }
             catch { /* fall through to default */ }
-            return new NavDiagnosticsSettings(DefaultDumpDirectory, true, string.Empty, string.Empty);
+            return new NavDiagnosticsSettings(DefaultDumpDirectory, true, string.Empty, string.Empty, string.Empty);
         }
 
         public static string LoadDumpDirectory() => Load().DumpDirectory;
@@ -66,6 +68,7 @@ namespace MESharp.Services
                         TreatWildernessDitchAsCrossable = settings.TreatWildernessDitchAsCrossable,
                         DumpCommand = settings.DumpCommand,
                         DumpArguments = settings.DumpArguments
+                        ,CollisionAuditDatabase = settings.CollisionAuditDatabase
                     },
                     new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(FilePath, json);

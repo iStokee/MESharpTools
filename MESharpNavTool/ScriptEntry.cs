@@ -50,7 +50,7 @@ namespace MESharp
             };
             foreach (var uri in mahAppsUris)
             {
-                TryMergeDictionary(app, uri, swallowErrors: true);
+                TryMergeDictionary(app, uri, swallowErrors: true, replaceExisting: false);
             }
 
             // Keep the script theme after third-party dictionaries so implicit control styles win.
@@ -62,7 +62,7 @@ namespace MESharp
             };
             foreach (var uri in scriptThemeUris)
             {
-                TryMergeDictionary(app, uri, swallowErrors: false);
+                TryMergeDictionary(app, uri, swallowErrors: false, replaceExisting: true);
             }
 
             var acrylicColor = Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF);
@@ -93,17 +93,19 @@ namespace MESharp
             }
         }
 
-        private static void TryMergeDictionary(Application app, string uriString, bool swallowErrors)
+        private static void TryMergeDictionary(Application app, string uriString, bool swallowErrors, bool replaceExisting)
         {
             try
             {
                 var targetUri = new Uri(uriString, UriKind.Absolute);
-                foreach (var existing in app.Resources.MergedDictionaries)
+                for (var i = app.Resources.MergedDictionaries.Count - 1; i >= 0; i--)
                 {
+                    var existing = app.Resources.MergedDictionaries[i];
                     if (existing.Source == null) continue;
                     if (Uri.Compare(existing.Source, targetUri, UriComponents.AbsoluteUri, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0)
                     {
-                        return;
+                        if (!replaceExisting) return;
+                        app.Resources.MergedDictionaries.RemoveAt(i);
                     }
                 }
 

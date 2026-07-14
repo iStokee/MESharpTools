@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -59,6 +60,9 @@ namespace MESharp.ViewModels
 
         private string _gameStatusText = "Not queried.";
         public string GameStatusText { get => _gameStatusText; private set => SetProperty(ref _gameStatusText, value); }
+
+        private string _mapDatasetStatusText = "Map/collision datasets not queried.";
+        public string MapDatasetStatusText { get => _mapDatasetStatusText; private set => SetProperty(ref _mapDatasetStatusText, value); }
 
         // ---- Chisel dumps (Status tab) -----------------------------------------------
 
@@ -154,6 +158,7 @@ namespace MESharp.ViewModels
 
         private void RefreshGameStatus()
         {
+            RefreshMapDatasetStatus();
             try
             {
                 var status = CacheManager.GetStatus();
@@ -170,6 +175,42 @@ namespace MESharp.ViewModels
                 GameCacheLoaded = false;
                 GameTypes.Clear();
                 GameStatusText = "Game cache unavailable (not running inside ME): " + ex.Message;
+            }
+        }
+
+        private void RefreshMapDatasetStatus()
+        {
+            try
+            {
+                var gridDir = CollisionDeriver.DefaultOutputDirectory;
+                var squareCount = Directory.Exists(gridDir)
+                    ? Directory.EnumerateFiles(gridDir, "*_*.json", SearchOption.TopDirectoryOnly).Count()
+                    : 0;
+                var componentDir = Path.Combine(gridDir, "components");
+                var componentCount = Directory.Exists(componentDir)
+                    ? Directory.EnumerateFiles(componentDir, "*_*.json", SearchOption.TopDirectoryOnly).Count()
+                    : 0;
+                var auditPath = Path.Combine(gridDir, "collision-audit.json");
+                var audit = "no master audit";
+                if (File.Exists(auditPath))
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllBytes(auditPath));
+                    var root = doc.RootElement;
+                    var generated = root.TryGetProperty("GeneratedAtUtc", out var at) ? at.GetDateTime().ToLocalTime().ToString("g") : "unknown time";
+                    var directions = root.TryGetProperty("DirectionMismatches", out var dm) ? dm.GetInt64() : 0;
+                    var missing = root.TryGetProperty("MissingGridTiles", out var mg) ? mg.GetInt64() : 0;
+                    audit = $"audit {generated}: {directions:N0} edge mismatches, {missing:N0} missing tiles";
+                }
+                MapDatasetStatusText = $"Map data: {squareCount:N0} collision squares, {componentCount:N0} component shards; {audit}. Path: {gridDir}";
+                var live = CacheManager.GetLiveJs5Status();
+                if (live.IsSupported)
+                    MapDatasetStatusText += live.IsAvailable
+                        ? $" Live JS5: {live.NodeCount:N0} cached archives (provider 0x{live.ProviderAddress:X})."
+                        : $" Live JS5: unavailable ({live.Error})";
+            }
+            catch (Exception ex)
+            {
+                MapDatasetStatusText = "Map dataset status unavailable: " + ex.Message;
             }
         }
 

@@ -143,7 +143,7 @@
                 <Border
                     behaviors:PanelLayoutBehavior.PanelKey="walk-to-tile"
                     Style="{StaticResource NavigationPanelCard}">
-                    <Expander Header="Tile Movement Probe" IsExpanded="True">
+                    <Expander Header="Tile Movement Probe" IsExpanded="False">
                         <StackPanel Margin="0,10,0,0">
                         <TextBlock
                             Style="{StaticResource NavigationSubtleText}"
@@ -344,7 +344,7 @@
                 <Border
                     behaviors:PanelLayoutBehavior.PanelKey="waypoint-path"
                     Style="{StaticResource NavigationPanelCard}">
-                    <Expander Header="Temporary Waypoint Probe" IsExpanded="True">
+                    <Expander Header="Temporary Waypoint Probe" IsExpanded="False">
                         <StackPanel Margin="0,10,0,0">
                         <TextBlock
                             Margin="0,0,0,8"
@@ -452,7 +452,7 @@
                 <Border
                     behaviors:PanelLayoutBehavior.PanelKey="lodestone-network"
                     Style="{StaticResource NavigationPanelCard}">
-                    <Expander Header="Lodestone Network" IsExpanded="True">
+                    <Expander Header="Lodestone Network" IsExpanded="False">
                         <StackPanel Margin="0,10,0,0">
                         <Grid Margin="0,0,0,0">
                             <Grid.ColumnDefinitions>

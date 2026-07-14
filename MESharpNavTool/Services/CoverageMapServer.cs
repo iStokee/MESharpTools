@@ -180,6 +180,11 @@ namespace MESharp.Services
                             contentType = "application/json";
                             break;
 
+                        case "/collision-audit.json":
+                            body = JsonSerializer.SerializeToUtf8Bytes(GetCollisionAuditState(ParseQuery(requestLine)), JsonOptions);
+                            contentType = "application/json";
+                            break;
+
                         case "/":
                         case "/index.html":
                             var html = LoadIndexHtml();
@@ -228,6 +233,42 @@ namespace MESharp.Services
             {
                 // Per-request failures must never take down the host app.
             }
+        }
+
+        private static object GetCollisionAuditState(System.Collections.Generic.Dictionary<string, string> query)
+        {
+            var reportPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MESharp", "collision", "collision-audit.json");
+            if (!File.Exists(reportPath)) return new { available = false };
+            try
+            {
+                var plane = QInt(query, "plane", 0);
+                var minX = QInt(query, "minX", int.MinValue);
+                var minY = QInt(query, "minY", int.MinValue);
+                var maxX = QInt(query, "maxX", int.MaxValue);
+                var maxY = QInt(query, "maxY", int.MaxValue);
+                using var doc = JsonDocument.Parse(File.ReadAllBytes(reportPath));
+                var root = doc.RootElement;
+                var samples = root.TryGetProperty("Samples", out var rows)
+                    ? rows.EnumerateArray().Select(row => new
+                    {
+                        x = row.GetProperty("X").GetInt32(), y = row.GetProperty("Y").GetInt32(),
+                        z = row.GetProperty("Plane").GetInt32(), category = row.GetProperty("Category").GetString(),
+                        imported = row.GetProperty("ImportedValue").GetInt32(), mesharp = row.GetProperty("MESharpValue").GetInt32()
+                    }).Where(row => row.z == plane && row.x >= minX && row.x <= maxX && row.y >= minY && row.y <= maxY)
+                      .Select(row => (object)row).ToArray()
+                    : Array.Empty<object>();
+                return new
+                {
+                    available = true,
+                    generatedAtUtc = root.TryGetProperty("GeneratedAtUtc", out var at) ? at.GetString() : null,
+                    directionMismatches = root.TryGetProperty("DirectionMismatches", out var dm) ? dm.GetInt64() : 0,
+                    missingGridTiles = root.TryGetProperty("MissingGridTiles", out var mg) ? mg.GetInt64() : 0,
+                    samples
+                };
+            }
+            catch (Exception ex) { return new { available = false, error = ex.Message }; }
         }
 
         private static void WriteResponse(NetworkStream stream, string status, string contentType, byte[] body)

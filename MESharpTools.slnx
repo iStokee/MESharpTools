@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="../csharp_interop/csharp_interop.csproj" />
   <Project Path="../MESharp.CacheDerivation/MESharp.CacheDerivation.csproj" />
+  <Project Path="../MESharp.CacheDerivation.Tests/MESharp.CacheDerivation.Tests.csproj" />
   <Project Path="MESharp.Tooling.Tests/MESharp.Tooling.Tests.csproj" />
   <Project Path="MESharp.Tooling/MESharp.Tooling.csproj" />
   <Project Path="MESharpApiTool/MESharpApiTool.csproj" />

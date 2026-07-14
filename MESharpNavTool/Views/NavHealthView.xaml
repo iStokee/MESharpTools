@@ -29,9 +29,9 @@
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Command="{Binding RefreshCommand}" Content="Refresh" Padding="12,5" />
                     <StackPanel>
-                        <TextBlock Style="{StaticResource Hub.PageTitle}" Text="Navigation Status" />
+                        <TextBlock Style="{StaticResource Hub.PageTitle}" Text="Data &amp; Diagnostics" />
                         <TextBlock Margin="0,4,0,0" Style="{StaticResource HintText}"
-                                   Text="Collision grids, cache-derived obstacle data, ladder seeds, graph health, and refresh actions." />
+                                   Text="Prepare navigation data, compare master collision masks, and verify native/runtime health." />
                     </StackPanel>
                 </DockPanel>
             </Border>
@@ -110,22 +110,34 @@
                             <Button Command="{Binding RegenerateCollisionCommand}" Content="Regenerate Collision Grids" Padding="12,5" Margin="0,0,6,0" />
                             <Button Command="{Binding RegenerateDumpCommand}" Content="Run Cache Dump (incl. NPCs)" Padding="12,5" />
                         </StackPanel>
+                        <Separator Margin="0,12,0,8" />
+                        <TextBlock Style="{StaticResource Hub.SectionHeader}" Text="Master Collision Cross-check" />
+                        <TextBlock Style="{StaticResource HintText}" Text="Read-only comparison against worldReachableTiles.db; imported data never replaces runtime grids." TextWrapping="Wrap" />
+                        <Grid Margin="0,6,0,4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding CollisionAuditDatabase, UpdateSourceTrigger=PropertyChanged}" ToolTip="Path to master's worldReachableTiles.db" />
+                            <Button Grid.Column="1" Margin="6,0,0,0" Padding="10,3" Command="{Binding BrowseCollisionAuditCommand}" Content="Browse…" />
+                        </Grid>
+                        <TextBlock Margin="0,0,0,6" Style="{StaticResource HintText}" Text="{Binding CollisionAuditSummary}" TextWrapping="Wrap" />
+                        <Button Command="{Binding RunCollisionAuditCommand}" Content="Run Collision Audit" Padding="12,5" HorizontalAlignment="Left" />
                     </StackPanel>
                 </Border>
 
                 <Border Grid.Column="2" Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource Hub.SectionHeader}" Text="Derived Navigation Data" />
+                        <TextBlock Style="{StaticResource Hub.SectionHeader}" Text="Build Pipeline" />
+                        <TextBlock Margin="0,0,0,8" Style="{StaticResource HintText}" Text="Run top to bottom after refreshing a cache dump. Reload steps apply generated data to the current session." TextWrapping="Wrap" />
                         <UniformGrid Columns="1">
-                            <Button Margin="0,0,0,6" Command="{Binding RegenerateObstaclesCommand}" Content="Regenerate Obstacle Catalog + Ladder Seeds" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding ImportLadderSeedsCommand}" Content="Import Ladder Seeds Into Graph" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding RegenerateAreasCommand}" Content="Derive Areas (Banks + Skilling) From Dump" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding RegenerateNpcAreasCommand}" Content="Derive NPC Areas (Fishing/Shops/Slayer) From Dump" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding ImportAreaSeedsCommand}" Content="Import Cache-Derived Areas Into Graph" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding GenerateWikiMapDataCommand}" Content="Generate Wiki Map Web Data" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding ReloadCollisionCommand}" Content="Reload Collision Grids" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding ReloadCatalogCommand}" Content="Reload Obstacle Catalog" Padding="12,5" />
-                            <Button Command="{Binding ReloadGraphCommand}" Content="Reload Webwalk Graph" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding RegenerateObstaclesCommand}" Content="1 · Build Obstacles + Ladder Links" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding RegenerateAreasCommand}" Content="2 · Derive Object Areas" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding RegenerateNpcAreasCommand}" Content="3 · Derive NPC Areas" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding ImportLadderSeedsCommand}" Content="4 · Import Ladder Links" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding ImportAreaSeedsCommand}" Content="5 · Import Derived Areas" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding GenerateWikiMapDataCommand}" Content="Optional · Import Wiki Map Data" Padding="12,5" />
+                            <Separator Margin="0,4,0,10" />
+                            <Button Margin="0,0,0,6" Command="{Binding ReloadCollisionCommand}" Content="Reload Collision" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding ReloadCatalogCommand}" Content="Reload Obstacles" Padding="12,5" />
+                            <Button Command="{Binding ReloadGraphCommand}" Content="Reload Network" Padding="12,5" />
                         </UniformGrid>
                     </StackPanel>
                 </Border>

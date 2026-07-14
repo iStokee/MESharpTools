@@ -39,6 +39,8 @@ namespace MESharp.ViewModels
         private string _dumpDirectory;
         private string _dumpCommand = "";
         private string _dumpArguments = "";
+        private string _collisionAuditDatabase = "";
+        private string _collisionAuditSummary = "No master-style collision audit has been run.";
         private bool _treatWildernessDitchAsCrossable;
         private bool _isBusy;
         private string _busyOperation = "";
@@ -54,6 +56,7 @@ namespace MESharp.ViewModels
             _dumpDirectory = settings.DumpDirectory;
             _dumpCommand = settings.DumpCommand;
             _dumpArguments = settings.DumpArguments;
+            _collisionAuditDatabase = settings.CollisionAuditDatabase;
             _treatWildernessDitchAsCrossable = settings.TreatWildernessDitchAsCrossable;
 
             RefreshCommand = new RelayCommand(_ => Refresh(), _ => !IsBusy);
@@ -68,6 +71,8 @@ namespace MESharp.ViewModels
             GenerateWikiMapDataCommand = new RelayCommand(_ => GenerateWikiMapData(), _ => !IsBusy);
             RegenerateDumpCommand = new RelayCommand(_ => RegenerateDump(), _ => !IsBusy && !string.IsNullOrWhiteSpace(DumpCommand));
             ImportAreaSeedsCommand = new RelayCommand(_ => ImportAreaSeeds(), _ => !IsBusy && (File.Exists(AreaSeedPath) || File.Exists(NpcAreaSeedPath)));
+            RunCollisionAuditCommand = new RelayCommand(_ => RunCollisionAudit(), _ => !IsBusy && File.Exists(CollisionAuditDatabase));
+            BrowseCollisionAuditCommand = new RelayCommand(_ => BrowseCollisionAudit(), _ => !IsBusy);
 
             ReloadCollisionCommand = new RelayCommand(_ => { CollisionPathfinder.SetGridDirectory(null); Refresh(); Append("Reloaded collision grids."); }, _ => !IsBusy);
             ReloadCatalogCommand = new RelayCommand(_ => { ObstacleCatalog.Invalidate(); Refresh(); Append($"Reloaded obstacle catalog ({ObstacleCatalog.Count} entries)."); }, _ => !IsBusy);
@@ -103,6 +108,21 @@ namespace MESharp.ViewModels
         {
             get => _dumpArguments;
             set => SetProperty(ref _dumpArguments, value);
+        }
+
+        public string CollisionAuditDatabase
+        {
+            get => _collisionAuditDatabase;
+            set
+            {
+                if (SetProperty(ref _collisionAuditDatabase, value)) InvalidateCommands();
+            }
+        }
+
+        public string CollisionAuditSummary
+        {
+            get => _collisionAuditSummary;
+            private set => SetProperty(ref _collisionAuditSummary, value);
         }
 
         public bool IsBusy
@@ -147,6 +167,8 @@ namespace MESharp.ViewModels
         public ICommand GenerateWikiMapDataCommand { get; }
         public ICommand RegenerateDumpCommand { get; }
         public ICommand ImportAreaSeedsCommand { get; }
+        public ICommand RunCollisionAuditCommand { get; }
+        public ICommand BrowseCollisionAuditCommand { get; }
         public ICommand ReloadCollisionCommand { get; }
         public ICommand ReloadCatalogCommand { get; }
         public ICommand ReloadGraphCommand { get; }
@@ -180,6 +202,32 @@ namespace MESharp.ViewModels
                     ? $"{gridCount} squares in {gridDir}"
                     : $"No grids found in {gridDir} — regenerate from the dump."
             });
+
+            Indicators.Add(new HealthIndicator
+            {
+                Title = "Master collision audit",
+                State = File.Exists(CollisionAuditDatabase) ? "warn" : "off",
+                Detail = File.Exists(CollisionAuditDatabase)
+                    ? CollisionAuditSummary
+                    : "Select worldReachableTiles.db to compare directional masks with MESharp grids."
+            });
+
+            try
+            {
+                var hooks = CacheManager.GetNavigationHookStatus();
+                if (hooks.IsSupported)
+                {
+                    var healthy = hooks.ActionAnchorResolved && hooks.ClientPointerReadable && hooks.TilesPointerReadable;
+                    Indicators.Add(new HealthIndicator
+                    {
+                        Title = "Native navigation hooks",
+                        State = healthy ? "ok" : "warn",
+                        Detail = $"Action anchor {(hooks.ActionAnchorResolved ? "ready" : "missing")} · movement hook " +
+                                 $"{(hooks.MovementHookAttached ? "attached" : "off")} · client 0x{hooks.ClientAddress:X} · tiles 0x{hooks.TilesAddress:X}"
+                    });
+                }
+            }
+            catch { /* stale native DLL: diagnostics are optional */ }
 
             Indicators.Add(new HealthIndicator
             {
@@ -291,6 +339,43 @@ namespace MESharp.ViewModels
                 CollisionPathfinder.SetGridDirectory(null); // drop cache → lazy reload from default dir
                 return $"Collision grids regenerated: {result.SquaresWritten} squares ({result.Skipped} skipped).";
             });
+        }
+
+        private void RunCollisionAudit()
+        {
+            SaveSettings();
+            RunBackground("Auditing master collision data", (log, ct) =>
+            {
+                var report = CollisionAudit.Compare(
+                    CollisionAuditDatabase,
+                    CollisionPathfinder.GetGridDirectory(),
+                    log,
+                    ct);
+                var reportPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "MESharp", "collision", "collision-audit.json");
+                CollisionAudit.SaveReport(report, reportPath);
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher != null) dispatcher.BeginInvoke(() => CollisionAuditSummary = report.Summary);
+                else CollisionAuditSummary = report.Summary;
+                if (!report.Succeeded) throw new InvalidOperationException(report.Error);
+                return $"Audit complete: {report.Summary}. Report: {reportPath}";
+            });
+        }
+
+        private void BrowseCollisionAudit()
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Select master collision database",
+                Filter = "SQLite database (*.db;*.sqlite)|*.db;*.sqlite|All files (*.*)|*.*",
+                CheckFileExists = true
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                CollisionAuditDatabase = dialog.FileName;
+                SaveSettings();
+            }
         }
 
         private void RegenerateObstacles()
@@ -433,7 +518,8 @@ namespace MESharp.ViewModels
                 DumpDirectory,
                 TreatWildernessDitchAsCrossable,
                 DumpCommand,
-                DumpArguments));
+                DumpArguments,
+                CollisionAuditDatabase));
             Append("Saved diagnostics settings.");
             RaisePropertyChanged(nameof(DumpStatusText));
             InvalidateCommands();

@@ -21,5 +21,6 @@
     <!-- API browser tool: hosts the ApiDocumentationService/ViewModel/Browser UI tests that were
          relocated here when the browser was extracted out of csharp_interop into a standalone tool. -->
     <ProjectReference Include="..\MESharpApiTool\MESharpApiTool.csproj" />
+    <ProjectReference Include="..\MESharpFoundryTool\MESharpFoundryTool.csproj" />
   </ItemGroup>
 </Project>

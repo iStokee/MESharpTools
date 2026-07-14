@@ -11,10 +11,12 @@
     <MESharpToolDisplayName>Foundry</MESharpToolDisplayName>
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Costura.Fody" Version="6.0.0"><PrivateAssets>all</PrivateAssets></PackageReference>
     <PackageReference Include="Fody" Version="6.9.2"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <PackageReference Include="MahApps.Metro" Version="2.4.11" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../MESharp.Tooling/MESharp.Tooling.csproj" />
