@@ -8,8 +8,8 @@ using MESharp.Views;
 namespace MESharp
 {
     /// <summary>
-    /// Standalone host window for the DoAction tool. Owns the <see cref="DoActionSignalsViewModel"/>, the
-    /// <see cref="NamedVerbTesterViewModel"/> and the <see cref="TraceRecorderViewModel"/> (shown as tabs) and
+    /// Standalone host window for the DoAction tool. Owns the <see cref="DoActionSignalsViewModel"/> and the
+    /// <see cref="NamedVerbTesterViewModel"/> (shown as tabs) and
     /// tears them down on close so the tool's collectible AssemblyLoadContext can be reclaimed and it coexists
     /// cleanly with other tools on the shared WPF dispatcher (WpfScriptHost paradigm).
     ///
@@ -21,8 +21,6 @@ namespace MESharp
     {
         private readonly DoActionSignalsViewModel _signalsVm;
         private readonly NamedVerbTesterViewModel _verbsVm;
-        private readonly TraceRecorderViewModel _recorderVm;
-
         private readonly TabControl _tabs;
         private readonly IActivatableViewModel[] _vmsByTab;
         private IActivatableViewModel? _activeVm;
@@ -39,7 +37,6 @@ namespace MESharp
 
             _signalsVm = new DoActionSignalsViewModel();
             _verbsVm = new NamedVerbTesterViewModel();
-            _recorderVm = new TraceRecorderViewModel();
 
             _tabs = new TabControl();
             _tabs.Items.Add(new TabItem
@@ -52,15 +49,10 @@ namespace MESharp
                 Header = "Named Verbs",
                 Content = new NamedVerbTesterView { DataContext = _verbsVm }
             });
-            _tabs.Items.Add(new TabItem
-            {
-                Header = "Trace Recorder",
-                Content = new TraceRecorderView { DataContext = _recorderVm }
-            });
             Content = _tabs;
 
             // Index-aligned with the tab order above; drives per-tab activation.
-            _vmsByTab = new IActivatableViewModel[] { _signalsVm, _verbsVm, _recorderVm };
+            _vmsByTab = new IActivatableViewModel[] { _signalsVm, _verbsVm };
 
             _tabs.SelectionChanged += OnTabSelectionChanged;
             Loaded += OnLoaded;
@@ -124,7 +116,6 @@ namespace MESharp
 
                 _signalsVm.Dispose();
                 _verbsVm.Dispose();
-                _recorderVm.Dispose();
             }
             catch (Exception ex)
             {
