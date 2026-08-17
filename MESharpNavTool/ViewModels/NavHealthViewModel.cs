@@ -12,6 +12,7 @@ using System.Windows.Input;
 using MESharp.API;
 using MESharp.CacheDerivation;
 using MESharp.Commands;
+using MESharp.Slayer;
 
 namespace MESharp.ViewModels
 {
@@ -45,6 +46,7 @@ namespace MESharp.ViewModels
         private bool _isBusy;
         private string _busyOperation = "";
         private string _log = "";
+        private NpcAreaInputStatus _npcInputStatus = new(null, Array.Empty<string>(), 0, 0, false, "NPC inputs have not been inspected.");
         private CancellationTokenSource? _busyCts;
         private bool _disposed;
 
@@ -67,7 +69,9 @@ namespace MESharp.ViewModels
             RegenerateObstaclesCommand = new RelayCommand(_ => RegenerateObstacles(), _ => !IsBusy && DumpLooksValid());
             ImportLadderSeedsCommand = new RelayCommand(_ => ImportLadderSeeds(), _ => !IsBusy && File.Exists(LadderSeedPath));
             RegenerateAreasCommand = new RelayCommand(_ => RegenerateAreas(), _ => !IsBusy && DumpLooksValid());
-            RegenerateNpcAreasCommand = new RelayCommand(_ => RegenerateNpcAreas(), _ => !IsBusy && DumpLooksValid());
+            DownloadNpcDefinitionsCommand = new RelayCommand(_ => DownloadNpcDefinitions(), _ => !IsBusy);
+            CaptureVisibleNpcSightingsCommand = new RelayCommand(_ => CaptureVisibleNpcSightings(), _ => !IsBusy);
+            RegenerateNpcAreasCommand = new RelayCommand(_ => RegenerateNpcAreas(), _ => !IsBusy && NpcInputStatus.CanDerive);
             GenerateWikiMapDataCommand = new RelayCommand(_ => GenerateWikiMapData(), _ => !IsBusy);
             RegenerateDumpCommand = new RelayCommand(_ => RegenerateDump(), _ => !IsBusy && !string.IsNullOrWhiteSpace(DumpCommand));
             ImportAreaSeedsCommand = new RelayCommand(_ => ImportAreaSeeds(), _ => !IsBusy && (File.Exists(AreaSeedPath) || File.Exists(NpcAreaSeedPath)));
@@ -91,6 +95,7 @@ namespace MESharp.ViewModels
                 if (SetProperty(ref _dumpDirectory, value))
                 {
                     RaisePropertyChanged(nameof(DumpStatusText));
+                    RefreshNpcInputStatus();
                     InvalidateCommands();
                 }
             }
@@ -146,6 +151,9 @@ namespace MESharp.ViewModels
             ? "Dump looks valid (location_configs.json + tiles + locations found)."
             : "Dump not found here — set the rs3cache dump folder to enable regeneration.";
 
+        public NpcAreaInputStatus NpcInputStatus => _npcInputStatus;
+        public string NpcInputStatusText => NpcInputStatus.Summary;
+
         public bool TreatWildernessDitchAsCrossable
         {
             get => _treatWildernessDitchAsCrossable;
@@ -163,6 +171,8 @@ namespace MESharp.ViewModels
         public ICommand RegenerateObstaclesCommand { get; }
         public ICommand ImportLadderSeedsCommand { get; }
         public ICommand RegenerateAreasCommand { get; }
+        public ICommand DownloadNpcDefinitionsCommand { get; }
+        public ICommand CaptureVisibleNpcSightingsCommand { get; }
         public ICommand RegenerateNpcAreasCommand { get; }
         public ICommand GenerateWikiMapDataCommand { get; }
         public ICommand RegenerateDumpCommand { get; }
@@ -189,6 +199,7 @@ namespace MESharp.ViewModels
         public void Refresh()
         {
             if (_disposed) return;
+            RefreshNpcInputStatus();
             Indicators.Clear();
 
             // Collision grids
@@ -319,8 +330,23 @@ namespace MESharp.ViewModels
                 Detail = DumpLooksValid() ? $"Ready at {DumpDirectory}" : DumpStatusText
             });
 
+            var npcInputs = NpcInputStatus;
+            Indicators.Add(new HealthIndicator
+            {
+                Title = "NPC-area inputs",
+                State = npcInputs.CanDerive ? "ok" : npcInputs.ConfigPath is null ? "error" : "warn",
+                Detail = npcInputs.Summary
+            });
+
             RaisePropertyChanged(nameof(DumpStatusText));
             InvalidateCommands();
+        }
+
+        private void RefreshNpcInputStatus()
+        {
+            _npcInputStatus = NpcAreaDeriver.InspectInputs(DumpDirectory);
+            RaisePropertyChanged(nameof(NpcInputStatus));
+            RaisePropertyChanged(nameof(NpcInputStatusText));
         }
 
         // ── regeneration (background) ──────────────────────────────────────────────
@@ -419,7 +445,47 @@ namespace MESharp.ViewModels
             {
                 var result = NpcAreaDeriver.Derive(DumpDirectory, outDir: null, options: null, log: log, ct: ct);
                 return $"NPC areas derived: {result.ConfigsMatched} npc configs, {result.Spawns} spawns " +
-                       $"→ {result.Areas} areas in npc_areas.seed.json.";
+                       $"→ {result.Areas} areas ({result.CandidateAreas} candidate, {result.CorroboratedAreas} corroborated) " +
+                       $"in npc_areas.seed.json. Sources: {string.Join(", ", result.PlacementSources)}.";
+            });
+        }
+
+        private void DownloadNpcDefinitions()
+        {
+            RunBackground("Downloading Chisel NPC definitions", (log, ct) =>
+            {
+                using var chisel = new ChiselCacheService();
+                var result = chisel.DownloadIfStaleAsync(ChiselCategory.Npcs, ct: ct)
+                    .GetAwaiter().GetResult();
+                if (!result.Ok) throw new InvalidOperationException(result.Error ?? "NPC definition download failed.");
+                log($"NPC definitions {(result.Downloaded ? "downloaded" : "already current")}: {result.LocalPath}");
+                return $"NPC definitions ready: {result.LocalPath} ({result.Bytes:N0} bytes).";
+            });
+        }
+
+        private void CaptureVisibleNpcSightings()
+        {
+            RunBackground("Capturing visible NPC sightings", (log, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+                var plane = LocalPlayer.GetTilePosition().z;
+                var now = DateTime.UtcNow;
+                var visible = Npcs.GetAll()
+                    .Where(n => n.Id >= 0 && n.X > 0 && n.Y > 0 && !string.IsNullOrWhiteSpace(n.Name))
+                    .Select(n => new NpcSightingObservation
+                    {
+                        MonsterId = SlayerIds.Monster(n.Name),
+                        NpcId = n.Id,
+                        X = n.X,
+                        Y = n.Y,
+                        Z = plane,
+                        ObservedAtUtc = now
+                    })
+                    .ToList();
+                var repository = new SlayerKnowledgeRepository();
+                var added = SlayerObservationRecorder.MergeNpcSightings(repository, visible);
+                log($"Observed {visible.Count} visible NPC instance(s); added {added} new coordinate sighting(s).");
+                return $"Captured visible NPCs: {added} new sighting(s), stored in {repository.Paths.ObservationsPath}.";
             });
         }
 

@@ -30,6 +30,12 @@ World-coordinate geometry may be published to the graph; inferred transitions st
 local-coordinate maps remain calibration candidates until cache or live evidence verifies them.
 Matching monster features are published as candidate Slayer locations for review in Slayer Knowledge.
 
+NPC-area derivation combines Chisel NPC definitions with any available legacy spawn dump,
+world-coordinate Advanced-map features, and shared live NPC sightings. Navigation exposes separate
+steps to refresh definitions and capture visible NPCs. A region remains disabled and tagged
+`candidate` with one coordinate source; it becomes enabled and `corroborated` only when two
+independent sources agree on the cluster.
+
 Tools are **auto-discovered** by the `<IsMESharpTool>true</IsMESharpTool>` marker in their `.csproj`
 (see *Releasing tools*), so adding a tool requires no edit to a central list. They are tied together
 at runtime by ME's native **Tools menu** + `ToolRegistry`, regardless of which folder/solution they

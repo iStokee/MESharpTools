@@ -127,13 +127,16 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource Hub.SectionHeader}" Text="Build Pipeline" />
                         <TextBlock Margin="0,0,0,8" Style="{StaticResource HintText}" Text="Run top to bottom after refreshing a cache dump. Reload steps apply generated data to the current session." TextWrapping="Wrap" />
+                        <TextBlock Margin="0,0,0,8" Style="{StaticResource HintText}" Text="{Binding NpcInputStatusText}" TextWrapping="Wrap" />
                         <UniformGrid Columns="1">
                             <Button Margin="0,0,0,6" Command="{Binding RegenerateObstaclesCommand}" Content="1 · Build Obstacles + Ladder Links" Padding="12,5" />
                             <Button Margin="0,0,0,6" Command="{Binding RegenerateAreasCommand}" Content="2 · Derive Object Areas" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding RegenerateNpcAreasCommand}" Content="3 · Derive NPC Areas" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding ImportLadderSeedsCommand}" Content="4 · Import Ladder Links" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding ImportAreaSeedsCommand}" Content="5 · Import Derived Areas" Padding="12,5" />
-                            <Button Margin="0,0,0,6" Command="{Binding GenerateWikiMapDataCommand}" Content="Optional · Import Wiki Map Data" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding DownloadNpcDefinitionsCommand}" Content="3 · Download / Refresh NPC Definitions" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding GenerateWikiMapDataCommand}" Content="4 · Import Advanced Wiki Maps" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding CaptureVisibleNpcSightingsCommand}" Content="5 · Capture Visible NPC Sightings" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding RegenerateNpcAreasCommand}" Content="6 · Derive NPC Areas" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding ImportLadderSeedsCommand}" Content="7 · Import Ladder Links" Padding="12,5" />
+                            <Button Margin="0,0,0,6" Command="{Binding ImportAreaSeedsCommand}" Content="8 · Import Derived Areas" Padding="12,5" />
                             <Separator Margin="0,4,0,10" />
                             <Button Margin="0,0,0,6" Command="{Binding ReloadCollisionCommand}" Content="Reload Collision" Padding="12,5" />
                             <Button Margin="0,0,0,6" Command="{Binding ReloadCatalogCommand}" Content="Reload Obstacles" Padding="12,5" />
