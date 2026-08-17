@@ -11,5 +11,6 @@
   <Project Path="MESharpKnowledgeTool/MESharpKnowledgeTool.csproj" />
   <Project Path="MESharpMcpTool/MESharpMcpTool.csproj" />
   <Project Path="MESharpNavTool/MESharpNavTool.csproj" />
+  <Project Path="MESharpSlayerKnowledgeTool/MESharpSlayerKnowledgeTool.csproj" />
   <Project Path="MESharpCacheTool/MESharpCacheTool.csproj" />
 </Solution>

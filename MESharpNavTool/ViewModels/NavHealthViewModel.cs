@@ -427,15 +427,16 @@ namespace MESharp.ViewModels
         {
             RunBackground("Generating wiki map web data", (log, ct) =>
             {
-                var result = RuneScapeWikiDungeonImporter.DiscoverAndImportNavigationMapsAsync(
-                        limit: 120,
+                var result = RuneScapeWikiDungeonImporter.IngestAdvancedMapCatalogAsync(
+                        importWorldGraph: true,
                         replaceExactIds: true,
                         replaceMatchingAreas: true,
                         log: log,
                         cancellationToken: ct)
                     .GetAwaiter()
                     .GetResult();
-                return result.Message;
+                var relationships = MESharp.Services.SlayerMapKnowledgePublisher.Publish(result.SnapshotPath, log);
+                return $"{result.Message} Slayer relationships published: {relationships}.";
             });
         }
 

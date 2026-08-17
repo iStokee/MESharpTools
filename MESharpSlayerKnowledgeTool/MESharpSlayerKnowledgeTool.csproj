@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <OutputType>Library</OutputType>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>MESharpSlayerKnowledgeTool</AssemblyName>
+    <IsMESharpTool>true</IsMESharpTool>
+    <MESharpToolDisplayName>Slayer Knowledge</MESharpToolDisplayName>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Costura.Fody" Version="6.0.0"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <PackageReference Include="Fody" Version="6.9.2"><PrivateAssets>all</PrivateAssets><IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets></PackageReference>
+    <PackageReference Include="MahApps.Metro" Version="2.4.11" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MESharp.Tooling\MESharp.Tooling.csproj" />
+    <ProjectReference Include="..\..\csharp_interop\csharp_interop.csproj" />
+    <ProjectReference Include="..\..\ME_CSharp_Scripts\SharpSlayer\MESharp.Slayer\MESharp.Slayer.csproj" />
+  </ItemGroup>
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipDeployToMe)' != 'true'">
+    <Exec Command="if not exist &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetPath)&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;exit /b 0" />
+  </Target>
+</Project>

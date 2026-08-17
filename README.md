@@ -17,11 +17,18 @@ This solution (`MESharpTools.slnx`) contains only what lives in this folder, plu
 | `MESharpMcpTool`     | `MESharpMcpTool.dll` (script)   | MCP dashboard (extracted from `csharp_interop/McpTools`).    |
 | `MESharpNavTool`     | `MESharpNavTool.dll` (script)   | Map / webwalk graph / routes (extracted from DebugUtil).     |
 | `MESharpKnowledgeTool` | `MESharpKnowledgeTool.dll` (script) | Knowledge OS UI.                                    |
+| `MESharpSlayerKnowledgeTool` | `MESharpSlayerKnowledgeTool.dll` (script) | Slayer assignment/master/location/mechanic curation and knowledge-pack publishing. |
 | `MESharpDoActionTool` | `MESharpDoActionTool.dll` (script) | DoAction / input debugging.                          |
 | `MESharpCacheTool`   | `MESharpCacheTool.dll` (script) | RS3 cache browser.                                           |
 | `SharpBuilder.ScriptHost` | `SharpBuilder.ScriptHost.dll` (script) | SharpBuilder node-editor host.                |
 | `MESharp.Tooling.Tests` | xUnit                        | Covers `ToolVersioning` + the relocated API-browser tests.  |
 | `csharp_interop` (ref) | `csharp_interop.dll`          | The shared MESharp API + the tool-update engine (`Services/Tools/`). Lives **outside** this repo. |
+
+Navigation's Wiki import enumerates the complete `Category:Advanced maps`, follows nested `Map:`
+transclusions, and writes a revisioned semantic snapshot under `%LOCALAPPDATA%/MESharp/Navigation/wiki`.
+World-coordinate geometry may be published to the graph; inferred transitions stay disabled and
+local-coordinate maps remain calibration candidates until cache or live evidence verifies them.
+Matching monster features are published as candidate Slayer locations for review in Slayer Knowledge.
 
 Tools are **auto-discovered** by the `<IsMESharpTool>true</IsMESharpTool>` marker in their `.csproj`
 (see *Releasing tools*), so adding a tool requires no edit to a central list. They are tied together
