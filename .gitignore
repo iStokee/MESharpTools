@@ -5,6 +5,8 @@
 [Dd]ebug/
 [Rr]elease/
 artifacts/
+tools/navigation-data/*
+!tools/navigation-data/README.md
 
 # Visual Studio / Rider / VS Code
 .vs/

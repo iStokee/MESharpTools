@@ -1,6 +1,8 @@
 using System;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
+using csharp_interop.native;
 using MESharp.Services;
 using MESharp.ViewModels;
 using MESharp.Views;
@@ -15,6 +17,8 @@ namespace MESharp
     internal sealed class NavHubWindow : Window
     {
         private readonly NavigationHubViewModel _vm;
+        private readonly DispatcherTimer _themeTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+        private bool _isDarkMode;
 
         public NavHubWindow()
         {
@@ -30,13 +34,32 @@ namespace MESharp
             _vm = new NavigationHubViewModel();
             Content = new NavigationHubView { DataContext = _vm };
 
-            Loaded += (_, _) => _vm.OnActivated();
+            var settings = ThemeManager.LoadSettings();
+            _isDarkMode = Native_UI.TryGetManagedToolsDarkMode(out var isDark) ? isDark : settings.IsDark;
+
+            Loaded += (_, _) => { _vm.OnActivated(); _themeTimer.Start(); };
             Closed += OnClosed;
+            _themeTimer.Tick += OnThemeTimerTick;
+        }
+
+        private void OnThemeTimerTick(object? sender, EventArgs e)
+        {
+            if (!Native_UI.TryGetManagedToolsDarkMode(out var isDark) || isDark == _isDarkMode)
+            {
+                return;
+            }
+
+            _isDarkMode = isDark;
+            var settings = ThemeManager.LoadSettings();
+            settings.IsDark = isDark;
+            ThemeManager.ApplyTheme(settings);
         }
 
         private void OnClosed(object? sender, EventArgs e)
         {
             Closed -= OnClosed;
+            _themeTimer.Stop();
+            _themeTimer.Tick -= OnThemeTimerTick;
 
             // Stops the hub status timer and disposes child VMs (their refresh timers, run CTS,
             // and CoverageMapServer focus subscriptions).

@@ -199,7 +199,7 @@ namespace MESharp.ViewModels
             };
             _refreshTimer.Tick += OnRefreshTick;
 
-            AddLog("Navigation tester ready.");
+            AddLog("Navigation ready.");
         }
 
         private void RefreshPosition()
@@ -405,7 +405,9 @@ namespace MESharp.ViewModels
 
             try
             {
-                var result = await Navigation.ResolveAndTravelDetailedAsync(destination, profile: null, _travelCts.Token);
+                var result = await Navigation.ResolveAndTravelDetailedAsync(
+                    destination,
+                    cancellationToken: _travelCts.Token);
 
                 if (result.PlanResult != null)
                 {

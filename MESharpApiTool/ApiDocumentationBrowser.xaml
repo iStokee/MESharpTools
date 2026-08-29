@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="clr-namespace:csharp_interop.Documentation.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:viewmodels="clr-namespace:csharp_interop.Documentation.ViewModels"
     d:DataContext="{d:DesignInstance Type=viewmodels:ApiDocBrowserViewModel}"
@@ -316,9 +317,13 @@
                             VerticalAlignment="Top"
                             Command="{Binding DataContext.CopySignatureCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
-                            Content="📋 Copy example"
                             Style="{StaticResource DocsCopyButtonStyle}"
-                            ToolTip="Copy example usage to clipboard" />
+                            ToolTip="Copy example usage to clipboard">
+                            <StackPanel Orientation="Horizontal">
+                                <iconPacks:PackIconMaterial Margin="0,0,6,0" Kind="ContentCopy" />
+                                <TextBlock Text="Copy example" />
+                            </StackPanel>
+                        </Button>
                     </Grid>
 
                     <TextBlock
@@ -425,9 +430,13 @@
                             VerticalAlignment="Top"
                             Command="{Binding DataContext.CopySignatureCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
-                            Content="📋 Copy example"
                             Style="{StaticResource DocsCopyButtonStyle}"
-                            ToolTip="Copy example usage to clipboard" />
+                            ToolTip="Copy example usage to clipboard">
+                            <StackPanel Orientation="Horizontal">
+                                <iconPacks:PackIconMaterial Margin="0,0,6,0" Kind="ContentCopy" />
+                                <TextBlock Text="Copy example" />
+                            </StackPanel>
+                        </Button>
                     </Grid>
 
                     <!--  Summary  -->
@@ -686,13 +695,12 @@
                             </TextBox.Style>
                         </TextBox>
 
-                        <TextBlock
+                        <iconPacks:PackIconMaterial
                             Margin="15,0,0,0"
                             VerticalAlignment="Center"
-                            FontSize="14"
                             Foreground="{DynamicResource MahApps.Brushes.Gray}"
                             IsHitTestVisible="False"
-                            Text="🔍" />
+                            Kind="Magnify" />
                         <TextBlock
                             Margin="40,0,12,0"
                             VerticalAlignment="Center"
@@ -724,9 +732,9 @@
                             Width="36"
                             Height="36"
                             Command="{Binding ClearSearchCommand}"
-                            Content="✕"
                             FontSize="16"
                             ToolTip="Clear search">
+                            <iconPacks:PackIconMaterial Kind="Close" />
                             <Button.Style>
                                 <Style BasedOn="{StaticResource DocsCopyButtonStyle}" TargetType="Button">
                                     <Setter Property="Visibility" Value="Visible" />
@@ -742,22 +750,15 @@
                             </Button.Style>
                         </Button>
                         <ToggleButton
-                            Width="42"
-                            Height="42"
-                            Margin="8,0,0,0"
-                            Content="☾"
-                            IsChecked="{Binding IsDarkMode, Mode=TwoWay}"
-                            Style="{StaticResource DocsThemeToggleStyle}"
-                            ToolTip="Toggle dark theme" />
-                        <ToggleButton
                             x:Name="SettingsButton"
                             Width="42"
                             Height="42"
                             Margin="8,0,0,0"
-                            Content="⚙"
                             IsChecked="{Binding IsSettingsOpen, Mode=TwoWay}"
                             Style="{StaticResource DocsThemeToggleStyle}"
-                            ToolTip="Viewer settings" />
+                            ToolTip="Viewer settings">
+                            <iconPacks:PackIconMaterial Kind="CogOutline" />
+                        </ToggleButton>
                         <Popup
                             AllowsTransparency="True"
                             IsOpen="{Binding IsSettingsOpen, Mode=TwoWay}"
@@ -790,73 +791,6 @@
 
                                     <TextBlock
                                         Margin="0,14,0,6"
-                                        FontSize="11"
-                                        FontWeight="SemiBold"
-                                        Foreground="{DynamicResource MahApps.Brushes.Gray}"
-                                        Text="Theme" />
-                                    <ToggleButton
-                                        Height="34"
-                                        HorizontalContentAlignment="Stretch"
-                                        IsChecked="{Binding IsDarkMode, Mode=TwoWay}"
-                                        ToolTip="Switch between light and dark theme">
-                                        <ToggleButton.Template>
-                                            <ControlTemplate TargetType="ToggleButton">
-                                                <Border
-                                                    Background="{DynamicResource MahApps.Brushes.Gray10}"
-                                                    BorderBrush="{DynamicResource MahApps.Brushes.Gray6}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="5">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="*" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <Border
-                                                            x:Name="DarkTrack"
-                                                            Grid.Column="0"
-                                                            Margin="3"
-                                                            Background="{DynamicResource MahApps.Brushes.Accent}"
-                                                            CornerRadius="4" />
-                                                        <Border
-                                                            x:Name="LightTrack"
-                                                            Grid.Column="1"
-                                                            Margin="3"
-                                                            Background="Transparent"
-                                                            CornerRadius="4" />
-                                                        <TextBlock
-                                                            x:Name="DarkLabel"
-                                                            Grid.Column="0"
-                                                            HorizontalAlignment="Center"
-                                                            VerticalAlignment="Center"
-                                                            FontSize="12"
-                                                            FontWeight="SemiBold"
-                                                            Foreground="White"
-                                                            Text="Dark" />
-                                                        <TextBlock
-                                                            x:Name="LightLabel"
-                                                            Grid.Column="1"
-                                                            HorizontalAlignment="Center"
-                                                            VerticalAlignment="Center"
-                                                            FontSize="12"
-                                                            FontWeight="SemiBold"
-                                                            Foreground="{DynamicResource MahApps.Brushes.Gray}"
-                                                            Text="Light" />
-                                                    </Grid>
-                                                </Border>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsChecked" Value="False">
-                                                        <Setter TargetName="DarkTrack" Property="Background" Value="Transparent" />
-                                                        <Setter TargetName="LightTrack" Property="Background" Value="{DynamicResource MahApps.Brushes.Accent}" />
-                                                        <Setter TargetName="DarkLabel" Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray}" />
-                                                        <Setter TargetName="LightLabel" Property="Foreground" Value="White" />
-                                                    </Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </ToggleButton.Template>
-                                    </ToggleButton>
-
-                                    <TextBlock
-                                        Margin="0,16,0,6"
                                         FontSize="11"
                                         FontWeight="SemiBold"
                                         Foreground="{DynamicResource MahApps.Brushes.Gray}"

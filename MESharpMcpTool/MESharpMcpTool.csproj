@@ -21,6 +21,10 @@
     <None Remove="FodyWeavers.xml" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="MESharp.Tooling.Tests" />
+  </ItemGroup>
+
   <!--
     The dashboard window is code-built with explicit colors (no MahApps/XAML), so only MESharp.Tooling
     is Costura-embedded. csharp_interop is excluded (FodyWeavers.xml) because ME loads it from Build_DLL
@@ -46,7 +50,14 @@
     Deploy only the woven script DLL (deps are Costura-embedded). Never copy the whole TargetDir:
     a stray csharp_interop.dll in the scripts folder breaks hot reload (DUPLICATE_ASSEMBLY_FIX.md).
   -->
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="if not exist &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetPath)&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(TargetName).pdb&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; 2&gt;nul&#xD;&#xA;exit /b 0" />
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipDeployToMe)' != 'true'">
+    <PropertyGroup>
+      <ToolDeployRoot Condition="'$(ToolDeployRoot)' == ''">$(USERPROFILE)\MemoryError\CSharp_scripts\tools</ToolDeployRoot>
+      <ToolDeployDir>$(ToolDeployRoot)\$(AssemblyName)\</ToolDeployDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(ToolDeployDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ToolDeployDir)" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(ToolDeployDir)" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+    <WriteLinesToFile File="$(ToolDeployDir)tool.json" Overwrite="true" Lines="{ &quot;displayName&quot;: &quot;$(MESharpToolDisplayName)&quot;, &quot;assetName&quot;: &quot;$(TargetFileName)&quot;, &quot;version&quot;: &quot;$(AssemblyVersion)&quot;, &quot;updateUrl&quot;: &quot;https://github.com/iStokee/MESharpTools/releases/latest/download/$(AssemblyName).tool.json&quot; }" />
   </Target>
 </Project>

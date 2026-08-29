@@ -1,6 +1,8 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
+using csharp_interop.native;
 using MESharp.Services;
 using MESharp.ViewModels;
 using MESharp.Views;
@@ -24,6 +26,8 @@ namespace MESharp
         private readonly TabControl _tabs;
         private readonly IActivatableViewModel[] _vmsByTab;
         private IActivatableViewModel? _activeVm;
+        private readonly DispatcherTimer _themeTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+        private bool _isDarkMode;
 
         public DoActionHubWindow()
         {
@@ -38,6 +42,9 @@ namespace MESharp
             _signalsVm = new DoActionSignalsViewModel();
             _verbsVm = new NamedVerbTesterViewModel();
 
+            var settings = ThemeManager.LoadSettings();
+            _isDarkMode = Native_UI.TryGetManagedToolsDarkMode(out var isDark) ? isDark : settings.IsDark;
+
             _tabs = new TabControl();
             _tabs.Items.Add(new TabItem
             {
@@ -46,7 +53,7 @@ namespace MESharp
             });
             _tabs.Items.Add(new TabItem
             {
-                Header = "Named Verbs",
+                Header = "Action Tester",
                 Content = new NamedVerbTesterView { DataContext = _verbsVm }
             });
             Content = _tabs;
@@ -57,12 +64,27 @@ namespace MESharp
             _tabs.SelectionChanged += OnTabSelectionChanged;
             Loaded += OnLoaded;
             Closed += OnClosed;
+            _themeTimer.Tick += OnThemeTimerTick;
         }
 
         private void OnLoaded(object? sender, RoutedEventArgs e)
         {
             Loaded -= OnLoaded;
             ActivateTab(_tabs.SelectedIndex);
+            _themeTimer.Start();
+        }
+
+        private void OnThemeTimerTick(object? sender, EventArgs e)
+        {
+            if (!Native_UI.TryGetManagedToolsDarkMode(out var isDark) || isDark == _isDarkMode)
+            {
+                return;
+            }
+
+            _isDarkMode = isDark;
+            var settings = ThemeManager.LoadSettings();
+            settings.IsDark = isDark;
+            ThemeManager.ApplyTheme(settings);
         }
 
         private void OnTabSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -103,6 +125,8 @@ namespace MESharp
         {
             Closed -= OnClosed;
             _tabs.SelectionChanged -= OnTabSelectionChanged;
+            _themeTimer.Stop();
+            _themeTimer.Tick -= OnThemeTimerTick;
 
             SaveSize();
 

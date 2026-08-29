@@ -63,15 +63,15 @@ namespace MESharp.Services
             var merged = app.Resources.MergedDictionaries;
             ResourceDictionary? themeDictionary = null;
             int themeIndex = -1;
+            var assemblyMarker = "/" + (typeof(ThemeManager).Assembly.GetName().Name ?? "MESharpDoActionTool") + ";component/";
 
             // Remove duplicate theme dictionaries while keeping the first instance to reuse.
             for (int i = merged.Count - 1; i >= 0; i--)
             {
                 var src = merged[i].Source?.ToString() ?? string.Empty;
-                if (src.EndsWith("Themes/Light.xaml", StringComparison.OrdinalIgnoreCase) ||
-                    src.EndsWith("Themes/Dark.xaml", StringComparison.OrdinalIgnoreCase) ||
-                    src.Contains("/Themes/Light.xaml", StringComparison.OrdinalIgnoreCase) ||
-                    src.Contains("/Themes/Dark.xaml", StringComparison.OrdinalIgnoreCase))
+                if (src.Contains(assemblyMarker, StringComparison.OrdinalIgnoreCase) &&
+                    (src.EndsWith("Themes/Light.xaml", StringComparison.OrdinalIgnoreCase) ||
+                     src.EndsWith("Themes/Dark.xaml", StringComparison.OrdinalIgnoreCase)))
                 {
                     if (themeDictionary == null)
                     {
@@ -90,31 +90,13 @@ namespace MESharp.Services
 
             if (themeDictionary != null)
             {
-                // Ensure the base theme stays ahead of resource dictionaries that depend on it.
-                var itemFlagIndex = FindDictionaryIndex(merged, "Themes/ItemFlagResources.xaml");
-                if (itemFlagIndex >= 0 && themeIndex > itemFlagIndex)
-                {
-                    merged.Remove(themeDictionary);
-                    themeIndex = itemFlagIndex;
-                    merged.Insert(themeIndex, themeDictionary);
-                }
-
                 TrySetThemeDictionarySource(merged, themeDictionary, baseThemeUri);
             }
             else
             {
-                var insertIndex = FindDictionaryIndex(merged, "Themes/ItemFlagResources.xaml");
-                if (insertIndex < 0)
-                {
-                    insertIndex = merged.Count;
-                }
-
                 themeDictionary = new ResourceDictionary { Source = baseThemeUri };
-                merged.Insert(insertIndex, themeDictionary);
+                merged.Add(themeDictionary);
             }
-
-            EnsureDictionaryPresent(merged, "Themes/ItemFlagResources.xaml");
-            EnsureDictionaryPresent(merged, "Themes/NavHubResources.xaml");
 
             // 2) Apply Primary color (will override the defaults from theme)
             var primary = ParseColor(settings.PrimaryColor) ?? (settings.IsDark ? (Color)ColorConverter.ConvertFromString("#FF7AA2FF") : (Color)ColorConverter.ConvertFromString("#FF3F51B5"));

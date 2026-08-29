@@ -23,8 +23,11 @@ namespace MESharp.Services
         private static readonly object ServerSync = new();
         private static TcpListener? _listener;
         private static CancellationTokenSource? _cts;
+        private static Task? _serverTask;
         private static int _port;
         private static string? _mutationToken;
+        private static readonly object RequestSync = new();
+        private static readonly System.Collections.Generic.HashSet<Task> ActiveRequests = new();
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -57,7 +60,7 @@ namespace MESharp.Services
                 _mutationToken = MapServerRequestSecurity.CreateToken();
 
                 var token = serverCts.Token;
-                _ = Task.Run(async () =>
+                _serverTask = Task.Run(async () =>
                 {
                     try
                     {
@@ -66,7 +69,7 @@ namespace MESharp.Services
                             TcpClient client;
                             try { client = await listener.AcceptTcpClientAsync(token).ConfigureAwait(false); }
                             catch { break; }
-                            _ = Task.Run(() => HandleClient(client), token);
+                            TrackRequest(Task.Run(() => HandleClient(client, token), CancellationToken.None));
                         }
                     }
                     finally { serverCts.Dispose(); }
@@ -80,14 +83,23 @@ namespace MESharp.Services
 
         public static void Stop()
         {
+            Task[] requests;
+            Task? travelTask;
+            Task? serverTask;
+            Task? recordTask;
             lock (ServerSync)
             {
+                serverTask = _serverTask;
                 try { _cts?.Cancel(); } catch { }
                 try { _listener?.Stop(); } catch { }
                 _listener = null;
                 _cts = null;
+                _serverTask = null;
                 _mutationToken = null;
             }
+
+            lock (PreviewSync)
+                _previewPlan = null;
 
             // In-flight travel started from the map must not outlive the server —
             // otherwise the character keeps walking after the tool closes, and the
@@ -95,7 +107,21 @@ namespace MESharp.Services
             lock (TravelSync)
             {
                 try { _travelCts?.Cancel(); } catch { }
+                travelTask = _travelTask;
             }
+
+            lock (RecordSync)
+            {
+                try { _recordCts?.Cancel(); } catch { }
+                recordTask = _recordTask;
+            }
+
+            lock (RequestSync) requests = ActiveRequests.ToArray();
+            var pending = requests
+                .Concat(new[] { serverTask, travelTask, recordTask }.Where(t => t != null).Cast<Task>())
+                .Distinct()
+                .ToArray();
+            try { Task.WaitAll(pending, millisecondsTimeout: 3000); } catch { /* bounded shutdown */ }
 
             // A recording session must not outlive the server (pump user balance,
             // hot-reload collectibility).
@@ -105,16 +131,28 @@ namespace MESharp.Services
                 {
                     try { _recordCts.Cancel(); } catch { }
                     _recordCts = null;
+                    _recordTask = null;
                     _recordSamples = null;
                     try { DoActionDebugSignals.StopNativePump(); } catch { }
                 }
             }
         }
 
-        private static void HandleClient(TcpClient client)
+        private static void TrackRequest(Task task)
+        {
+            lock (RequestSync) ActiveRequests.Add(task);
+            _ = task.ContinueWith(
+                completed => { lock (RequestSync) ActiveRequests.Remove(completed); },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        private static void HandleClient(TcpClient client, CancellationToken cancellationToken)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 using (client)
                 using (var stream = client.GetStream())
                 {
@@ -147,7 +185,7 @@ namespace MESharp.Services
 
                     if (method == "POST")
                     {
-                        body = JsonSerializer.SerializeToUtf8Bytes(HandleApiPost(path, requestBody), JsonOptions);
+                        body = JsonSerializer.SerializeToUtf8Bytes(HandleApiPost(path, requestBody, cancellationToken), JsonOptions);
                         contentType = "application/json";
                         WriteResponse(stream, status, contentType, body);
                         return;
@@ -494,6 +532,7 @@ namespace MESharp.Services
 
         private static readonly object TravelSync = new();
         private static CancellationTokenSource? _travelCts;
+        private static Task? _travelTask;
         private static string? _travelStatus;
         private static bool _travelRunning;
 
@@ -515,7 +554,7 @@ namespace MESharp.Services
             }
 
             var ct = myCts.Token;
-            _ = Task.Run(async () =>
+            var task = Task.Run(async () =>
             {
                 string status;
                 try
@@ -540,10 +579,16 @@ namespace MESharp.Services
                         _travelStatus = status;
                         _travelRunning = false;
                         _travelCts = null;
+                        _travelTask = null;
                     }
                 }
                 myCts.Dispose();
             }, CancellationToken.None);
+            lock (TravelSync)
+            {
+                if (ReferenceEquals(_travelCts, myCts))
+                    _travelTask = task;
+            }
         }
 
         // Click-distance slider bounds (tiles). Default mirrors CollisionPathfinder.CreateDraftRoute's
@@ -554,10 +599,11 @@ namespace MESharp.Services
 
         private static int ClampStride(int value) => Math.Clamp(value, MinMaxStrideTiles, MaxMaxStrideTiles);
 
-        private static object HandleApiPost(string path, string body)
+        private static object HandleApiPost(string path, string body, CancellationToken cancellationToken = default)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 using var doc = string.IsNullOrWhiteSpace(body) ? JsonDocument.Parse("{}") : JsonDocument.Parse(body);
                 var payload = doc.RootElement;
 
@@ -676,7 +722,8 @@ namespace MESharp.Services
                         // Live profile so the preview reflects what THIS account can actually use —
                         // a charged glory, the standard spellbook, agility shortcuts at level, etc.
                         // Degrades to empty (lodestones + walking) when no game session is attached.
-                        var plan = WebwalkGraph.FindPath(from, to, WebwalkProfile.FromGameState());
+                        var planProfile = WebwalkProfile.FromGameState();
+                        var plan = WebwalkGraph.FindPath(from, to, planProfile, cancellationToken);
                         if (plan == null)
                             return new
                             {
@@ -684,7 +731,14 @@ namespace MESharp.Services
                                 error = $"No plan from {from} to {to} — no route/transport connects them.",
                                 gridsAvailable = CollisionPathfinder.IsAvailable()
                             };
-                        return new { succeeded = true, totalCostMs = plan.TotalCostMs, legs = BuildPlanLegs(from, to, plan) };
+                        var planId = CachePreviewPlan(from, to, plan, planProfile);
+                        return new
+                        {
+                            succeeded = true,
+                            planId,
+                            totalCostMs = plan.TotalCostMs,
+                            legs = BuildPlanLegs(from, to, plan, cancellationToken)
+                        };
                     }
 
                     case "/api/travel":
@@ -692,8 +746,16 @@ namespace MESharp.Services
                         var to = new WorldPoint(GetInt(payload, "x"), GetInt(payload, "y"), GetInt(payload, "z"));
                         // Same live profile as /api/plan so the run uses the previewed teleports
                         // (and skips any the account can't currently afford, e.g. a depleted glory).
-                        var travelProfile = WebwalkProfile.FromGameState();
-                        StartTravelTask($"Travel to {to}", ct => Navigation.TravelToAsync(to, travelProfile, ct));
+                        var requestedPlanId = GetString(payload, "planId");
+                        if (TryTakePreviewPlan(requestedPlanId, to, out var preview))
+                        {
+                            StartTravelTask($"Travel to {to}", ct => RunPreviewThenReplanAsync(preview, ct));
+                        }
+                        else
+                        {
+                            var travelProfile = WebwalkProfile.FromGameState();
+                            StartTravelTask($"Travel to {to}", ct => Navigation.TravelToAsync(to, travelProfile, ct));
+                        }
                         return new { succeeded = true, message = $"Travel to {to} started." };
                     }
 
@@ -774,6 +836,10 @@ namespace MESharp.Services
                         return new { succeeded = false, error = $"Unknown API endpoint '{path}'." };
                 }
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 return new { succeeded = false, error = ex.Message };
@@ -787,7 +853,11 @@ namespace MESharp.Services
         /// waypoints (sliced/reversed exactly as the plan will run them). Teleport/transport legs
         /// have no polyline; the map draws them as a labelled jump / plane-change marker.
         /// </summary>
-        private static object[] BuildPlanLegs(WorldPoint from, WorldPoint to, WebwalkGraphPath path)
+        private static object[] BuildPlanLegs(
+            WorldPoint from,
+            WorldPoint to,
+            WebwalkGraphPath path,
+            CancellationToken cancellationToken)
         {
             var nodes = WebwalkGraph.GetGraph().Nodes
                 .GroupBy(n => n.Id, StringComparer.OrdinalIgnoreCase)
@@ -799,6 +869,7 @@ namespace MESharp.Services
             var cursor = from;
             foreach (var e in path.Edges)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var kind = string.IsNullOrWhiteSpace(e.Kind) ? "route" : e.Kind.ToLowerInvariant();
                 var fromPos = cursor;
                 WorldPoint toPos;
@@ -828,7 +899,11 @@ namespace MESharp.Services
                     // Same-plane walk legs: trace the actual collision tiles so the line hugs geometry.
                     if (kind == "walk" && fromPos.Z == toPos.Z)
                     {
-                        var r = CollisionPathfinder.FindPath(fromPos, toPos, maxExpansions: 60_000);
+                        var r = CollisionPathfinder.FindPath(
+                            fromPos,
+                            toPos,
+                            maxExpansions: 60_000,
+                            cancellationToken: cancellationToken);
                         if (r.Succeeded && r.Tiles.Count > 0) waypoints = r.Tiles.ToList();
                     }
                 }
@@ -848,6 +923,76 @@ namespace MESharp.Services
             return legs.ToArray();
         }
 
+        private static readonly object PreviewSync = new();
+        private static CachedPreviewPlan? _previewPlan;
+        private static readonly TimeSpan PreviewLifetime = TimeSpan.FromMinutes(2);
+        private const int PreviewStartToleranceTiles = 8;
+
+        private sealed record CachedPreviewPlan(
+            string Id,
+            WorldPoint From,
+            WorldPoint To,
+            WebwalkGraphPath Plan,
+            WebwalkProfile Profile,
+            DateTime CreatedUtc);
+
+        private static string CachePreviewPlan(
+            WorldPoint from,
+            WorldPoint to,
+            WebwalkGraphPath plan,
+            WebwalkProfile profile)
+        {
+            var id = Guid.NewGuid().ToString("N");
+            lock (PreviewSync)
+                _previewPlan = new CachedPreviewPlan(id, from, to, plan, profile, DateTime.UtcNow);
+            return id;
+        }
+
+        private static bool TryTakePreviewPlan(string? id, WorldPoint destination, out CachedPreviewPlan preview)
+        {
+            preview = null!;
+            if (string.IsNullOrWhiteSpace(id))
+                return false;
+
+            CachedPreviewPlan? candidate;
+            lock (PreviewSync)
+            {
+                candidate = _previewPlan;
+                if (candidate == null ||
+                    !string.Equals(candidate.Id, id, StringComparison.Ordinal) ||
+                    candidate.To != destination ||
+                    DateTime.UtcNow - candidate.CreatedUtc > PreviewLifetime)
+                    return false;
+                _previewPlan = null;
+            }
+
+            try
+            {
+                var current = Traversal.GetCurrentPosition();
+                if (current.Z != candidate.From.Z || current.TileDistanceTo(candidate.From) > PreviewStartToleranceTiles)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            preview = candidate;
+            return true;
+        }
+
+        private static async Task<bool> RunPreviewThenReplanAsync(
+            CachedPreviewPlan preview,
+            CancellationToken cancellationToken)
+        {
+            var result = await Webwalking.RunPlanDetailedAsync(preview.Plan, cancellationToken).ConfigureAwait(false);
+            if (result.Succeeded)
+                return true;
+            if (result.Status == WebwalkPlanRunStatus.Cancelled || cancellationToken.IsCancellationRequested)
+                return false;
+            return await Navigation.TravelToAsync(preview.To, preview.Profile, cancellationToken).ConfigureAwait(false);
+        }
+
         // ── Record-from-map (R2-C) ───────────────────────────────────────────────
         // The map drives the recorder: start, free-roam, stop → auto-segmented
         // (teleports + dwell stops) pending segments render on the map for accept
@@ -857,6 +1002,7 @@ namespace MESharp.Services
         private static readonly object RecordSync = new();
         private static List<WebwalkRecordedSample>? _recordSamples;
         private static CancellationTokenSource? _recordCts;
+        private static Task? _recordTask;
         private static IReadOnlyList<WebwalkTrailSegment>? _pendingSegments;
         private static IReadOnlyList<WebwalkAuthoring.WebwalkObstacleCandidate>? _pendingObstacles;
         private static DateTime _recordStartUtc;
@@ -881,7 +1027,7 @@ namespace MESharp.Services
                 _recordCts = recordCts;
                 var ct = recordCts.Token;
 
-                _ = Task.Run(async () =>
+                _recordTask = Task.Run(async () =>
                 {
                     try
                     {
@@ -912,15 +1058,20 @@ namespace MESharp.Services
         private static object StopRecording()
         {
             List<WebwalkRecordedSample> samples;
+            Task? recordTask;
             lock (RecordSync)
             {
                 if (_recordCts == null)
                     return new { succeeded = false, error = "Not recording." };
                 _recordCts.Cancel();
                 _recordCts = null;
+                recordTask = _recordTask;
+                _recordTask = null;
                 samples = _recordSamples ?? new List<WebwalkRecordedSample>();
                 _recordSamples = null;
             }
+
+            try { recordTask?.Wait(millisecondsTimeout: 1000); } catch { /* cancellation/timeout */ }
 
             IReadOnlyList<WebwalkAuthoring.WebwalkObstacleCandidate> obstacles;
             try

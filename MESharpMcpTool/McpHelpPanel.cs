@@ -5,6 +5,7 @@ using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
 using FontFamily = System.Windows.Media.FontFamily;
 using Orientation = System.Windows.Controls.Orientation;
+using static csharp_interop.McpTools.McpPalette;
 
 namespace csharp_interop.McpTools
 {
@@ -14,10 +15,6 @@ namespace csharp_interop.McpTools
     /// </summary>
     internal static class McpHelpPanel
     {
-        private static readonly Color BgCard = Color.FromRgb(28, 32, 40);
-        private static readonly Color BorderCol = Color.FromRgb(52, 58, 72);
-        private static readonly Color AccentBlue = Color.FromRgb(66, 165, 245);
-        private static readonly Color TextDim = Color.FromRgb(148, 155, 170);
         private static readonly FontFamily Mono = new("Consolas");
 
         public static UIElement Build()
@@ -61,6 +58,13 @@ namespace csharp_interop.McpTools
                 Bullet("filesystem / filesystem-build", "Writes route/graph stores or runs dotnet build."),
                 Bullet("depends-on-code / depends-on-probe", "Safety depends on the snippet or probe being executed."),
                 Para("Agents are told to prefer read-only probes before mutating actions and to snapshot before/after gameplay-affecting commands.")));
+
+            left.Children.Add(Section("Trust boundary",
+                Para("MESharp MCP is a local developer-control surface, not a sandbox. The bridge pipe is restricted "
+                   + "to the current Windows user, but a connected MCP client can still run C# snippets, build or load "
+                   + "scripts, write MESharp data stores, and issue gameplay actions."),
+                Para("Only register the server with MCP clients and agents you trust. Treat snippet.run, script.* mutation "
+                   + "tools, bridge.call, and gameplay-mutating commands with the same care as running local code.")));
 
             left.Children.Add(Section("Beyond the bridge",
                 Para("The MCP server also exposes tools that never touch the game and therefore do not appear in the Tools tab: "
@@ -128,7 +132,7 @@ namespace csharp_interop.McpTools
                 Text = title,
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(AccentBlue),
+                Foreground = AccentBlueBrush,
                 Margin = new Thickness(0, 0, 0, 8)
             });
             foreach (var child in children)
@@ -136,8 +140,8 @@ namespace csharp_interop.McpTools
 
             return new Border
             {
-                Background = new SolidColorBrush(BgCard),
-                BorderBrush = new SolidColorBrush(BorderCol),
+                Background = BgCardBrush,
+                BorderBrush = BorderLineBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(14, 12, 14, 12),
@@ -150,7 +154,7 @@ namespace csharp_interop.McpTools
         {
             Text = text,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brushes.WhiteSmoke,
+            Foreground = TextBrush,
             Margin = new Thickness(0, 0, 0, 8)
         };
 
@@ -165,7 +169,7 @@ namespace csharp_interop.McpTools
                 Text = term,
                 FontFamily = Mono,
                 FontSize = 12,
-                Foreground = new SolidColorBrush(AccentBlue),
+                Foreground = AccentBlueBrush,
                 Margin = new Thickness(0, 0, 10, 0),
                 VerticalAlignment = VerticalAlignment.Top
             };
@@ -175,7 +179,7 @@ namespace csharp_interop.McpTools
             {
                 Text = text,
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = Brushes.WhiteSmoke
+                Foreground = TextBrush
             };
             Grid.SetColumn(bodyText, 1);
             row.Children.Add(bodyText);
@@ -199,13 +203,13 @@ namespace csharp_interop.McpTools
                 FontFamily = Mono,
                 FontSize = 12,
                 Width = 110,
-                Foreground = Brushes.WhiteSmoke,
+                Foreground = TextBrush,
                 VerticalAlignment = VerticalAlignment.Center
             });
             row.Children.Add(new TextBlock
             {
                 Text = description,
-                Foreground = new SolidColorBrush(TextDim),
+                Foreground = TextDimBrush,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap
             });

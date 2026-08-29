@@ -137,10 +137,9 @@ namespace MESharp.Views
         }
 
         /// <summary>
-        /// The managed WebView2 assemblies are Costura-embedded in the script DLL, but
-        /// their P/Invokes need the native WebView2Loader.dll, which cannot ride along.
-        /// The build copies it next to the script; loading it once by full path makes
-        /// every later "WebView2Loader.dll" import resolve to the loaded module.
+        /// The managed WebView2 assemblies and native loader are embedded in the tool DLL.
+        /// Native libraries must exist on disk before Windows can load them, so extract the
+        /// loader under local app data and preload it using its canonical module name.
         /// </summary>
         private static void PreloadWebView2Loader()
         {
@@ -162,6 +161,42 @@ namespace MESharp.Views
                     return;
                 }
             }
+
+            // Tool live updates install only MESharpNavTool.dll. Keep that path self-contained by
+            // extracting the embedded x64 loader to a versioned local-app-data directory on first use.
+            try
+            {
+                using var resource = typeof(MapView).Assembly.GetManifestResourceStream("MESharp.WebView2Loader.x64.dll");
+                if (resource != null)
+                {
+                    var version = typeof(MapView).Assembly.GetName().Version?.ToString() ?? "unknown";
+                    var nativeDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "MESharp", "Native", version);
+                    Directory.CreateDirectory(nativeDir);
+                    // Keep the canonical filename: WebView2's managed P/Invokes request this exact
+                    // module name after we preload it by full path.
+                    var extractedPath = Path.Combine(nativeDir, "WebView2Loader.dll");
+                    if (!File.Exists(extractedPath) || new FileInfo(extractedPath).Length != resource.Length)
+                    {
+                        var tempPath = extractedPath + ".tmp";
+                        using (var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                            resource.CopyTo(output);
+                        File.Move(tempPath, extractedPath, overwrite: true);
+                    }
+
+                    if (NativeLibrary.TryLoad(extractedPath, out _))
+                    {
+                        _loaderPreloaded = true;
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                // Fall through to WebView2's normal native-library resolution and the UI fallback.
+            }
+
             // Not fatal: if the loader is reachable through normal search paths,
             // CoreWebView2Environment.CreateAsync still works; otherwise it throws
             // and the fallback panel explains the situation.

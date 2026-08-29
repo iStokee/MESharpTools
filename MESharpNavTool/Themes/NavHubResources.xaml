@@ -32,9 +32,6 @@
     <DataTemplate DataType="{x:Type vm:NavHealthViewModel}">
         <views:NavHealthView />
     </DataTemplate>
-    <DataTemplate DataType="{x:Type vm:VerificationDeskViewModel}">
-        <views:VerificationDeskView />
-    </DataTemplate>
 
     <Style x:Key="Hub.Card" TargetType="Border">
         <Setter Property="Padding" Value="10" />

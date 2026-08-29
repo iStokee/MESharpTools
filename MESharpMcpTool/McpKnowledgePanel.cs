@@ -18,6 +18,7 @@ using ListBoxItem = System.Windows.Controls.ListBoxItem;
 using MessageBox = System.Windows.MessageBox;
 using Orientation = System.Windows.Controls.Orientation;
 using TextBox = System.Windows.Controls.TextBox;
+using static csharp_interop.McpTools.McpPalette;
 
 namespace csharp_interop.McpTools
 {
@@ -26,12 +27,8 @@ namespace csharp_interop.McpTools
     /// KnowledgeDashboardWindow (presets, filters, status-dot list, full editor) with the
     /// dashboard's dark card styling.
     /// </summary>
-    internal sealed class McpKnowledgePanel
+    internal sealed class McpKnowledgePanel : IDisposable
     {
-        private static readonly Color BgCard = Color.FromRgb(28, 32, 40);
-        private static readonly Color BorderCol = Color.FromRgb(52, 58, 72);
-        private static readonly Color AccentBlue = Color.FromRgb(66, 165, 245);
-        private static readonly Color TextDim = Color.FromRgb(148, 155, 170);
         private static readonly FontFamily Mono = new("Consolas");
 
         private static readonly string[] ViewPresets = { "All", "Inquiry Ledger", "Question Debt", "Waiting on User", "Validated Knowledge", "Stale Knowledge", "Recent Outcomes" };
@@ -195,6 +192,11 @@ namespace csharp_interop.McpTools
             RefreshItems();
         }
 
+        public void Dispose()
+        {
+            _searchDebounce.Stop();
+        }
+
         // ═══════════════════════════════════════════════════════════════════════
         //  Layout
         // ═══════════════════════════════════════════════════════════════════════
@@ -227,7 +229,7 @@ namespace csharp_interop.McpTools
 
             _itemsList.Background = Brushes.Transparent;
             _itemsList.BorderThickness = new Thickness(0);
-            _itemsList.Foreground = Brushes.WhiteSmoke;
+            _itemsList.Foreground = TextBrush;
             _itemsList.SelectionChanged += (_, _) =>
             {
                 if (_suppressSelectionLoad)
@@ -303,8 +305,8 @@ namespace csharp_interop.McpTools
 
         private static Border Card(UIElement content) => new()
         {
-            Background = new SolidColorBrush(BgCard),
-            BorderBrush = new SolidColorBrush(BorderCol),
+            Background = BgCardBrush,
+            BorderBrush = BorderLineBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12, 10, 12, 10),
@@ -325,7 +327,7 @@ namespace csharp_interop.McpTools
                 Text = "Knowledge Editor",
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(AccentBlue),
+                Foreground = AccentBlueBrush,
                 VerticalAlignment = VerticalAlignment.Center
             });
             titlePanel.Children.Add(_dirtyIndicator);
@@ -357,10 +359,10 @@ namespace csharp_interop.McpTools
             presetRow.Children.Add(presetStack);
 
             var checksPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom };
-            _blockingCheck.Foreground = Brushes.WhiteSmoke;
+            _blockingCheck.Foreground = TextBrush;
             _blockingCheck.Checked += (_, _) => RefreshItems();
             _blockingCheck.Unchecked += (_, _) => RefreshItems();
-            _debtCheck.Foreground = Brushes.WhiteSmoke;
+            _debtCheck.Foreground = TextBrush;
             _debtCheck.Checked += (_, _) => RefreshItems();
             _debtCheck.Unchecked += (_, _) => RefreshItems();
             checksPanel.Children.Add(_blockingCheck);
@@ -479,7 +481,7 @@ namespace csharp_interop.McpTools
             {
                 Header = "Extended Fields",
                 Margin = new Thickness(0, 6, 0, 8),
-                Foreground = Brushes.WhiteSmoke,
+                Foreground = TextBrush,
                 IsExpanded = false
             };
 
@@ -496,7 +498,7 @@ namespace csharp_interop.McpTools
             AddField(grid, "Impact (1-5)", _impactBox, 1, 0);
             AddField(grid, "Urgency (1-5)", _urgencyBox, 1, 1);
             var blockingPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 6), VerticalAlignment = VerticalAlignment.Bottom };
-            _blockingEdit.Foreground = Brushes.WhiteSmoke;
+            _blockingEdit.Foreground = TextBrush;
             blockingPanel.Children.Add(_blockingEdit);
             Grid.SetRow(blockingPanel, 1);
             Grid.SetColumn(blockingPanel, 2);
@@ -1047,7 +1049,7 @@ namespace csharp_interop.McpTools
             confLabel.SetBinding(TextBlock.TextProperty, new DataBinding("Confidence") { StringFormat = "conf {0}" });
             confLabel.SetValue(TextBlock.FontFamilyProperty, Mono);
             confLabel.SetValue(TextBlock.FontSizeProperty, 10.0);
-            confLabel.SetValue(TextBlock.ForegroundProperty, new SolidColorBrush(TextDim));
+            confLabel.SetValue(TextBlock.ForegroundProperty, TextDimBrush);
             kindLabel.SetValue(TextBlock.MarginProperty, new Thickness(8, 0, 0, 0));
             statusLabel.SetValue(TextBlock.MarginProperty, new Thickness(8, 0, 0, 0));
             confLabel.SetValue(TextBlock.MarginProperty, new Thickness(8, 0, 0, 0));
@@ -1086,7 +1088,7 @@ namespace csharp_interop.McpTools
             f.SetBinding(TextBlock.TextProperty, new DataBinding(bindingPath));
             f.SetValue(TextBlock.FontFamilyProperty, Mono);
             f.SetValue(TextBlock.FontSizeProperty, 10.0);
-            f.SetValue(TextBlock.ForegroundProperty, new SolidColorBrush(TextDim));
+            f.SetValue(TextBlock.ForegroundProperty, TextDimBrush);
             return f;
         }
 
@@ -1095,7 +1097,7 @@ namespace csharp_interop.McpTools
             var style = new Style(typeof(ListBoxItem));
             style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
             style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0)));
-            style.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.WhiteSmoke));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, TextBrush));
             style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, System.Windows.HorizontalAlignment.Stretch));
             return style;
         }
@@ -1188,7 +1190,7 @@ namespace csharp_interop.McpTools
         private static TextBlock Label(string text) => new()
         {
             Text = text,
-            Foreground = new SolidColorBrush(TextDim),
+            Foreground = TextDimBrush,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 3)

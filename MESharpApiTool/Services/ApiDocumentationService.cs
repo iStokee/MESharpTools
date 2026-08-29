@@ -192,10 +192,41 @@ namespace csharp_interop.Documentation.Services
 		{
 			var parameters = method.GetParameters();
 			var paramString = parameters.Length > 0
-				? "(" + string.Join(",", parameters.Select(p => p.ParameterType.FullName ?? p.ParameterType.Name)) + ")"
+				? "(" + string.Join(",", parameters.Select(p => GetXmlDocTypeName(p.ParameterType))) + ")"
 				: "";
 
 			return $"M:{method.DeclaringType.FullName}.{method.Name}{paramString}";
+		}
+
+		/// <summary>Formats reflection types using the compiler's XML documentation member-id grammar.</summary>
+		private static string GetXmlDocTypeName(Type type)
+		{
+			if (type.IsByRef)
+				return GetXmlDocTypeName(type.GetElementType()!) + "@";
+			if (type.IsPointer)
+				return GetXmlDocTypeName(type.GetElementType()!) + "*";
+			if (type.IsArray)
+			{
+				var element = GetXmlDocTypeName(type.GetElementType()!);
+				if (type.GetArrayRank() == 1)
+					return element + "[]";
+
+				return element + "[" + string.Join(",", Enumerable.Repeat("0:", type.GetArrayRank())) + "]";
+			}
+			if (type.IsGenericParameter)
+				return (type.DeclaringMethod == null ? "`" : "``") + type.GenericParameterPosition;
+			if (type.IsGenericType)
+			{
+				var definitionName = type.GetGenericTypeDefinition().FullName ?? type.Name;
+				var tick = definitionName.IndexOf('`');
+				if (tick >= 0)
+					definitionName = definitionName[..tick];
+
+				return definitionName.Replace('+', '.') + "{" +
+				       string.Join(",", type.GetGenericArguments().Select(GetXmlDocTypeName)) + "}";
+			}
+
+			return (type.FullName ?? type.Name).Replace('+', '.');
 		}
 
 		/// <summary>

@@ -24,14 +24,29 @@ public sealed class ApiDocumentationBrowserUiTests
             {
                 var viewModel = Assert.IsType<ApiDocBrowserViewModel>(browser.DataContext);
                 Assert.NotEmpty(viewModel.AllClasses);
-                Assert.NotNull(Application.Current.Resources["MahApps.Brushes.ThemeBackground"]);
-                Assert.NotNull(Application.Current.Resources["MahApps.Brushes.Gray10"]);
-                Assert.NotNull(Application.Current.Resources["MahApps.Colors.Accent"]);
+                Assert.NotNull(browser.Resources["MahApps.Brushes.ThemeBackground"]);
+                Assert.NotNull(browser.Resources["MahApps.Brushes.Gray10"]);
+                Assert.NotNull(browser.Resources["MahApps.Colors.Accent"]);
             }
             finally
             {
                 window.Close();
             }
+        });
+    }
+
+    [Fact]
+    public void Browser_theme_does_not_overwrite_application_resources()
+    {
+        StaTestRunner.Run(() =>
+        {
+            EnsureWpfApplication();
+            var sentinel = new SolidColorBrush(Colors.Magenta);
+            Application.Current.Resources["MahApps.Brushes.ThemeBackground"] = sentinel;
+
+            _ = new ApiDocumentationBrowser();
+
+            Assert.Same(sentinel, Application.Current.Resources["MahApps.Brushes.ThemeBackground"]);
         });
     }
 
@@ -199,7 +214,7 @@ public sealed class ApiDocumentationBrowserUiTests
     }
 
     [Fact]
-    public void Browser_search_bar_contains_theme_toggle_button_bound_to_IsDarkMode()
+    public void Browser_settings_button_does_not_expose_a_per_window_theme_toggle()
     {
         StaTestRunner.Run(() =>
         {
@@ -211,18 +226,9 @@ public sealed class ApiDocumentationBrowserUiTests
             {
                 StaTestRunner.PumpDispatcher();
 
-                var vm = Assert.IsType<ApiDocBrowserViewModel>(browser.DataContext);
-
-                // Find the ToggleButton in the visual tree
-                var toggle = FindVisualChild<ToggleButton>(browser);
-                Assert.NotNull(toggle);
-
-                // IsChecked must match IsDarkMode (dark by default → checked)
-                Assert.True(toggle.IsChecked == true);
-
-                vm.IsDarkMode = false;
-                StaTestRunner.PumpDispatcher();
-                Assert.True(toggle.IsChecked == false);
+                var settingsButton = Assert.IsType<ToggleButton>(browser.FindName("SettingsButton"));
+                var binding = Assert.IsType<BindingExpression>(settingsButton.GetBindingExpression(ToggleButton.IsCheckedProperty));
+                Assert.Equal(nameof(ApiDocBrowserViewModel.IsSettingsOpen), binding.ParentBinding.Path.Path);
             }
             finally
             {

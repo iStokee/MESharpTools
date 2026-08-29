@@ -83,7 +83,7 @@
             Padding="10"
             Background="{DynamicResource App.CardBrush}"
             CornerRadius="6">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <WrapPanel VerticalAlignment="Center">
                 <!--
                     Capture toggle: master switch for the native DoAction hook. Far left and
                     loud on purpose — without it the feed only shows tool-dispatched calls.
@@ -173,7 +173,7 @@
                 <Button Margin="0,0,8,0" Padding="10,4" Command="{Binding CopySelectedCommand}" Content="Copy Selected" />
                 <Button Margin="0,0,8,0" Padding="10,4" Command="{Binding CopyAllCommand}" Content="Copy All" />
                 <Button Padding="10,4" Command="{Binding ClearBufferCommand}" Content="Clear Buffer" />
-            </StackPanel>
+            </WrapPanel>
         </Border>
 
         <DataGrid

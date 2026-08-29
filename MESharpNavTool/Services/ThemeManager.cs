@@ -63,15 +63,15 @@ namespace MESharp.Services
             var merged = app.Resources.MergedDictionaries;
             ResourceDictionary? themeDictionary = null;
             int themeIndex = -1;
+            var assemblyMarker = "/" + (typeof(ThemeManager).Assembly.GetName().Name ?? "MESharpNavTool") + ";component/";
 
             // Remove duplicate theme dictionaries while keeping the first instance to reuse.
             for (int i = merged.Count - 1; i >= 0; i--)
             {
                 var src = merged[i].Source?.ToString() ?? string.Empty;
-                if (src.EndsWith("Themes/Light.xaml", StringComparison.OrdinalIgnoreCase) ||
-                    src.EndsWith("Themes/Dark.xaml", StringComparison.OrdinalIgnoreCase) ||
-                    src.Contains("/Themes/Light.xaml", StringComparison.OrdinalIgnoreCase) ||
-                    src.Contains("/Themes/Dark.xaml", StringComparison.OrdinalIgnoreCase))
+                if (src.Contains(assemblyMarker, StringComparison.OrdinalIgnoreCase) &&
+                    (src.EndsWith("Themes/Light.xaml", StringComparison.OrdinalIgnoreCase) ||
+                     src.EndsWith("Themes/Dark.xaml", StringComparison.OrdinalIgnoreCase)))
                 {
                     if (themeDictionary == null)
                     {

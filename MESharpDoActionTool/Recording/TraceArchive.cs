@@ -106,7 +106,10 @@ namespace MESharp.Recording
                 if (!Directory.Exists(dir)) return false;
                 var full = Path.GetFullPath(dir);
                 var rootFull = Path.GetFullPath(expectedRoot);
-                if (!full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) ||
+                var rootedPrefix = rootFull.EndsWith(Path.DirectorySeparatorChar)
+                    ? rootFull
+                    : rootFull + Path.DirectorySeparatorChar;
+                if (!full.StartsWith(rootedPrefix, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(full, rootFull, StringComparison.OrdinalIgnoreCase))
                 {
                     return false;

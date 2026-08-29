@@ -36,8 +36,8 @@ steps to refresh definitions and capture visible NPCs. A region remains disabled
 `candidate` with one coordinate source; it becomes enabled and `corroborated` only when two
 independent sources agree on the cluster.
 
-Tools are **auto-discovered** by the `<IsMESharpTool>true</IsMESharpTool>` marker in their `.csproj`
-(see *Releasing tools*), so adding a tool requires no edit to a central list. They are tied together
+Tools are discovered by the `<IsMESharpTool>true</IsMESharpTool>` marker in their `.csproj`, then
+explicitly allowed into public releases through `tools/versions.json` (see *Releasing tools*). They are tied together
 at runtime by ME's native **Tools menu** + `ToolRegistry`, regardless of which folder/solution they
 build from.
 
@@ -58,30 +58,32 @@ the real `csharp_interop.dll` at runtime.
 Release artifacts (the tool DLLs) are built by the maintainer from the monorepo via
 `tools/ToolRelease.ps1`, which has `csharp_interop` available.
 
-## Live-update model (umbrella release)
+## Registration and live updates
 
-One **umbrella release** tagged `tools-vN` bundles every tool. It carries each tool's woven DLL plus a
-single `tools-manifest.json`:
+Every installed tool owns a directory under
+`%USERPROFILE%\MemoryError\CSharp_scripts\tools\<tool-id>\`. Registration requires only a
+`tool.json` and its declared DLL:
 
 ```json
-{ "schema": 1, "release": "tools-v3", "generatedAtUtc": "…",
-  "tools": [
-    { "id": "MESharpNavTool", "displayName": "Navigation",
-      "assetName": "MESharpNavTool.dll", "version": "1.2.0", "sha256": "…" },
-    … ] }
+{
+  "displayName": "Navigation",
+  "assetName": "MESharpNavTool.dll",
+  "version": "1.2.0",
+  "updateUrl": "https://github.com/iStokee/MESharpTools/releases/latest/download/MESharpNavTool.tool.json"
+}
 ```
 
-- The in-client `ToolUpdater` (in `csharp_interop`) fetches the newest `tools-v*` release, reads the
-  manifest, and per tool compares the manifest `version` to the installed DLL's `AssemblyVersion`. On
-  apply it downloads only the changed tool's DLL → verifies sha256 → overwrites it in `CSharp_scripts\`
-  → `ScriptLoader.ReloadScript` (hot reload, no ME restart).
-- **Auto-discovery:** tools the manifest lists but the registry doesn't know are merged in
-  automatically (`ToolRegistry.MergeDiscovered`), so a newly-released tool appears in the native
-  **Tools** menu with no `csharp_interop` change.
-- **Presence-driven UI:** a tool is shown only if it is **downloadable** (in the manifest) or
-  **present on disk** in `CSharp_scripts`. Tools you have not shipped and don't have locally never
-  appear (no "missing" rows). Build/drop a tool DLL into `CSharp_scripts` and re-check → it shows up.
-  `ToolRegistry.KnownCatalog()` only supplies a friendly display name for recognized DLLs found on disk.
+- `displayName`, `assetName`, and `version` are required. The tool id is the DLL filename stem.
+- `updateUrl` is optional. It points to a remote manifest with the same shape; the remote DLL is
+  resolved relative to that URL. `sha256` is optional update-integrity metadata.
+- Checks are automatic. Installation always requires the user to select **Update**.
+- Updates validate the hash when supplied and the downloaded assembly id, retain a rollback copy,
+  update `tool.json` atomically, and hot-reload a running tool.
+- Tool directories may contain additional assets and dependencies. Registration and updating concern
+  the entry DLL; authors distribute the complete directory when other files are required.
+- Packaged MESharp builds also include `CSharp_scripts\tools\tools-manifest.json`, an inventory of
+  bundled first-party tools and their SHA-256 hashes. Local registration still comes from each
+  directory's `tool.json`; users never edit the root inventory to add a tool.
 - Status surfaces as a colored dot: green = current, yellow = update available, orange/red = stale
   (major behind / pending too long) or broken.
 - **Token-free** updates require this repo to be **public**. The umbrella release must be authored by
@@ -96,24 +98,23 @@ Tools **self-register** in their `.csproj` — no central catalog to maintain:
 <MESharpToolDisplayName>Navigation</MESharpToolDisplayName>
 ```
 
-`ToolRelease.ps1` auto-discovers every such project, builds each **active** tool at the version in
+`ToolRelease.ps1` auto-discovers every such project, builds each **public** tool at the version in
 `tools/versions.json` (keyed by tool **Id == AssemblyName**, default `1.0.0`), and emits **one**
-`tools-vN` release with the active DLLs + `tools-manifest.json`. N auto-increments from the newest
-existing `tools-v*` tag.
+`tools-vN` release with the public DLLs, one `<id>.tool.json` per tool, and the umbrella manifest
+used for first-party release metadata. N auto-increments from the newest existing `tools-v*` tag.
 
 ```pwsh
 # Interactive menu (toggle which tools ship, set versions, dry-run or publish):
 pwsh tools/ToolRelease.ps1
-# Build + stage the bundle of active tools (dry run - prints paste-ready release fields):
+# Build + stage the bundle of public tools (dry run - prints paste-ready release fields):
 pwsh tools/ToolRelease.ps1 -Stage
-# Build + publish one tools-vN release with the active tools (requires `gh auth login`):
+# Build + publish one tools-vN release with the public tools (requires `gh auth login`):
 pwsh tools/ToolRelease.ps1 -Publish
 ```
 
-**Choosing what ships:** the menu lists every discovered tool with `[x]` (active) / `[ ]` (excluded);
-press its number to toggle. Excluded ids are stored in `versions.json` under `_exclude` and are left
-out of the build/manifest, so an unfinished tool is simply not released (and, being absent from the
-manifest, never appears in-client). New tools are active by default.
+**Choosing what ships:** the menu lists every discovered tool with `[x]` (public) / `[ ]` (internal);
+press its number to toggle. Public ids are stored in `versions.json` under `_include`; everything
+else is left out of the build/manifest and never appears in-client. New tools are internal by default.
 
-**Add a new tool:** mark its `.csproj` (two lines above) and optionally add a `versions.json` entry -
-it is then discovered, bundled, released, and surfaced in-client automatically.
+**Add a new tool:** mark its `.csproj`, add a version, and deliberately add its AssemblyName to
+`versions.json` `_include` when it is ready for public release.

@@ -9,7 +9,7 @@
     <AssemblyName>SharpBuilder.ScriptHost</AssemblyName>
     <!-- Self-registration for ToolRelease.ps1 auto-discovery + the umbrella manifest. -->
     <IsMESharpTool>true</IsMESharpTool>
-    <MESharpToolDisplayName>SharpBuilder</MESharpToolDisplayName>
+    <MESharpToolDisplayName>SharpBuilder (Beta)</MESharpToolDisplayName>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <!--  English-only: keeps satellite resource folders out of the bin so the xcopy deploy stays clean.  -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -48,7 +48,7 @@
     cleanup, and a stray csharp_interop.dll in the scripts folder breaks hot reload
     (see DUPLICATE_ASSEMBLY_FIX.md).
   -->
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipDeployToMe)' != 'true'">
     <Exec Command="if not exist &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetPath)&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(TargetName).pdb&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; 2&gt;nul&#xD;&#xA;exit /b 0" />
   </Target>
 </Project>

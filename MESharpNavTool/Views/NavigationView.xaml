@@ -39,8 +39,8 @@
         <controls:SectionHeader
             Grid.Row="0"
             Margin="0,0,0,10"
-            Title="Travel"
-            Description="Webwalk travel plus diagnostics for primitive movement, wait, minimap, and teleport API calls. Reusable route authoring lives in Routes."
+            Title="Go To"
+            Description="Choose a known destination and let navigation plan the trip. Reusable journeys live in Route Builder; diagnostic controls remain available below."
             IconKind="MapMarkerPath"
             ShowHelp="True"
             HelpCommand="{Binding ShowHelpCommand}"
@@ -409,7 +409,7 @@
                 <Border
                     behaviors:PanelLayoutBehavior.PanelKey="webwalk-travel"
                     Style="{StaticResource NavigationPanelCard}">
-                    <Expander Header="Webwalk Travel" IsExpanded="True">
+                    <Expander Header="Destination" IsExpanded="True">
                         <StackPanel Margin="0,10,0,0">
                             <TextBlock FontWeight="SemiBold" Text="Destination (node id, tag, or route name)" />
                             <TextBlock

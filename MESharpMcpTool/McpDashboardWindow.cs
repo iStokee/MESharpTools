@@ -14,7 +14,6 @@ using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
 using Clipboard = System.Windows.Clipboard;
-using Color = System.Windows.Media.Color;
 using ComboBox = System.Windows.Controls.ComboBox;
 using Control = System.Windows.Controls.Control;
 using FontFamily = System.Windows.Media.FontFamily;
@@ -24,6 +23,7 @@ using ListViewItem = System.Windows.Controls.ListViewItem;
 using Orientation = System.Windows.Controls.Orientation;
 using TabControl = System.Windows.Controls.TabControl;
 using TextBox = System.Windows.Controls.TextBox;
+using static csharp_interop.McpTools.McpPalette;
 
 namespace csharp_interop.McpTools
 {
@@ -34,17 +34,6 @@ namespace csharp_interop.McpTools
     public sealed class McpDashboardWindow : Window
     {
         // ── Palette ───────────────────────────────────────────────────────────
-        private static readonly Color BgWindow = Color.FromRgb(18, 20, 24);
-        private static readonly Color BgCard = Color.FromRgb(28, 32, 40);
-        private static readonly Color BgField = Color.FromRgb(38, 43, 54);
-        private static readonly Color BorderCol = Color.FromRgb(52, 58, 72);
-        private static readonly Color AccentBlue = Color.FromRgb(66, 165, 245);
-        private static readonly Color AccentGreen = Color.FromRgb(102, 187, 106);
-        private static readonly Color AccentRed = Color.FromRgb(239, 83, 80);
-        private static readonly Color AccentOrange = Color.FromRgb(255, 167, 38);
-        private static readonly Color AccentYellow = Color.FromRgb(255, 213, 79);
-        private static readonly Color TextDim = Color.FromRgb(148, 155, 170);
-
         private static readonly FontFamily Mono = new("Consolas");
 
         // ── Header / status ───────────────────────────────────────────────────
@@ -114,6 +103,7 @@ namespace csharp_interop.McpTools
         // only every Nth tick instead of every second so the UI thread isn't doing per-second disk I/O.
         private const int ConfigRefreshEveryTicks = 10;
         private int _configTickCounter;
+        private bool _isDarkMode = true;
 
         private static readonly object BridgeSync = new();
         private static McpRuntimeService? _dashboardOwnedBridge;
@@ -126,11 +116,16 @@ namespace csharp_interop.McpTools
             MinWidth = 980;
             MinHeight = 620;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            Background = new SolidColorBrush(BgWindow);
-            Foreground = Brushes.WhiteSmoke;
+            if (csharp_interop.native.Native_UI.TryGetManagedToolsDarkMode(out var isDark))
+            {
+                _isDarkMode = isDark;
+            }
+            Apply(_isDarkMode);
+            Background = BgWindowBrush;
+            Foreground = TextBrush;
 
-            _startBtn = MakeButton("Start Bridge", (_, _) => StartBridge(), AccentGreen);
-            _stopBtn = MakeButton("Stop Bridge", (_, _) => StopBridge(), AccentRed);
+            _startBtn = MakeButton("Start Bridge", (_, _) => StartBridge(), AccentGreenBrush);
+            _stopBtn = MakeButton("Stop Bridge", (_, _) => StopBridge(), AccentRedBrush);
             _knowledgePanel = new McpKnowledgePanel(SetStatus);
 
             Resources.MergedDictionaries.Add(BuildSharedStyles());
@@ -144,6 +139,7 @@ namespace csharp_interop.McpTools
                     var refreshConfig = _configTickCounter++ % ConfigRefreshEveryTicks == 0;
                     RefreshAll(refreshConfig);
                 }
+                RefreshTheme();
             };
 
             Loaded += (_, _) =>
@@ -152,7 +148,32 @@ namespace csharp_interop.McpTools
                 RefreshAll();
                 _timer.Start();
             };
-            Closed += (_, _) => _timer.Stop();
+            Closed += OnClosed;
+        }
+
+        private void OnClosed(object? sender, EventArgs e)
+        {
+            Closed -= OnClosed;
+            _timer.Stop();
+            _knowledgePanel.Dispose();
+
+            lock (BridgeSync)
+            {
+                try { _dashboardOwnedBridge?.Dispose(); }
+                catch (Exception ex) { Console.WriteLine($"[McpDashboard] Bridge shutdown failed: {ex.Message}"); }
+                finally { _dashboardOwnedBridge = null; }
+            }
+        }
+
+        private void RefreshTheme()
+        {
+            if (!csharp_interop.native.Native_UI.TryGetManagedToolsDarkMode(out var isDark) || isDark == _isDarkMode)
+            {
+                return;
+            }
+
+            _isDarkMode = isDark;
+            Apply(isDark);
         }
 
         // ═══════════════════════════════════════════════════════════════════════
@@ -180,7 +201,7 @@ namespace csharp_interop.McpTools
             root.Children.Add(tabs);
 
             _statusBar.Margin = new Thickness(2, 8, 2, 0);
-            _statusBar.Foreground = new SolidColorBrush(TextDim);
+            _statusBar.Foreground = TextDimBrush;
             Grid.SetRow(_statusBar, 3);
             root.Children.Add(_statusBar);
 
@@ -195,7 +216,7 @@ namespace csharp_interop.McpTools
             right.Children.Add(_startBtn);
             right.Children.Add(_stopBtn);
             right.Children.Add(MakeButton("Refresh", (_, _) => RefreshAll()));
-            _autoRefreshCheck.Foreground = Brushes.WhiteSmoke;
+            _autoRefreshCheck.Foreground = TextBrush;
             right.Children.Add(_autoRefreshCheck);
             DockPanel.SetDock(right, Dock.Right);
             header.Children.Add(right);
@@ -216,8 +237,8 @@ namespace csharp_interop.McpTools
             pillContent.Children.Add(_statusPillText);
             var pill = new Border
             {
-                Background = new SolidColorBrush(BgCard),
-                BorderBrush = new SolidColorBrush(BorderCol),
+                Background = BgCardBrush,
+                BorderBrush = BorderLineBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(11, 5, 11, 5),
@@ -228,8 +249,8 @@ namespace csharp_interop.McpTools
             left.Children.Add(pill);
 
             // Client chip
-            _clientChip.Background = new SolidColorBrush(BgCard);
-            _clientChip.BorderBrush = new SolidColorBrush(BorderCol);
+            _clientChip.Background = BgCardBrush;
+            _clientChip.BorderBrush = BorderLineBrush;
             _clientChip.BorderThickness = new Thickness(1);
             _clientChip.CornerRadius = new CornerRadius(12);
             _clientChip.Padding = new Thickness(10, 4, 10, 4);
@@ -267,15 +288,15 @@ namespace csharp_interop.McpTools
                 Text = caption,
                 FontSize = 10,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(TextDim),
+                Foreground = TextDimBrush,
                 Margin = new Thickness(0, 0, 0, 3)
             });
             stack.Children.Add(value);
 
             var card = new Border
             {
-                Background = new SolidColorBrush(BgCard),
-                BorderBrush = new SolidColorBrush(BorderCol),
+                Background = BgCardBrush,
+                BorderBrush = BorderLineBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
                 Margin = new Thickness(column == 0 ? 0 : 8, 0, 0, 0),
@@ -291,7 +312,7 @@ namespace csharp_interop.McpTools
             FontSize = fontSize,
             FontWeight = FontWeights.Bold,
             FontFamily = Mono,
-            Foreground = Brushes.WhiteSmoke,
+            Foreground = TextBrush,
             TextTrimming = TextTrimming.CharacterEllipsis
         };
 
@@ -384,7 +405,7 @@ namespace csharp_interop.McpTools
                 Text = "Register MESharp.McpServer.exe as a stdio MCP server. It discovers running game sessions "
                      + "automatically, or pin one with the MESHARP_SESSION_PID environment variable.",
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = new SolidColorBrush(TextDim),
+                Foreground = TextDimBrush,
                 Margin = new Thickness(0, 0, 0, 8)
             });
             _connectSnippetBox.IsReadOnly = true;
@@ -407,7 +428,7 @@ namespace csharp_interop.McpTools
             {
                 Text = "Counters and the recent-call list live in-process and reset when the runtime restarts.",
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = new SolidColorBrush(TextDim),
+                Foreground = TextDimBrush,
                 Margin = new Thickness(0, 0, 0, 8)
             });
             var maintenanceRow = new StackPanel { Orientation = Orientation.Horizontal };
@@ -434,7 +455,7 @@ namespace csharp_interop.McpTools
                 Text = title,
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(AccentBlue),
+                Foreground = AccentBlueBrush,
                 Margin = new Thickness(0, 0, 0, 8)
             });
             return panel;
@@ -442,8 +463,8 @@ namespace csharp_interop.McpTools
 
         private static Border WrapSection(UIElement content) => new()
         {
-            Background = new SolidColorBrush(BgCard),
-            BorderBrush = new SolidColorBrush(BorderCol),
+            Background = BgCardBrush,
+            BorderBrush = BorderLineBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(14, 12, 14, 12),
@@ -460,7 +481,7 @@ namespace csharp_interop.McpTools
             var captionText = new TextBlock
             {
                 Text = caption,
-                Foreground = new SolidColorBrush(TextDim),
+                Foreground = TextDimBrush,
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Top
             };
@@ -476,7 +497,7 @@ namespace csharp_interop.McpTools
             Text = "–",
             FontFamily = Mono,
             FontSize = 12,
-            Foreground = Brushes.WhiteSmoke,
+            Foreground = TextBrush,
             TextWrapping = TextWrapping.Wrap
         };
 
@@ -511,7 +532,7 @@ namespace csharp_interop.McpTools
             toolbar.Children.Add(ToolbarLabel("Filter"));
             _activityFilter.TextChanged += (_, _) => { _activityFilterDirty = true; RefreshActivity(); };
             toolbar.Children.Add(_activityFilter);
-            _errorsOnlyCheck.Foreground = Brushes.WhiteSmoke;
+            _errorsOnlyCheck.Foreground = TextBrush;
             _errorsOnlyCheck.Checked += (_, _) => { _activityFilterDirty = true; RefreshActivity(); };
             _errorsOnlyCheck.Unchecked += (_, _) => { _activityFilterDirty = true; RefreshActivity(); };
             toolbar.Children.Add(_errorsOnlyCheck);
@@ -556,7 +577,7 @@ namespace csharp_interop.McpTools
         {
             var style = BuildListItemBaseStyle();
             var failTrigger = new System.Windows.DataTrigger { Binding = new Binding(nameof(ActivityRow.Ok)), Value = false };
-            failTrigger.Setters.Add(new Setter(ForegroundProperty, new SolidColorBrush(AccentRed)));
+            failTrigger.Setters.Add(new Setter(ForegroundProperty, AccentRedBrush));
             style.Triggers.Add(failTrigger);
             return style;
         }
@@ -570,7 +591,7 @@ namespace csharp_interop.McpTools
             public string Name { get; init; } = string.Empty;
             public string Kind { get; init; } = string.Empty;
             public string Safety { get; init; } = string.Empty;
-            public Brush SafetyBrush { get; init; } = Brushes.WhiteSmoke;
+            public Brush SafetyBrush { get; init; } = TextBrush;
             public string Login { get; init; } = string.Empty;
             public string Mutates { get; init; } = string.Empty;
             public string Description { get; init; } = string.Empty;
@@ -588,7 +609,7 @@ namespace csharp_interop.McpTools
             toolbar.Children.Add(_toolsCategory);
             _toolsSafety.SelectionChanged += (_, _) => RefreshTools();
             toolbar.Children.Add(_toolsSafety);
-            _toolsCount.Foreground = new SolidColorBrush(TextDim);
+            _toolsCount.Foreground = TextDimBrush;
             toolbar.Children.Add(_toolsCount);
             DockPanel.SetDock(toolbar, Dock.Top);
             layout.Children.Add(toolbar);
@@ -631,13 +652,13 @@ namespace csharp_interop.McpTools
 
         private static Brush SafetyToBrush(string safety) => safety switch
         {
-            "safe" => new SolidColorBrush(AccentGreen),
-            "blocking-safe" => new SolidColorBrush(AccentGreen),
-            "mutating" => new SolidColorBrush(AccentRed),
-            "runtime-mutating" => new SolidColorBrush(AccentOrange),
-            "filesystem" => new SolidColorBrush(AccentYellow),
-            "filesystem-build" => new SolidColorBrush(AccentYellow),
-            _ => new SolidColorBrush(AccentBlue)
+            "safe" => AccentGreenBrush,
+            "blocking-safe" => AccentGreenBrush,
+            "mutating" => AccentRedBrush,
+            "runtime-mutating" => AccentOrangeBrush,
+            "filesystem" => AccentYellowBrush,
+            "filesystem-build" => AccentYellowBrush,
+            _ => AccentBlueBrush
         };
 
         // ═══════════════════════════════════════════════════════════════════════
@@ -653,7 +674,7 @@ namespace csharp_interop.McpTools
             _logsFilter.Text = "MCP";
             _logsFilter.TextChanged += (_, _) => { _logsDirty = true; RefreshLogs(); };
             toolbar.Children.Add(_logsFilter);
-            _tailCheck.Foreground = Brushes.WhiteSmoke;
+            _tailCheck.Foreground = TextBrush;
             toolbar.Children.Add(_tailCheck);
             toolbar.Children.Add(MakeButton("Clear buffer", (_, _) =>
             {
@@ -702,26 +723,26 @@ namespace csharp_interop.McpTools
             var listenerKnown = snapshot.ListenerActive || McpRuntimeService.HasActiveListener;
             if (listenerKnown)
             {
-                _statusDot.Fill = new SolidColorBrush(AccentGreen);
+                _statusDot.Fill = AccentGreenBrush;
                 _statusPillText.Text = $"Listening · {snapshot.PipeName ?? $"MESharpMcpBridge.{Environment.ProcessId}"}";
-                _statusPillText.Foreground = new SolidColorBrush(AccentGreen);
+                _statusPillText.Foreground = AccentGreenBrush;
             }
             else
             {
-                _statusDot.Fill = new SolidColorBrush(AccentRed);
+                _statusDot.Fill = AccentRedBrush;
                 _statusPillText.Text = "Bridge stopped";
-                _statusPillText.Foreground = new SolidColorBrush(AccentRed);
+                _statusPillText.Foreground = AccentRedBrush;
             }
 
             if (snapshot.ClientConnected)
             {
                 _clientChipText.Text = "client connected";
-                _clientChipText.Foreground = new SolidColorBrush(AccentBlue);
+                _clientChipText.Foreground = AccentBlueBrush;
             }
             else
             {
                 _clientChipText.Text = "no client";
-                _clientChipText.Foreground = new SolidColorBrush(TextDim);
+                _clientChipText.Foreground = TextDimBrush;
             }
 
             bool ownsBridge;
@@ -738,7 +759,7 @@ namespace csharp_interop.McpTools
         {
             _reqValue.Text = snapshot.TotalRequests.ToString();
             _failValue.Text = snapshot.FailedRequests.ToString();
-            _failValue.Foreground = snapshot.FailedRequests > 0 ? new SolidColorBrush(AccentRed) : Brushes.WhiteSmoke;
+            _failValue.Foreground = snapshot.FailedRequests > 0 ? AccentRedBrush : TextBrush;
             _avgValue.Text = snapshot.TotalRequests > 0 ? $"{snapshot.AverageDurationMs} ms" : "–";
             _connValue.Text = snapshot.TotalConnections.ToString();
             _uptimeValue.Text = snapshot.ListenerActive && snapshot.ListenerStartedUtc.HasValue
@@ -781,14 +802,14 @@ namespace csharp_interop.McpTools
             if (snapshot.ClientConnected)
             {
                 _clientValue.Text = $"connected since {snapshot.LastClientConnectedUtc:HH:mm:ss} UTC";
-                _clientValue.Foreground = new SolidColorBrush(AccentGreen);
+                _clientValue.Foreground = AccentGreenBrush;
             }
             else
             {
                 _clientValue.Text = snapshot.LastClientDisconnectedUtc.HasValue
                     ? $"disconnected at {snapshot.LastClientDisconnectedUtc:HH:mm:ss} UTC"
                     : "never connected";
-                _clientValue.Foreground = new SolidColorBrush(TextDim);
+                _clientValue.Foreground = TextDimBrush;
             }
         }
 
@@ -800,19 +821,19 @@ namespace csharp_interop.McpTools
             {
                 var autostart = ServiceRegistry.GetMcpAutoStartEnabled();
                 _autostartValue.Text = autostart ? "enabled (MCP_AUTOSTART)" : "disabled (MCP_AUTOSTART=false)";
-                _autostartValue.Foreground = autostart ? new SolidColorBrush(AccentGreen) : new SolidColorBrush(AccentOrange);
+                _autostartValue.Foreground = autostart ? AccentGreenBrush : AccentOrangeBrush;
                 _settingsPathValue.Text = ServiceRegistry.GetMeSettingsPath();
 
                 var serverPath = ServiceRegistry.GetMcpServerPath();
                 if (string.IsNullOrWhiteSpace(serverPath))
                 {
                     _serverPathValue.Text = "MESharp.McpServer.exe not found next to csharp_interop.dll";
-                    _serverPathValue.Foreground = new SolidColorBrush(AccentRed);
+                    _serverPathValue.Foreground = AccentRedBrush;
                 }
                 else
                 {
                     _serverPathValue.Text = serverPath;
-                    _serverPathValue.Foreground = new SolidColorBrush(AccentGreen);
+                    _serverPathValue.Foreground = AccentGreenBrush;
                 }
 
                 // Only reassign when the value actually changed; setting Text resets any selection,
@@ -1133,7 +1154,7 @@ namespace csharp_interop.McpTools
         private static TextBlock ToolbarLabel(string text) => new()
         {
             Text = text,
-            Foreground = new SolidColorBrush(TextDim),
+            Foreground = TextDimBrush,
             FontSize = 11,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 6, 0)
@@ -1152,7 +1173,7 @@ namespace csharp_interop.McpTools
             var caption = new TextBlock
             {
                 Text = title,
-                Foreground = new SolidColorBrush(TextDim),
+                Foreground = TextDimBrush,
                 FontSize = 11,
                 Margin = new Thickness(2, 0, 0, 4)
             };
@@ -1165,7 +1186,7 @@ namespace csharp_interop.McpTools
         private static Style BuildListItemBaseStyle()
         {
             var style = new Style(typeof(ListViewItem));
-            style.Setters.Add(new Setter(ForegroundProperty, Brushes.WhiteSmoke));
+            style.Setters.Add(new Setter(ForegroundProperty, TextBrush));
             style.Setters.Add(new Setter(BackgroundProperty, Brushes.Transparent));
             style.Setters.Add(new Setter(Control.FontFamilyProperty, Mono));
             style.Setters.Add(new Setter(Control.FontSizeProperty, 12.0));
@@ -1174,7 +1195,7 @@ namespace csharp_interop.McpTools
             return style;
         }
 
-        private static Button MakeButton(string text, RoutedEventHandler handler, Color? accent = null)
+        private static Button MakeButton(string text, RoutedEventHandler handler, Brush? accent = null)
         {
             var button = new Button
             {
@@ -1182,9 +1203,9 @@ namespace csharp_interop.McpTools
                 MinWidth = 86,
                 Padding = new Thickness(12, 5, 12, 5),
                 Margin = new Thickness(0, 0, 8, 0),
-                Background = new SolidColorBrush(accent ?? BgField),
-                Foreground = accent.HasValue ? Brushes.Black : Brushes.WhiteSmoke,
-                FontWeight = accent.HasValue ? FontWeights.SemiBold : FontWeights.Normal
+                Background = accent ?? BgFieldBrush,
+                Foreground = accent != null ? AccentForegroundBrush : TextBrush,
+                FontWeight = accent != null ? FontWeights.SemiBold : FontWeights.Normal
             };
             button.Click += handler;
             return button;
@@ -1222,26 +1243,37 @@ namespace csharp_interop.McpTools
 
             // Text boxes: dark fields.
             var textBoxStyle = new Style(typeof(TextBox));
-            textBoxStyle.Setters.Add(new Setter(BackgroundProperty, new SolidColorBrush(BgField)));
-            textBoxStyle.Setters.Add(new Setter(ForegroundProperty, Brushes.WhiteSmoke));
-            textBoxStyle.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(BorderCol)));
-            textBoxStyle.Setters.Add(new Setter(System.Windows.Controls.Primitives.TextBoxBase.CaretBrushProperty, Brushes.WhiteSmoke));
+            textBoxStyle.Setters.Add(new Setter(BackgroundProperty, BgFieldBrush));
+            textBoxStyle.Setters.Add(new Setter(ForegroundProperty, TextBrush));
+            textBoxStyle.Setters.Add(new Setter(Control.BorderBrushProperty, BorderLineBrush));
+            textBoxStyle.Setters.Add(new Setter(System.Windows.Controls.Primitives.TextBoxBase.CaretBrushProperty, TextBrush));
             textBoxStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(5, 3, 5, 3)));
             dictionary.Add(typeof(TextBox), textBoxStyle);
 
+            var comboBoxStyle = new Style(typeof(ComboBox));
+            comboBoxStyle.Setters.Add(new Setter(BackgroundProperty, BgFieldBrush));
+            comboBoxStyle.Setters.Add(new Setter(ForegroundProperty, TextBrush));
+            comboBoxStyle.Setters.Add(new Setter(Control.BorderBrushProperty, BorderLineBrush));
+            comboBoxStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(5, 3, 5, 3)));
+            dictionary.Add(typeof(ComboBox), comboBoxStyle);
+
+            var checkBoxStyle = new Style(typeof(CheckBox));
+            checkBoxStyle.Setters.Add(new Setter(ForegroundProperty, TextBrush));
+            dictionary.Add(typeof(CheckBox), checkBoxStyle);
+
             // List views: dark surface.
             var listStyle = new Style(typeof(ListView));
-            listStyle.Setters.Add(new Setter(BackgroundProperty, new SolidColorBrush(BgCard)));
-            listStyle.Setters.Add(new Setter(ForegroundProperty, Brushes.WhiteSmoke));
-            listStyle.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(BorderCol)));
+            listStyle.Setters.Add(new Setter(BackgroundProperty, BgCardBrush));
+            listStyle.Setters.Add(new Setter(ForegroundProperty, TextBrush));
+            listStyle.Setters.Add(new Setter(Control.BorderBrushProperty, BorderLineBrush));
             listStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
             dictionary.Add(typeof(ListView), listStyle);
 
             // Grid view column headers: flat dark strip.
             var headerTemplate = new ControlTemplate(typeof(System.Windows.Controls.GridViewColumnHeader));
             var headerBorder = new FrameworkElementFactory(typeof(Border));
-            headerBorder.SetValue(Border.BackgroundProperty, new SolidColorBrush(BgField));
-            headerBorder.SetValue(Border.BorderBrushProperty, new SolidColorBrush(BorderCol));
+            headerBorder.SetValue(Border.BackgroundProperty, BgFieldBrush);
+            headerBorder.SetValue(Border.BorderBrushProperty, BorderLineBrush);
             headerBorder.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 1, 1));
             headerBorder.SetValue(Border.PaddingProperty, new Thickness(6, 4, 6, 4));
             var headerContent = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -1252,7 +1284,7 @@ namespace csharp_interop.McpTools
 
             var headerStyle = new Style(typeof(System.Windows.Controls.GridViewColumnHeader));
             headerStyle.Setters.Add(new Setter(TemplateProperty, headerTemplate));
-            headerStyle.Setters.Add(new Setter(ForegroundProperty, new SolidColorBrush(TextDim)));
+            headerStyle.Setters.Add(new Setter(ForegroundProperty, TextDimBrush));
             headerStyle.Setters.Add(new Setter(Control.FontSizeProperty, 11.0));
             headerStyle.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
             dictionary.Add(typeof(System.Windows.Controls.GridViewColumnHeader), headerStyle);
@@ -1273,16 +1305,16 @@ namespace csharp_interop.McpTools
             tabTemplate.VisualTree = tabBorder;
 
             var tabSelected = new Trigger { Property = TabItem.IsSelectedProperty, Value = true };
-            tabSelected.Setters.Add(new Setter(Border.BorderBrushProperty, new SolidColorBrush(AccentBlue), "TabBorder"));
-            tabSelected.Setters.Add(new Setter(ForegroundProperty, Brushes.White));
+            tabSelected.Setters.Add(new Setter(Border.BorderBrushProperty, AccentBlueBrush, "TabBorder"));
+            tabSelected.Setters.Add(new Setter(ForegroundProperty, TextStrongBrush));
             tabTemplate.Triggers.Add(tabSelected);
             var tabHover = new Trigger { Property = IsMouseOverProperty, Value = true };
-            tabHover.Setters.Add(new Setter(ForegroundProperty, Brushes.White));
+            tabHover.Setters.Add(new Setter(ForegroundProperty, TextStrongBrush));
             tabTemplate.Triggers.Add(tabHover);
 
             var tabStyle = new Style(typeof(TabItem));
             tabStyle.Setters.Add(new Setter(TemplateProperty, tabTemplate));
-            tabStyle.Setters.Add(new Setter(ForegroundProperty, new SolidColorBrush(TextDim)));
+            tabStyle.Setters.Add(new Setter(ForegroundProperty, TextDimBrush));
             tabStyle.Setters.Add(new Setter(Control.FontSizeProperty, 13.0));
             tabStyle.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
             dictionary.Add(typeof(TabItem), tabStyle);

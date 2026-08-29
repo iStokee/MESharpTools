@@ -33,7 +33,7 @@ namespace MESharp.ViewModels
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
             _timer.Tick += (_, _) => RefreshObservables();
             RefreshActionsCommand = new RelayCommand(_ => RefreshActions());
-            FireCommand = new RelayCommand(p => Fire(p as string));
+            FireCommand = new RelayCommand(p => Fire(p as string), p => CanFire(p as string));
         }
 
         // --- target selection ---
@@ -41,12 +41,23 @@ namespace MESharp.ViewModels
         public bool IsNpc
         {
             get => _isNpc;
-            set { if (Set(ref _isNpc, value)) { OnPropertyChanged(nameof(IsObject)); RefreshActions(); } }
+            set { if (Set(ref _isNpc, value)) { OnPropertyChanged(nameof(IsObject)); RefreshActions(); CommandManager.InvalidateRequerySuggested(); } }
         }
         public bool IsObject { get => !_isNpc; set => IsNpc = !value; }
 
         private string _targetId = string.Empty;
-        public string TargetId { get => _targetId; set { if (Set(ref _targetId, value)) RefreshActions(); } }
+        public string TargetId
+        {
+            get => _targetId;
+            set
+            {
+                if (Set(ref _targetId, value))
+                {
+                    RefreshActions();
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
 
         public ObservableCollection<ResolvedActionRow> Actions { get; } = new();
 
@@ -95,8 +106,13 @@ namespace MESharp.ViewModels
 
         private void Fire(string? verb)
         {
+            if (!CanFire(verb))
+            {
+                LastResult = "Select a compatible target type and enter a numeric id first.";
+                return;
+            }
+
             var id = ParsedId;
-            if (id <= 0) { LastResult = "Enter a numeric id first."; return; }
             try
             {
                 bool ok = verb switch
@@ -114,6 +130,18 @@ namespace MESharp.ViewModels
                              (ok ? "  · watch the observables below" : "  · action not resolved / not dispatched");
             }
             catch (Exception ex) { LastResult = $"{verb} threw: {ex.Message}"; }
+        }
+
+        private bool CanFire(string? verb)
+        {
+            if (ParsedId <= 0)
+            {
+                return false;
+            }
+
+            return IsNpc
+                ? verb is "Attack" or "Talk" or "Trade"
+                : verb is "Open" or "Bank" or "Climb" or "Enter";
         }
 
         private void RefreshObservables()

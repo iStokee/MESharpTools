@@ -48,6 +48,22 @@ public sealed class ApiDocumentationServiceTests
     }
 
     [Fact]
+    public void GetAllApiClasses_resolves_xml_docs_for_generic_and_byref_parameters()
+    {
+        var service = new ApiDocumentationService();
+
+        var classes = service.GetAllApiClasses();
+        var resolver = classes.Single(apiClass => apiClass.Name == "ActionResolver");
+        var tryResolve = resolver.Methods.Single(method => method.Name == "TryResolve");
+        var chat = classes.Single(apiClass => apiClass.Name == "Chat");
+        var tryFind = chat.Methods.Single(method => method.Name == "TryFind");
+
+        Assert.Contains("synonym", tryResolve.Summary, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Populated with the matching message if found.",
+            tryFind.Parameters.Single(parameter => parameter.Name == "found").Description);
+    }
+
+    [Fact]
     public void ApiMethodInfo_formats_signatures_with_optional_defaults()
     {
         var method = new ApiMethodInfo

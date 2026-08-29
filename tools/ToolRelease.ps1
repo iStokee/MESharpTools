@@ -15,8 +15,8 @@
     id -> {displayName, assetName, version, sha256}. The client compares each manifest version to the
     installed DLL and hot-reloads only the tools that changed.
 
-    Add a tool: mark its .csproj + (optionally) add a versions.json entry. It is then discovered,
-    bundled, and surfaced in-client automatically - no edits here or in ToolRegistry.
+    Add a tool: mark its .csproj and deliberately add its AssemblyName to tools/versions.json
+    `_include`. Newly discovered tools remain internal by default.
 
     Only the Costura-woven tool DLLs are shipped; csharp_interop is excluded at build time and never
     bundled (a second copy would break hot reload - DUPLICATE_ASSEMBLY_FIX.md).
@@ -45,6 +45,7 @@
 param(
     [string]$Repo = 'iStokee/MESharpTools',
     [string]$Configuration = 'Release',
+    [string]$NavigationDataSource,
     [int]$BundleVersion,
     [switch]$Publish,
     [switch]$Stage
@@ -54,6 +55,10 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot   # C#/MESharpTools
 $csharpRoot = Split-Path -Parent $root     # C#
 $versionsPath = Join-Path $PSScriptRoot 'versions.json'
+$navigationDataExplicit = -not [string]::IsNullOrWhiteSpace($NavigationDataSource)
+if (-not $NavigationDataSource) {
+    $NavigationDataSource = Join-Path $PSScriptRoot 'navigation-data'
+}
 
 # Publish state: seeded from -Publish, toggled by the menu.
 $script:PublishMode = [bool]$Publish
@@ -73,6 +78,22 @@ function Resolve-Version([string]$id) {
     return $v
 }
 
+function Resolve-NavigationDataVersion {
+    $v = (Get-Versions)._navigationDataVersion
+    if (-not $v -or $v -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
+        throw "versions.json[_navigationDataVersion] must be a 3- or 4-part version."
+    }
+    return "$v"
+}
+
+function Resolve-NavigationMinInteropVersion {
+    $v = (Get-Versions)._navigationDataMinInteropVersion
+    if (-not $v -or $v -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
+        throw "versions.json[_navigationDataMinInteropVersion] must be a 3- or 4-part version."
+    }
+    return "$v"
+}
+
 function Set-ToolVersion([string]$id, [string]$newVersion) {
     if ($newVersion -notmatch '^\d+\.\d+\.\d+$') { throw "'$newVersion' is not a 3-part semantic version (e.g. 1.2.0)." }
     $versions = Get-Versions
@@ -82,31 +103,30 @@ function Set-ToolVersion([string]$id, [string]$newVersion) {
     Write-Host "==> versions.json: $id -> $newVersion" -ForegroundColor Green
 }
 
-# Tool Ids excluded from the build/release, stored in versions.json under "_exclude". A tool is
-# ACTIVE (shipped) unless its Id is listed here, so newly-marked tools are included by default.
-function Get-Excluded {
+# Explicit public release allowlist. A newly-marked tool is internal until deliberately included.
+function Get-Included {
     $v = Get-Versions
-    if ($v.PSObject.Properties.Name -contains '_exclude' -and $v._exclude) { return @($v._exclude) }
+    if ($v.PSObject.Properties.Name -contains '_include' -and $v._include) { return @($v._include) }
     return @()
 }
 
-function Set-Excluded([string[]]$ids) {
+function Set-Included([string[]]$ids) {
     $versions = Get-Versions
-    if ($versions.PSObject.Properties.Name -contains '_exclude') { $versions._exclude = @($ids) }
-    else { $versions | Add-Member -NotePropertyName '_exclude' -NotePropertyValue @($ids) }
+    if ($versions.PSObject.Properties.Name -contains '_include') { $versions._include = @($ids) }
+    else { $versions | Add-Member -NotePropertyName '_include' -NotePropertyValue @($ids) }
     $versions | ConvertTo-Json -Depth 5 | Set-Content -Path $versionsPath -Encoding utf8
 }
 
-# Flip a tool's active/excluded state.
+# Flip a tool's public/internal state.
 function Toggle-Active([string]$id) {
-    $ex = @(Get-Excluded)
-    if ($ex -contains $id) {
-        Set-Excluded @($ex | Where-Object { $_ -ne $id })
-        Write-Host "==> $id is now ACTIVE (will be shipped)." -ForegroundColor Green
+    $included = @(Get-Included)
+    if ($included -contains $id) {
+        Set-Included @($included | Where-Object { $_ -ne $id })
+        Write-Host "==> $id is now INTERNAL (omitted from the release)." -ForegroundColor DarkYellow
     }
     else {
-        Set-Excluded @($ex + $id)
-        Write-Host "==> $id is now EXCLUDED (omitted from the release)." -ForegroundColor DarkYellow
+        Set-Included @($included + $id)
+        Write-Host "==> $id is now PUBLIC (will be shipped)." -ForegroundColor Green
     }
 }
 
@@ -121,12 +141,12 @@ function Get-CsprojProp([xml]$xml, [string]$name) {
 }
 
 # Auto-discover every project that self-registers as a MESharp tool. Each carries an Active flag
-# (false when its Id is in versions.json "_exclude").
+# (true only when its Id is in versions.json "_include").
 function Get-ToolProjects {
     $projects = Get-ChildItem -Path $csharpRoot -Recurse -Filter *.csproj -File |
         Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' }
 
-    $excluded = @(Get-Excluded)
+    $included = @(Get-Included)
     $tools = @()
     foreach ($file in $projects) {
         try { $xml = [xml](Get-Content $file.FullName -Raw) } catch { continue }
@@ -147,7 +167,7 @@ function Get-ToolProjects {
             Tfm         = $tfm
             AssetName   = "$assemblyName.dll"
             Version     = Resolve-Version $assemblyName
-            Active      = (-not ($excluded -contains $assemblyName))
+            Active      = ($included -contains $assemblyName)
         }
     }
     return $tools | Sort-Object Id
@@ -173,9 +193,15 @@ function Invoke-BundleRelease {
     $discovered = Get-ToolProjects
     if (-not $discovered) { throw "No tool projects found (no .csproj with <IsMESharpTool>true under $csharpRoot)." }
 
+    $discoveredIds = @($discovered | ForEach-Object Id)
+    $missingPublicIds = @(Get-Included | Where-Object { $discoveredIds -notcontains $_ })
+    if ($missingPublicIds.Count -gt 0) {
+        throw "versions.json `_include` contains undiscovered tool id(s): $($missingPublicIds -join ', ')"
+    }
+
     $tools = @($discovered | Where-Object Active)
     $skipped = @($discovered | Where-Object { -not $_.Active })
-    if (-not $tools) { throw "Every discovered tool is excluded - nothing to release. Re-activate at least one." }
+    if (-not $tools) { throw "No discovered tools are public - add at least one id to versions.json `_include`." }
 
     $bundleN = Resolve-BundleNumber
     $tag = "tools-v$bundleN"
@@ -184,15 +210,15 @@ function Invoke-BundleRelease {
     New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
     Write-Host ""
-    Write-Host "==> Building bundle $tag ($($tools.Count) active tool(s))" -ForegroundColor Cyan
-    if ($skipped) { Write-Host "    Excluded: $(($skipped | ForEach-Object { $_.Id }) -join ', ')" -ForegroundColor DarkYellow }
+    Write-Host "==> Building bundle $tag ($($tools.Count) public tool(s))" -ForegroundColor Cyan
+    if ($skipped) { Write-Host "    Internal: $(($skipped | ForEach-Object { $_.Id }) -join ', ')" -ForegroundColor DarkYellow }
 
     $manifestTools = @()
     $assetPaths = @()
     foreach ($t in $tools) {
         $av = "$($t.Version).0"
         Write-Host "==> $($t.Id) $($t.Version)  (AssemblyVersion=$av)"
-        dotnet build $t.ProjectPath -c $Configuration -p:AssemblyVersion=$av -p:FileVersion=$av --nologo
+        dotnet build $t.ProjectPath -c $Configuration -p:AssemblyVersion=$av -p:FileVersion=$av -p:SkipDeployToMe=true --nologo
         if ($LASTEXITCODE -ne 0) { throw "Build failed for $($t.Id)." }
 
         $dll = Join-Path $t.ProjectDir "bin/$Configuration/$($t.Tfm)/$($t.AssetName)"
@@ -210,6 +236,116 @@ function Invoke-BundleRelease {
             sha256      = $sha
         }
         $assetPaths += $staged
+
+        # Per-tool manifest used by the directory-based client updater. Its DLL asset is resolved
+        # relative to this manifest's stable /latest/download URL.
+        $toolManifestPath = Join-Path $stage "$($t.Id).tool.json"
+        [ordered]@{
+            displayName = $t.DisplayName
+            assetName   = $t.AssetName
+            version     = $t.Version
+            updateUrl   = "https://github.com/iStokee/MESharpTools/releases/latest/download/$($t.Id).tool.json"
+            sha256      = $sha
+        } | ConvertTo-Json | Set-Content -Path $toolManifestPath -Encoding utf8
+        $assetPaths += $toolManifestPath
+    }
+
+    # Navigation runtime data is a first-class umbrella asset. The source is an explicit,
+    # publisher-prepared directory so a developer's mixed LocalAppData graph is never uploaded
+    # accidentally. Required layout: collision/index.json + shards, webwalk_graph.json;
+    # obstacles.json is optional.
+    $navVersion = $null
+    $manifestNavigationData = $null
+    $navCollision = Join-Path $NavigationDataSource 'collision'
+    $navGraph = Join-Path $NavigationDataSource 'webwalk_graph.json'
+    $hasNavigationData = (Test-Path (Join-Path $navCollision 'index.json') -PathType Leaf) -and
+        (Test-Path $navGraph -PathType Leaf)
+    if (-not $hasNavigationData -and $navigationDataExplicit) {
+        throw "Navigation data source is missing collision/index.json: $NavigationDataSource"
+    }
+    if (-not $hasNavigationData) {
+        Write-Host "    Navigation data omitted (default publisher source is not prepared)." -ForegroundColor DarkYellow
+    }
+    else {
+    $navVersion = Resolve-NavigationDataVersion
+    $navMinInterop = Resolve-NavigationMinInteropVersion
+    if (-not (Get-ChildItem $navCollision -Filter '*_*.json' -File -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+        throw "Navigation data source contains no collision shards: $navCollision"
+    }
+    if (-not (Test-Path $navGraph -PathType Leaf)) {
+        throw "Navigation data source is missing webwalk_graph.json: $NavigationDataSource"
+    }
+
+    try { $navGraphData = Get-Content $navGraph -Raw | ConvertFrom-Json }
+    catch { throw "Navigation vendor graph is invalid JSON: $($_.Exception.Message)" }
+    $allowedSources = @('seed', 'cache', 'curated', 'wiki', 'publisher')
+    $graphEntities = @($navGraphData.nodes) + @($navGraphData.edges) + @($navGraphData.areas)
+    $unsafeEntities = @($graphEntities | Where-Object {
+        -not $_.source -or $allowedSources -notcontains "$($_.source)".ToLowerInvariant()
+    })
+    if ($unsafeEntities.Count -gt 0) {
+        throw "Navigation vendor graph contains $($unsafeEntities.Count) entity/entities without an approved publisher source. Allowed: $($allowedSources -join ', ')."
+    }
+    if (@($navGraphData.edges | Where-Object { $null -ne $_.observedCostMs }).Count -gt 0) {
+        throw 'Navigation vendor graph contains runtime observedCostMs values; publish estimates only.'
+    }
+
+    try { $collisionIndex = Get-Content (Join-Path $navCollision 'index.json') -Raw | ConvertFrom-Json }
+    catch { throw "Collision index is invalid JSON: $($_.Exception.Message)" }
+    $collisionSquares = @($collisionIndex.squares)
+    if ($collisionSquares.Count -eq 0) { throw 'Collision index contains no squares.' }
+
+    $navContent = Join-Path $stage '_navigation-data-content'
+    New-Item -ItemType Directory -Force -Path $navContent | Out-Null
+    $packCollision = Join-Path $navContent 'collision'
+    New-Item -ItemType Directory -Force -Path $packCollision | Out-Null
+    Copy-Item (Join-Path $navCollision 'index.json') (Join-Path $packCollision 'index.json') -Force
+    foreach ($square in $collisionSquares) {
+        if ("$square" -notmatch '^\d+_\d+$') { throw "Collision index contains invalid square '$square'." }
+        $shard = Join-Path $navCollision "$square.json"
+        if (-not (Test-Path $shard -PathType Leaf)) { throw "Collision index references missing shard: $shard" }
+        Copy-Item $shard (Join-Path $packCollision "$square.json") -Force
+    }
+
+    $sourceComponents = Join-Path $navCollision 'components'
+    if (Test-Path (Join-Path $sourceComponents 'index.json') -PathType Leaf) {
+        $packComponents = Join-Path $packCollision 'components'
+        New-Item -ItemType Directory -Force -Path $packComponents | Out-Null
+        Copy-Item (Join-Path $sourceComponents 'index.json') (Join-Path $packComponents 'index.json') -Force
+        foreach ($square in $collisionSquares) {
+            $componentShard = Join-Path $sourceComponents "$square.json"
+            if (Test-Path $componentShard -PathType Leaf) {
+                Copy-Item $componentShard (Join-Path $packComponents "$square.json") -Force
+            }
+        }
+    }
+    Copy-Item $navGraph (Join-Path $navContent 'webwalk_graph.json') -Force
+    $navObstacles = Join-Path $NavigationDataSource 'obstacles.json'
+    if (Test-Path $navObstacles -PathType Leaf) {
+        Copy-Item $navObstacles (Join-Path $navContent 'obstacles.json') -Force
+    }
+    [ordered]@{
+        schema = 1
+        version = $navVersion
+        generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+    } | ConvertTo-Json | Set-Content -Path (Join-Path $navContent 'navigation-data.json') -Encoding utf8
+
+    $navAssetName = 'mesharp-navigation-data.zip'
+    $navAssetPath = Join-Path $stage $navAssetName
+    Compress-Archive -Path (Join-Path $navContent '*') -DestinationPath $navAssetPath -CompressionLevel Optimal
+    Remove-Item $navContent -Recurse -Force
+    $navSha = (Get-FileHash -Algorithm SHA256 -Path $navAssetPath).Hash.ToLowerInvariant()
+    $navSize = (Get-Item $navAssetPath).Length
+    $assetPaths += $navAssetPath
+
+    $manifestNavigationData = [ordered]@{
+        version           = $navVersion
+        schema            = 1
+        assetName         = $navAssetName
+        sha256            = $navSha
+        minInteropVersion = $navMinInterop
+        sizeBytes         = $navSize
+    }
     }
 
     $manifest = [ordered]@{
@@ -217,16 +353,19 @@ function Invoke-BundleRelease {
         release        = $tag
         generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         tools          = $manifestTools
+        navigationData = $manifestNavigationData
     }
     $manifestPath = Join-Path $stage 'tools-manifest.json'
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding utf8
 
-    Write-Host "==> Staged $($tools.Count) DLL(s) + manifest in: $stage" -ForegroundColor Green
+    $navSummary = if ($manifestNavigationData) { ", navigation data $navVersion" } else { "" }
+    Write-Host "==> Staged $($tools.Count) DLL(s)$navSummary, and manifests in: $stage" -ForegroundColor Green
 
     if ($script:PublishMode) {
         if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw '`gh` CLI not found; cannot publish.' }
         $title = "MESharp Tools $tag"
         $notes = "Umbrella release $tag. Tools: " + (($manifestTools | ForEach-Object { "$($_.id) $($_.version)" }) -join ', ') + '.'
+        if ($manifestNavigationData) { $notes += " Navigation data $navVersion." }
         $ghArgs = @('release', 'create', $tag) + $assetPaths + @($manifestPath, '--repo', $Repo, '--title', $title, '--notes', $notes)
         Write-Host "==> Creating GitHub release $tag on $Repo" -ForegroundColor Cyan
         gh @ghArgs
@@ -264,7 +403,7 @@ function Show-Menu {
         Write-Host "============ MESharp Tool Release (umbrella) ============" -ForegroundColor Cyan
         Write-Host " Repo: $Repo"
         Write-Host " Mode: " -NoNewline; Write-Host $mode -ForegroundColor ($(if ($script:PublishMode) { 'Red' } else { 'Yellow' }))
-        Write-Host " $($tools.Count) tool(s) discovered, $activeCount active. [x] = shipped, [ ] = excluded:"
+        Write-Host " $($tools.Count) tool(s) discovered, $activeCount public. [x] = public, [ ] = internal:"
         Write-Host "--------------------------------------------------------"
         for ($i = 0; $i -lt $tools.Count; $i++) {
             $n = ($i + 1).ToString().PadLeft(2)
@@ -275,9 +414,9 @@ function Show-Menu {
             Write-Host "  $n) $box $id $ver $($tools[$i].DisplayName)" -ForegroundColor $color
         }
         Write-Host "--------------------------------------------------------"
-        Write-Host "  #) toggle a tool active/excluded"
+        Write-Host "  #) toggle a tool public/internal"
         Write-Host "  s) set a tool's version"
-        Write-Host "  r) build + release the bundle (active tools only)"
+        Write-Host "  r) build + release the bundle (public tools only)"
         Write-Host "  p) toggle publish/dry-run (currently: $(if ($script:PublishMode){'publish'}else{'dry run'}))"
         Write-Host "  q) quit"
         Write-Host "========================================================"

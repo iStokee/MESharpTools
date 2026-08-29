@@ -163,7 +163,7 @@
                                    Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
                     </DockPanel>
                     <TextBox Grid.Row="1" MinHeight="160"
-                             Text="{Binding Log}"
+                             Text="{Binding Log, Mode=OneWay}"
                              FontFamily="Consolas" FontSize="11"
                              TextWrapping="Wrap"
                              IsReadOnly="True"

@@ -1,5 +1,5 @@
 <Project>
-  <Target Name="CopySharpBuilderReleaseBuildToProd" AfterTargets="Build" Condition="'$(Configuration)'=='Release'">
+  <Target Name="CopySharpBuilderReleaseBuildToProd" AfterTargets="Build" Condition="'$(Configuration)'=='Release' and '$(SkipDeployToMe)' != 'true'">
     <PropertyGroup>
       <RepositoryRoot>$(MSBuildThisFileDirectory)..\..\..\</RepositoryRoot>
       <MESharpProdBuildDir>$(RepositoryRoot)Build\Prod\mesharp_interop\</MESharpProdBuildDir>

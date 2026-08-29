@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
 using MESharp.Scripting;
+using MESharp.Services.NavigationData;
 using MESharp.Services;
 
 namespace MESharp
@@ -18,7 +19,11 @@ namespace MESharp
     {
         private static readonly NavToolScript Script = new();
 
-        public static void Initialize() => Script.Initialize();
+        public static void Initialize()
+        {
+            NavigationDataManager.CheckForUpdatesInBackground();
+            Script.Initialize();
+        }
 
         public static void Shutdown() => Script.Shutdown();
     }
@@ -123,6 +128,10 @@ namespace MESharp
             try
             {
                 var settings = ThemeManager.LoadSettings();
+                if (csharp_interop.native.Native_UI.TryGetManagedToolsDarkMode(out var isDark))
+                {
+                    settings.IsDark = isDark;
+                }
                 ThemeManager.ApplyTheme(settings);
             }
             catch (Exception ex)

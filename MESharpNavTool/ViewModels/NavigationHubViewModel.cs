@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using MESharp.API;
 using MESharp.Commands;
+using MESharp.Services.NavigationData;
 
 namespace MESharp.ViewModels
 {
@@ -16,7 +17,6 @@ namespace MESharp.ViewModels
         Routes,
         Graph,
         Dungeons,
-        Verify,
         Status
     }
 
@@ -35,11 +35,11 @@ namespace MESharp.ViewModels
         private WebwalkingViewModel? _routes;
         private WebwalkGraphViewModel? _graph;
         private DungeonImportViewModel? _dungeons;
-        private VerificationDeskViewModel? _verify;
         private NavHealthViewModel? _status;
 
         private NavigationHubSection _currentSection = NavigationHubSection.Map;
         private object? _currentDetailViewModel;
+        private bool _showDeveloperTools;
         private bool _isActive;
         private bool _disposed;
 
@@ -52,9 +52,9 @@ namespace MESharp.ViewModels
         // ── Live status strip ────────────────────────────────────────────────
         private System.Windows.Threading.DispatcherTimer? _statusTimer;
         private string _playerTileText = "No session";
-        private string _collisionText = "Collision: —";
+        private string _collisionText = "Navigation data: —";
         private string _collisionState = "off"; // ok | warn | off
-        private string _cacheText = "Live cache: —";
+        private string _cacheText = "Definitions: —";
         private string _cacheState = "off";
         private string _nearestNodeText = "Nearest node: —";
         private string _graphStatsText = "Graph: —";
@@ -67,8 +67,20 @@ namespace MESharp.ViewModels
         private WebwalkingViewModel Routes => _routes ??= new WebwalkingViewModel();
         private WebwalkGraphViewModel Graph => _graph ??= new WebwalkGraphViewModel();
         private DungeonImportViewModel Dungeons => _dungeons ??= new DungeonImportViewModel();
-        private VerificationDeskViewModel Verify => _verify ??= new VerificationDeskViewModel();
         private NavHealthViewModel Status => _status ??= new NavHealthViewModel();
+
+        public bool ShowDeveloperTools
+        {
+            get => _showDeveloperTools;
+            set
+            {
+                if (!SetProperty(ref _showDeveloperTools, value) || value)
+                    return;
+
+                if (IsDeveloperSection(CurrentSection))
+                    ShowSection(NavigationHubSection.Map);
+            }
+        }
 
         public NavigationHubSection CurrentSection
         {
@@ -82,7 +94,6 @@ namespace MESharp.ViewModels
                     RaisePropertyChanged(nameof(IsRoutesSelected));
                     RaisePropertyChanged(nameof(IsGraphSelected));
                     RaisePropertyChanged(nameof(IsDungeonsSelected));
-                    RaisePropertyChanged(nameof(IsVerifySelected));
                     RaisePropertyChanged(nameof(IsStatusSelected));
                     RaisePropertyChanged(nameof(MapVisibility));
                     RaisePropertyChanged(nameof(DetailVisibility));
@@ -95,7 +106,6 @@ namespace MESharp.ViewModels
         public bool IsRoutesSelected => CurrentSection == NavigationHubSection.Routes;
         public bool IsGraphSelected => CurrentSection == NavigationHubSection.Graph;
         public bool IsDungeonsSelected => CurrentSection == NavigationHubSection.Dungeons;
-        public bool IsVerifySelected => CurrentSection == NavigationHubSection.Verify;
         public bool IsStatusSelected => CurrentSection == NavigationHubSection.Status;
 
         /// <summary>The map view stays alive (hidden, not destroyed) across section switches so WebView2 keeps its pan/zoom.</summary>
@@ -128,7 +138,6 @@ namespace MESharp.ViewModels
         public ICommand ShowRoutesCommand { get; }
         public ICommand ShowGraphCommand { get; }
         public ICommand ShowDungeonsCommand { get; }
-        public ICommand ShowVerifyCommand { get; }
         public ICommand ShowStatusCommand { get; }
         public ICommand RefreshValidationCommand { get; }
 
@@ -139,7 +148,6 @@ namespace MESharp.ViewModels
             ShowRoutesCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Routes));
             ShowGraphCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Graph));
             ShowDungeonsCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Dungeons));
-            ShowVerifyCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Verify));
             ShowStatusCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Status));
             RefreshValidationCommand = new RelayCommand(_ => RunValidation());
 
@@ -161,6 +169,8 @@ namespace MESharp.ViewModels
         public void ShowSection(NavigationHubSection section)
         {
             if (_disposed) return;
+            if (!_showDeveloperTools && IsDeveloperSection(section))
+                section = NavigationHubSection.Map;
             if (section == CurrentSection && (IsMapSelected ? _map != null : CurrentDetailViewModel != null))
                 return;
 
@@ -172,7 +182,6 @@ namespace MESharp.ViewModels
                 NavigationHubSection.Routes => Routes,
                 NavigationHubSection.Graph => Graph,
                 NavigationHubSection.Dungeons => Dungeons,
-                NavigationHubSection.Verify => Verify,
                 NavigationHubSection.Status => Status,
                 _ => null
             };
@@ -188,6 +197,9 @@ namespace MESharp.ViewModels
             // every section switch is a natural moment to re-check graph health.
             RunValidation();
         }
+
+        private static bool IsDeveloperSection(NavigationHubSection section) =>
+            section is NavigationHubSection.Graph or NavigationHubSection.Dungeons or NavigationHubSection.Status;
 
         private object? ActiveChild() => IsMapSelected ? _map : CurrentDetailViewModel;
 
@@ -237,6 +249,9 @@ namespace MESharp.ViewModels
 
             IsRecordingActive = _graph?.IsRecording == true || Services.CoverageMapServer.IsRecording;
 
+            NavigationDataStatus? navigationData = null;
+            try { navigationData = NavigationDataManager.GetStatus(); } catch { }
+
             WorldPoint pos;
             try
             {
@@ -250,9 +265,13 @@ namespace MESharp.ViewModels
             if (pos.X <= 0 && pos.Y <= 0)
             {
                 PlayerTileText = "No session";
-                CollisionText = "Collision: —";
-                CollisionState = "off";
-                CacheText = "Live cache: —";
+                CollisionText = navigationData?.IsChecking == true && navigationData.IsInstalled == false
+                    ? "Preparing navigation data…"
+                    : navigationData?.IsInstalled == true
+                        ? "Navigation data: installed"
+                        : "Navigation data: limited";
+                CollisionState = navigationData?.IsChecking == true ? "warn" : navigationData?.IsInstalled == true ? "ok" : "off";
+                CacheText = "Definitions: —";
                 CacheState = "off";
                 NearestNodeText = "Nearest node: —";
                 return;
@@ -262,15 +281,13 @@ namespace MESharp.ViewModels
 
             try
             {
-                var live = CacheManager.GetLiveJs5Status();
-                CacheText = !live.IsSupported ? "Live cache: legacy DLL"
-                    : live.IsAvailable ? $"Live cache: {live.NodeCount:N0} archives"
-                    : "Live cache: unavailable";
-                CacheState = live.IsAvailable ? "ok" : live.IsSupported ? "warn" : "off";
+                var definitions = CacheManager.GetStatus();
+                CacheText = definitions.IsLoaded ? "Definitions: ready" : "Definitions: unavailable";
+                CacheState = definitions.IsLoaded ? "ok" : "warn";
             }
             catch
             {
-                CacheText = "Live cache: —";
+                CacheText = "Definitions: —";
                 CacheState = "off";
             }
 
@@ -278,23 +295,25 @@ namespace MESharp.ViewModels
             {
                 if (!CollisionPathfinder.IsAvailable())
                 {
-                    CollisionText = "Collision: no grids";
-                    CollisionState = "off";
+                    CollisionText = navigationData?.IsChecking == true
+                        ? "Preparing navigation data…"
+                        : "Navigation data: limited";
+                    CollisionState = navigationData?.IsChecking == true ? "warn" : "off";
                 }
                 else if (CollisionPathfinder.FindNearestWalkable(pos, 2) != null)
                 {
-                    CollisionText = "Collision: covered";
+                    CollisionText = "Navigation data: ready";
                     CollisionState = "ok";
                 }
                 else
                 {
-                    CollisionText = "Collision: no data here";
+                    CollisionText = "Navigation data: partial";
                     CollisionState = "warn";
                 }
             }
             catch
             {
-                CollisionText = "Collision: —";
+                CollisionText = "Navigation data: —";
                 CollisionState = "off";
             }
 
@@ -447,7 +466,7 @@ namespace MESharp.ViewModels
             Services.CoverageMapServer.FocusRequested -= OnMapFocusRequested;
             _statusTimer?.Stop();
 
-            foreach (var child in new object?[] { _map, _travel, _routes, _graph, _dungeons, _verify, _status })
+            foreach (var child in new object?[] { _map, _travel, _routes, _graph, _dungeons, _status })
             {
                 SafeDeactivate(child);
                 if (child is IDisposable d)

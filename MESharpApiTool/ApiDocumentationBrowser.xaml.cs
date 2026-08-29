@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using csharp_interop.native;
 using csharp_interop.Documentation.ViewModels;
 using Application = System.Windows.Application;
@@ -23,19 +24,28 @@ namespace csharp_interop.Documentation
 	public partial class ApiDocumentationBrowser : UserControl
 	{
 		private readonly ApiDocumentationSettings _settings;
+		private readonly DispatcherTimer _themeTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
 		private bool _applyingSizePreset;
+		private bool _isDarkMode;
 
 		public ApiDocumentationBrowser(ApiDocumentationSettings settings = null)
 		{
 			_settings = settings ?? new ApiDocumentationSettings();
+			_isDarkMode = Native_UI.TryGetManagedToolsDarkMode(out var nativeIsDark)
+				? nativeIsDark
+				: _settings.IsDarkMode;
+			_settings.IsDarkMode = _isDarkMode;
 			EnsureStyleStubs();
 			InitializeComponent();
-			ApplyTheme(_settings.IsDarkMode);
+			ApplyTheme(_isDarkMode);
 			SidebarColumn.Width = new GridLength(_settings.SidebarWidth);
 
 			var vm = new ApiDocBrowserViewModel(_settings);
 			DataContext = vm;
 			vm.PropertyChanged += OnViewModelPropertyChanged;
+			_themeTimer.Tick += OnThemeTimerTick;
+			Loaded += (_, _) => _themeTimer.Start();
+			Unloaded += (_, _) => _themeTimer.Stop();
 		}
 
 		private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -44,9 +54,19 @@ namespace csharp_interop.Documentation
 			    DataContext is ApiDocBrowserViewModel vm)
 			{
 				ApplyTheme(vm.IsDarkMode);
-				_settings.IsDarkMode = vm.IsDarkMode;
-				_settings.Save();
+				_isDarkMode = vm.IsDarkMode;
 			}
+		}
+
+		private void OnThemeTimerTick(object? sender, EventArgs e)
+		{
+			if (!Native_UI.TryGetManagedToolsDarkMode(out var isDark) || isDark == _isDarkMode ||
+			    DataContext is not ApiDocBrowserViewModel vm)
+			{
+				return;
+			}
+
+			vm.IsDarkMode = isDark;
 		}
 
 		protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
@@ -135,48 +155,42 @@ namespace csharp_interop.Documentation
 		/// </summary>
 		private void ApplyTheme(bool isDark)
 		{
-			if (Native_UI.TryGetImGuiTheme(out var imguiTheme))
-			{
-				ApplyImGuiTheme(imguiTheme, isDark);
-				return;
-			}
-
 			if (isDark)
 			{
-				SetColor("MahApps.Colors.Accent",  "#FF2FB7D4");
-				SetColor("MahApps.Colors.Accent3", "#FF16758C");
+				SetColor("MahApps.Colors.Accent",  "#FF42A5F5");
+				SetColor("MahApps.Colors.Accent3", "#FF1E70C4");
 
-				SetBrush("MahApps.Brushes.ThemeBackground", "#FF101820");
-				SetBrush("MahApps.Brushes.ThemeForeground", "#FFF3F6FA");
-				SetBrush("MahApps.Brushes.Text",            "#FFF3F6FA");
-				SetBrush("MahApps.Brushes.Accent",          "#FF2FB7D4");
-				SetBrush("MahApps.Brushes.Accent2",         "#FF6ED7EA");
-				SetBrush("MahApps.Brushes.Accent4",         "#FF163844");
-				SetBrush("MahApps.Brushes.Gray",            "#FFB5C0CC");
+				SetBrush("MahApps.Brushes.ThemeBackground", "#FF121418");
+				SetBrush("MahApps.Brushes.ThemeForeground", "#FFF5F5F5");
+				SetBrush("MahApps.Brushes.Text",            "#FFF5F5F5");
+				SetBrush("MahApps.Brushes.Accent",          "#FF42A5F5");
+				SetBrush("MahApps.Brushes.Accent2",         "#FF79C0FA");
+				SetBrush("MahApps.Brushes.Accent4",         "#FF20394E");
+				SetBrush("MahApps.Brushes.Gray",            "#FF949BAA");
 				SetBrush("MahApps.Brushes.Gray1",           "#FFF2F4F8");
 				SetBrush("MahApps.Brushes.Gray2",           "#FFCAD3DC");
 				SetBrush("MahApps.Brushes.Gray3",           "#FFA8B4C2");
 				SetBrush("MahApps.Brushes.Gray4",           "#FF8794A4");
-				SetBrush("MahApps.Brushes.Gray6",           "#FF485461");
-				SetBrush("MahApps.Brushes.Gray7",           "#FF3D4755");
-				SetBrush("MahApps.Brushes.Gray8",           "#FF262F3B");
-				SetBrush("MahApps.Brushes.Gray9",           "#FF1C242F");
-				SetBrush("MahApps.Brushes.Gray10",          "#FF0B1118");
+				SetBrush("MahApps.Brushes.Gray6",           "#FF343A48");
+				SetBrush("MahApps.Brushes.Gray7",           "#FF2D323D");
+				SetBrush("MahApps.Brushes.Gray8",           "#FF262B36");
+				SetBrush("MahApps.Brushes.Gray9",           "#FF1C2028");
+				SetBrush("MahApps.Brushes.Gray10",          "#FF101216");
 			}
 			else
 			{
 				// Accent is darkened vs the dark-theme value so white text on the selected
 				// list item (Accent background) meets WCAG AA contrast (≥4.5:1).
-				SetColor("MahApps.Colors.Accent",  "#FF0C6B82");
-				SetColor("MahApps.Colors.Accent3", "#FF094E62");
+				SetColor("MahApps.Colors.Accent",  "#FF1E70C4");
+				SetColor("MahApps.Colors.Accent3", "#FF15518F");
 
-				SetBrush("MahApps.Brushes.ThemeBackground", "#FFF8FAFB");
-				SetBrush("MahApps.Brushes.ThemeForeground", "#FF1C2A3A");
-				SetBrush("MahApps.Brushes.Text",            "#FF1C2A3A");
-				SetBrush("MahApps.Brushes.Accent",          "#FF0C6B82");
-				SetBrush("MahApps.Brushes.Accent2",         "#FF2FB7D4");
-				SetBrush("MahApps.Brushes.Accent4",         "#FFE0F5F9");
-				SetBrush("MahApps.Brushes.Gray",            "#FF4A6275");
+				SetBrush("MahApps.Brushes.ThemeBackground", "#FFF7F7FA");
+				SetBrush("MahApps.Brushes.ThemeForeground", "#FF1C2028");
+				SetBrush("MahApps.Brushes.Text",            "#FF1C2028");
+				SetBrush("MahApps.Brushes.Accent",          "#FF1E70C4");
+				SetBrush("MahApps.Brushes.Accent2",         "#FF42A5F5");
+				SetBrush("MahApps.Brushes.Accent4",         "#FFDDECFB");
+				SetBrush("MahApps.Brushes.Gray",            "#FF525967");
 				SetBrush("MahApps.Brushes.Gray1",           "#FFD4E0E8");
 				SetBrush("MahApps.Brushes.Gray2",           "#FFB8CCD8");
 				SetBrush("MahApps.Brushes.Gray3",           "#FF7A96AA");
@@ -254,10 +268,6 @@ namespace csharp_interop.Documentation
 			var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
 			brush.Freeze();
 			Resources[key] = brush;
-			if (Application.Current != null)
-			{
-				Application.Current.Resources[key] = brush;
-			}
 		}
 
 		private void SetBrush(string key, Color color)
@@ -265,29 +275,17 @@ namespace csharp_interop.Documentation
 			var brush = new SolidColorBrush(color);
 			brush.Freeze();
 			Resources[key] = brush;
-			if (Application.Current != null)
-			{
-				Application.Current.Resources[key] = brush;
-			}
 		}
 
 		private void SetColor(string key, string hex)
 		{
 			var color = (Color)ColorConverter.ConvertFromString(hex);
 			Resources[key] = color;
-			if (Application.Current != null)
-			{
-				Application.Current.Resources[key] = color;
-			}
 		}
 
 		private void SetColor(string key, Color color)
 		{
 			Resources[key] = color;
-			if (Application.Current != null)
-			{
-				Application.Current.Resources[key] = color;
-			}
 		}
 
 		private static Color FromArgb(uint argb)

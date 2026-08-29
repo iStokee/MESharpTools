@@ -114,6 +114,10 @@ namespace MESharp
             try
             {
                 var settings = ThemeManager.LoadSettings();
+                if (csharp_interop.native.Native_UI.TryGetManagedToolsDarkMode(out var isDark))
+                {
+                    settings.IsDark = isDark;
+                }
                 ThemeManager.ApplyTheme(settings);
             }
             catch (Exception ex)

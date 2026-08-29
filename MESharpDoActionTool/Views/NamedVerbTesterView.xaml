@@ -94,7 +94,7 @@
             <TextBlock
                 Margin="0,0,0,6"
                 Foreground="{DynamicResource App.SubtleForegroundBrush}"
-                Text="Fire a named verb (resolves the action by name from the cache, then dispatches):" />
+                Text="Test a friendly action name. Only actions valid for the selected target type are enabled:" />
             <WrapPanel>
                 <Button
                     Command="{Binding FireCommand}"
