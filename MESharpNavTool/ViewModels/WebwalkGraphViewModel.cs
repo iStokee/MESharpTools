@@ -1,5 +1,6 @@
 using MESharp.API;
 using MESharp.Commands;
+using MESharp.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -81,8 +82,12 @@ namespace MESharp.ViewModels
         private readonly DispatcherTimer _refreshTimer;
         private readonly DispatcherTimer _recorderTimer;
         private CancellationTokenSource? _pathRunCts;
+        private Task? _pathRunTask;
         private bool _isActive;
         private bool _disposed;
+        private int _graphRefreshVersion;
+        private int _routeRefreshVersion;
+        private int _validationVersion;
 
         // ── Status ────────────────────────────────────────────────────────────────
         private string _lastStatus = "Ready.";
@@ -792,89 +797,113 @@ namespace MESharp.ViewModels
             return string.Equals(NewEdgeKind, "route", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void RefreshGraph()
+        private async void RefreshGraph()
         {
-            WebwalkGraph.ReloadGraph();
-            RefreshRoutes();
-            var graph = WebwalkGraph.GetGraph();
-
-            var nodeIds = new HashSet<string>(graph.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
-            var routeIds = new HashSet<string>(Webwalking.GetRoutes().Select(r => r.Id), StringComparer.OrdinalIgnoreCase);
-
-            var selectedNodeId = SelectedNode?.Id;
-            var selectedEdgeId = SelectedEdge?.Id;
-            Nodes.Clear();
-            foreach (var n in graph.Nodes)
-                Nodes.Add(new GraphNodeDisplay { Id = n.Id, Name = n.Name, X = n.X, Y = n.Y, Z = n.Z, Tags = string.Join(", ", n.Tags ?? new()), Enabled = n.Enabled, Notes = n.Notes ?? string.Empty });
-            SelectedNode = string.IsNullOrWhiteSpace(selectedNodeId) ? null : Nodes.FirstOrDefault(n => string.Equals(n.Id, selectedNodeId, StringComparison.OrdinalIgnoreCase));
-
-            NodeIdOptions.Clear();
-            NodeIdOptions.Add("*");
-            foreach (var id in graph.Nodes.Select(n => n.Id).OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
-                NodeIdOptions.Add(id);
-
-            Edges.Clear();
-            foreach (var e in graph.Edges)
+            var version = ++_graphRefreshVersion;
+            ++_routeRefreshVersion;
+            WebwalkGraphData graph;
+            IReadOnlyList<WebwalkingRoute> routes;
+            try
             {
-                var brokenFrom = !e.IsWildcard && !nodeIds.Contains(e.FromNodeId);
-                var brokenTo = !nodeIds.Contains(e.ToNodeId);
-                var brokenRoute = string.Equals(e.Kind, "route", StringComparison.OrdinalIgnoreCase)
-                    && (string.IsNullOrWhiteSpace(e.RouteId) || !routeIds.Contains(e.RouteId));
-                var unsupported = !WebwalkEdgeExecutors.ExecutableKinds.Contains(e.Kind, StringComparer.OrdinalIgnoreCase);
-                var issues = new List<string>();
-                if (brokenFrom) issues.Add("from node");
-                if (brokenTo) issues.Add("to node");
-                if (brokenRoute) issues.Add("route");
-                if (unsupported) issues.Add("kind");
-                Edges.Add(new GraphEdgeDisplay
+                (graph, routes) = await Task.Run(() =>
                 {
-                    Id = e.Id, From = e.FromNodeId, To = e.ToNodeId, Kind = e.Kind,
-                    RouteId = e.RouteId,
-                    LodestoneDestination = e.TeleportAction?.Destination,
-                    ShortcutObject = e.TeleportAction?.ObjectName,
-                    CostMs = e.CostMs, ObservedCostMs = e.ObservedCostMs,
-                    Reversible = e.Reversible, DangerLevel = e.DangerLevel,
-                    Enabled = e.Enabled,
-                    Notes = e.Notes ?? string.Empty,
-                    Source = e.Source ?? string.Empty,
-                    RequirementsJson = e.Requirements is { Count: > 0 }
-                        ? System.Text.Json.JsonSerializer.Serialize(e.Requirements, RequirementsJsonOptions)
-                        : string.Empty,
-                    HasBrokenRef = issues.Count > 0,
-                    IssueSummary = issues.Count == 0 ? string.Empty : "Broken: " + string.Join(", ", issues)
+                    WebwalkGraph.ReloadGraph();
+                    Webwalking.ReloadRoutes();
+                    return (WebwalkGraph.GetGraph(), Webwalking.GetRoutes());
                 });
             }
-            SelectedEdge = string.IsNullOrWhiteSpace(selectedEdgeId) ? null : Edges.FirstOrDefault(e => string.Equals(e.Id, selectedEdgeId, StringComparison.OrdinalIgnoreCase));
-
-            var selectedAreaId = SelectedArea?.Id;
-            Areas.Clear();
-            foreach (var a in graph.Areas.OrderBy(a => a.Name))
+            catch (Exception ex)
             {
-                int minX, minY, maxX, maxY;
-                if (a.IsPolygon)
+                if (!_disposed) LastStatus = $"Graph refresh failed: {ex.Message}";
+                return;
+            }
+            if (_disposed || version != _graphRefreshVersion) return;
+            try
+            {
+                ApplyRoutes(routes);
+
+                var nodeIds = new HashSet<string>(graph.Nodes.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+                var routeIds = new HashSet<string>(routes.Select(r => r.Id), StringComparer.OrdinalIgnoreCase);
+
+                var selectedNodeId = SelectedNode?.Id;
+                var selectedEdgeId = SelectedEdge?.Id;
+                Nodes.Clear();
+                foreach (var n in graph.Nodes)
+                    Nodes.Add(new GraphNodeDisplay { Id = n.Id, Name = n.Name, X = n.X, Y = n.Y, Z = n.Z, Tags = string.Join(", ", n.Tags ?? new()), Enabled = n.Enabled, Notes = n.Notes ?? string.Empty });
+                SelectedNode = string.IsNullOrWhiteSpace(selectedNodeId) ? null : Nodes.FirstOrDefault(n => string.Equals(n.Id, selectedNodeId, StringComparison.OrdinalIgnoreCase));
+
+                NodeIdOptions.Clear();
+                NodeIdOptions.Add("*");
+                foreach (var id in graph.Nodes.Select(n => n.Id).OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+                    NodeIdOptions.Add(id);
+
+                Edges.Clear();
+                foreach (var e in graph.Edges)
                 {
-                    minX = a.Polygon!.Min(v => v.X); maxX = a.Polygon!.Max(v => v.X);
-                    minY = a.Polygon!.Min(v => v.Y); maxY = a.Polygon!.Max(v => v.Y);
+                    var brokenFrom = !e.IsWildcard && !nodeIds.Contains(e.FromNodeId);
+                    var brokenTo = !nodeIds.Contains(e.ToNodeId);
+                    var brokenRoute = string.Equals(e.Kind, "route", StringComparison.OrdinalIgnoreCase)
+                        && (string.IsNullOrWhiteSpace(e.RouteId) || !routeIds.Contains(e.RouteId));
+                    var unsupported = !WebwalkEdgeExecutors.ExecutableKinds.Contains(e.Kind, StringComparer.OrdinalIgnoreCase);
+                    var issues = new List<string>();
+                    if (brokenFrom) issues.Add("from node");
+                    if (brokenTo) issues.Add("to node");
+                    if (brokenRoute) issues.Add("route");
+                    if (unsupported) issues.Add("kind");
+                    Edges.Add(new GraphEdgeDisplay
+                    {
+                        Id = e.Id, From = e.FromNodeId, To = e.ToNodeId, Kind = e.Kind,
+                        RouteId = e.RouteId,
+                        LodestoneDestination = e.TeleportAction?.Destination,
+                        ShortcutObject = e.TeleportAction?.ObjectName,
+                        CostMs = e.CostMs, ObservedCostMs = e.ObservedCostMs,
+                        Reversible = e.Reversible, DangerLevel = e.DangerLevel,
+                        Enabled = e.Enabled,
+                        Notes = e.Notes ?? string.Empty,
+                        Source = e.Source ?? string.Empty,
+                        RequirementsJson = e.Requirements is { Count: > 0 }
+                            ? System.Text.Json.JsonSerializer.Serialize(e.Requirements, RequirementsJsonOptions)
+                            : string.Empty,
+                        HasBrokenRef = issues.Count > 0,
+                        IssueSummary = issues.Count == 0 ? string.Empty : "Broken: " + string.Join(", ", issues)
+                    });
                 }
-                else { minX = a.MinX; maxX = a.MaxX; minY = a.MinY; maxY = a.MaxY; }
+                SelectedEdge = string.IsNullOrWhiteSpace(selectedEdgeId) ? null : Edges.FirstOrDefault(e => string.Equals(e.Id, selectedEdgeId, StringComparison.OrdinalIgnoreCase));
 
-                Areas.Add(new GraphAreaDisplay
+                var selectedAreaId = SelectedArea?.Id;
+                Areas.Clear();
+                foreach (var a in graph.Areas.OrderBy(a => a.Name))
                 {
-                    Id = a.Id,
-                    Name = a.Name,
-                    Z = a.Z,
-                    Shape = a.IsPolygon ? $"polygon ({a.Polygon!.Count})" : "rect",
-                    Bounds = $"({minX},{minY})–({maxX},{maxY})",
-                    Tags = string.Join(", ", a.Tags ?? new()),
-                    Source = a.Source ?? string.Empty,
-                    Enabled = a.Enabled,
-                    CenterX = (minX + maxX) / 2,
-                    CenterY = (minY + maxY) / 2
-                });
-            }
-            SelectedArea = string.IsNullOrWhiteSpace(selectedAreaId) ? null : Areas.FirstOrDefault(a => string.Equals(a.Id, selectedAreaId, StringComparison.OrdinalIgnoreCase));
+                    int minX, minY, maxX, maxY;
+                    if (a.IsPolygon)
+                    {
+                        minX = a.Polygon!.Min(v => v.X); maxX = a.Polygon!.Max(v => v.X);
+                        minY = a.Polygon!.Min(v => v.Y); maxY = a.Polygon!.Max(v => v.Y);
+                    }
+                    else { minX = a.MinX; maxX = a.MaxX; minY = a.MinY; maxY = a.MaxY; }
 
-            LastStatus = $"Graph: {Nodes.Count} nodes, {Edges.Count} edges, {Areas.Count} areas. Store: {WebwalkGraph.GetGraphStorePath()}";
+                    Areas.Add(new GraphAreaDisplay
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        Z = a.Z,
+                        Shape = a.IsPolygon ? $"polygon ({a.Polygon!.Count})" : "rect",
+                        Bounds = $"({minX},{minY})–({maxX},{maxY})",
+                        Tags = string.Join(", ", a.Tags ?? new()),
+                        Source = a.Source ?? string.Empty,
+                        Enabled = a.Enabled,
+                        CenterX = (minX + maxX) / 2,
+                        CenterY = (minY + maxY) / 2
+                    });
+                }
+                SelectedArea = string.IsNullOrWhiteSpace(selectedAreaId) ? null : Areas.FirstOrDefault(a => string.Equals(a.Id, selectedAreaId, StringComparison.OrdinalIgnoreCase));
+
+                LastStatus = $"Graph: {Nodes.Count} nodes, {Edges.Count} edges, {Areas.Count} areas. Store: {WebwalkGraph.GetGraphStorePath()}";
+            }
+            catch (Exception ex)
+            {
+                if (!_disposed) LastStatus = $"Graph display failed: {ex.Message}";
+            }
         }
 
         private void DeleteSelectedArea()
@@ -895,12 +924,33 @@ namespace MESharp.ViewModels
             }
         }
 
-        private void RefreshRoutes()
+        private async void RefreshRoutes()
+        {
+            var version = ++_routeRefreshVersion;
+            IReadOnlyList<WebwalkingRoute> routes;
+            try
+            {
+                routes = await Task.Run(() =>
+                {
+                    Webwalking.ReloadRoutes();
+                    return Webwalking.GetRoutes();
+                });
+            }
+            catch (Exception ex)
+            {
+                if (!_disposed) LastStatus = $"Route refresh failed: {ex.Message}";
+                return;
+            }
+            if (_disposed || version != _routeRefreshVersion) return;
+            try { ApplyRoutes(routes); }
+            catch (Exception ex) { if (!_disposed) LastStatus = $"Route display failed: {ex.Message}"; }
+        }
+
+        private void ApplyRoutes(IReadOnlyList<WebwalkingRoute> routes)
         {
             var selectedRouteId = SelectedRoute?.Id;
-            Webwalking.ReloadRoutes();
             Routes.Clear();
-            foreach (var route in Webwalking.GetRoutes().OrderBy(r => r.Category).ThenBy(r => r.Name))
+            foreach (var route in routes.OrderBy(r => r.Category).ThenBy(r => r.Name))
             {
                 Routes.Add(new GraphRouteDisplay
                 {
@@ -933,6 +983,13 @@ namespace MESharp.ViewModels
 
         private async void RunPreviewPath()
         {
+            if (IsPathRunning) return;
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                PathRunStatus = "Another navigation run is active.";
+                return;
+            }
             if (!TryBuildPath(out var path, out var message))
             {
                 PathRunStatus = message;
@@ -943,6 +1000,7 @@ namespace MESharp.ViewModels
 
             _pathRunCts?.Dispose();
             _pathRunCts = new CancellationTokenSource();
+            var pathRunCts = _pathRunCts;
             IsPathRunning = true;
             PathRunStatus = $"Running {path.Edges.Count} edge(s).";
             LastStatus = PathRunStatus;
@@ -950,7 +1008,10 @@ namespace MESharp.ViewModels
 
             try
             {
-                var result = await Webwalking.RunPlanDetailedAsync(path, _pathRunCts.Token).ConfigureAwait(true);
+                var runTask = Task.Run(() => Webwalking.RunPlanDetailedAsync(path, pathRunCts.Token), pathRunCts.Token);
+                _pathRunTask = runTask;
+                var result = await runTask.ConfigureAwait(true);
+                if (_disposed) return;
                 var edgeSummary = result.Edges.Count == 0
                     ? "no edges"
                     : string.Join(", ", result.Edges.Select((e, i) => $"{i + 1}:{e.EdgeId}={e.Succeeded}"));
@@ -960,21 +1021,24 @@ namespace MESharp.ViewModels
             }
             catch (OperationCanceledException)
             {
+                if (_disposed) return;
                 PathRunStatus = "Path run cancelled.";
                 LastStatus = PathRunStatus;
                 AddLog(PathRunStatus);
             }
             catch (Exception ex)
             {
+                if (_disposed) return;
                 PathRunStatus = $"Path run error: {ex.Message}";
                 LastStatus = PathRunStatus;
                 AddLog(PathRunStatus);
             }
             finally
             {
-                IsPathRunning = false;
-                _pathRunCts?.Dispose();
-                _pathRunCts = null;
+                if (!_disposed) IsPathRunning = false;
+                if (ReferenceEquals(_pathRunCts, pathRunCts)) _pathRunCts = null;
+                _pathRunTask = null;
+                pathRunCts.Dispose();
             }
         }
 
@@ -1029,20 +1093,35 @@ namespace MESharp.ViewModels
             }
         }
 
-        private void ValidateGraph()
+        private async void ValidateGraph()
         {
-            var result = WebwalkGraph.ValidateGraph();
-            ValidationIssues.Clear();
-            foreach (var issue in result.Issues)
-                ValidationIssues.Add($"[{issue.Severity.ToUpper()}] {issue.Code}: {issue.Message}");
+            var version = ++_validationVersion;
+            WebwalkGraphValidationResult result;
+            try { result = await Task.Run(WebwalkGraph.ValidateGraph); }
+            catch (Exception ex)
+            {
+                if (!_disposed) LastStatus = $"Graph validation failed: {ex.Message}";
+                return;
+            }
+            if (_disposed || version != _validationVersion) return;
+            try
+            {
+                ValidationIssues.Clear();
+                foreach (var issue in result.Issues)
+                    ValidationIssues.Add($"[{issue.Severity.ToUpper()}] {issue.Code}: {issue.Message}");
 
-            HasValidationErrors = result.Errors.Count > 0;
-            HasValidationWarnings = result.Warnings.Count > 0;
+                HasValidationErrors = result.Errors.Count > 0;
+                HasValidationWarnings = result.Warnings.Count > 0;
 
-            if (result.IsValid && result.Warnings.Count == 0)
-                ValidationIssues.Add("Graph is valid — no issues found.");
+                if (result.IsValid && result.Warnings.Count == 0)
+                    ValidationIssues.Add("Graph is valid — no issues found.");
 
-            AddLog($"Validation: {result.Errors.Count} errors, {result.Warnings.Count} warnings.");
+                AddLog($"Validation: {result.Errors.Count} errors, {result.Warnings.Count} warnings.");
+            }
+            catch (Exception ex)
+            {
+                if (!_disposed) LastStatus = $"Graph validation display failed: {ex.Message}";
+            }
         }
 
         private void OpenGraphFile()
@@ -1148,7 +1227,8 @@ namespace MESharp.ViewModels
             _refreshTimer.Stop();
             _recorderTimer.Stop();
             _pathRunCts?.Cancel();
-            _pathRunCts?.Dispose();
+            try { _pathRunTask?.Wait(millisecondsTimeout: 1000); } catch { /* bounded shutdown */ }
+            _pathRunCts = null;
         }
     }
 }

@@ -20,6 +20,7 @@ namespace MESharp.Views
     {
         private WebView2? _webView;
         private bool _initStarted;
+        private int _loadVersion;
         private static bool _loaderPreloaded;
 
         public MapView()
@@ -35,11 +36,12 @@ namespace MESharp.Views
         {
             if (_initStarted) return;
             _initStarted = true;
-            await InitializeWebViewAsync();
+            await InitializeWebViewAsync(++_loadVersion);
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
+            _loadVersion++;
             // The hub keeps this view alive via Visibility while switching sections;
             // Unloaded only fires when the whole page (or window) goes away. Dispose so
             // the browser processes don't outlive the tool — the map state is cheap to
@@ -57,9 +59,10 @@ namespace MESharp.Views
             _initStarted = false;
         }
 
-        private async Task InitializeWebViewAsync()
+        private async Task InitializeWebViewAsync(int loadVersion)
         {
             var vm = ViewModel;
+            WebView2? webView = null;
             try
             {
                 PreloadWebView2Loader();
@@ -71,10 +74,12 @@ namespace MESharp.Views
 
                 var environment = await CoreWebView2Environment.CreateAsync(
                     browserExecutableFolder: null, userDataFolder: userDataFolder);
+                if (loadVersion != _loadVersion || !IsLoaded) return;
 
-                var webView = new WebView2();
+                webView = new WebView2();
                 WebHost.Children.Add(webView);
                 await webView.EnsureCoreWebView2Async(environment);
+                if (loadVersion != _loadVersion || !IsLoaded) return;
 
                 webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
@@ -85,22 +90,24 @@ namespace MESharp.Views
 
                 webView.Source = new Uri(url);
                 _webView = webView;
+                webView = null;
                 if (vm != null) vm.WebViewFailed = false;
             }
             catch (Exception ex)
             {
-                try
-                {
-                    if (_webView != null) WebHost.Children.Remove(_webView);
-                }
-                catch { }
-                _webView = null;
-                if (vm != null)
+                if (loadVersion == _loadVersion && vm != null)
                 {
                     vm.WebViewFailed = true;
                     vm.WebViewError = ex.Message;
                 }
                 Console.WriteLine($"[Managed] MapView WebView2 init failed: {ex}");
+            }
+            finally
+            {
+                if (webView != null)
+                {
+                    try { WebHost.Children.Remove(webView); webView.Dispose(); } catch { }
+                }
             }
         }
 
@@ -132,7 +139,7 @@ namespace MESharp.Views
             {
                 // Allow retrying after a failed init (e.g. runtime installed meanwhile).
                 _initStarted = true;
-                _ = InitializeWebViewAsync();
+                _ = InitializeWebViewAsync(++_loadVersion);
             }
         }
 

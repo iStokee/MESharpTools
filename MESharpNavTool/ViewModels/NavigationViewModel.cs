@@ -118,6 +118,7 @@ namespace MESharp.ViewModels
 
         // ── Webwalk travel harness ───────────────────────────────────────────────
         private CancellationTokenSource? _travelCts;
+        private Task? _travelTask;
         private string _travelDestination = string.Empty;
         private bool _isTraveling;
 
@@ -161,13 +162,13 @@ namespace MESharp.ViewModels
             SelectedLodestone = Lodestones.FirstOrDefault();
 
             RefreshCommand = new RelayCommand(_ => RefreshPosition());
-            WalkToCommand = new RelayCommand(_ => WalkTo());
-            WalkPathCommand = new RelayCommand(_ => WalkPath());
+            WalkToCommand = new RelayCommand(async _ => await WalkToAsync());
+            WalkPathCommand = new RelayCommand(async _ => await WalkPathAsync());
             ClickToCommand = new RelayCommand(_ => ClickTo());
             ClickPathCommand = new RelayCommand(_ => ClickPath());
-            WaitUntilWithinCommand = new RelayCommand(_ => WaitUntilWithin());
-            WaitWhileMovingCommand = new RelayCommand(_ => WaitWhileMoving());
-            TeleportSelectedCommand = new RelayCommand(_ => TeleportSelected(), _ => SelectedLodestone != null);
+            WaitUntilWithinCommand = new RelayCommand(async _ => await WaitUntilWithinAsync());
+            WaitWhileMovingCommand = new RelayCommand(async _ => await WaitWhileMovingAsync());
+            TeleportSelectedCommand = new RelayCommand(async _ => await TeleportSelectedAsync(), _ => SelectedLodestone != null);
             TravelCommand = new RelayCommand(async _ => await TravelAsync(), _ => !IsTraveling && !string.IsNullOrWhiteSpace(TravelDestination));
             StopTravelCommand = new RelayCommand(_ => _travelCts?.Cancel(), _ => IsTraveling);
             ShowHelpCommand = new RelayCommand(_ =>
@@ -175,7 +176,7 @@ namespace MESharp.ViewModels
                 try { new Views.SectionHelpWindow(Views.NavHelpContent.Travel()).ShowDialog(); }
                 catch (Exception ex) { LastStatus = $"Could not open help: {ex.Message}"; }
             });
-            TeleportByNameCommand = new RelayCommand(_ => TeleportByName(), _ => !string.IsNullOrWhiteSpace(LodestoneSearch));
+            TeleportByNameCommand = new RelayCommand(async _ => await TeleportByNameAsync(), _ => !string.IsNullOrWhiteSpace(LodestoneSearch));
             ApiMinimapClickIconCommand = new RelayCommand(_ => ApiMinimapClickIcon());
             ApiMinimapClickIconAtCommand = new RelayCommand(_ => ApiMinimapClickIconAt());
             ApiSpellbookByIndexCommand = new RelayCommand(_ => ApiSpellbookByIndex());
@@ -218,7 +219,7 @@ namespace MESharp.ViewModels
             }
         }
 
-        private void WalkTo()
+        private async Task WalkToAsync()
         {
             if (!TryParseTarget(out var x, out var y, out var z))
             {
@@ -226,21 +227,23 @@ namespace MESharp.ViewModels
                 return;
             }
 
-            try
-            {
-                var ok = Traversal.WalkTo(x, y, z, StopShortTiles, TimeoutMs, JitterTiles);
-                LastStatus = ok ? $"Walking to {x},{y},{z} (stop {StopShortTiles})." : "WalkTo failed.";
-                AddLog(LastStatus);
-            }
-            catch (Exception ex)
-            {
-                LastStatus = $"WalkTo error: {ex.Message}";
-                AddLog(LastStatus);
-            }
+            var stopShort = StopShortTiles;
+            var timeout = TimeoutMs;
+            var jitter = JitterTiles;
+            await RunBlockingNavigationAsync(
+                () => Traversal.WalkTo(x, y, z, stopShort, timeout, jitter),
+                ok => ok ? $"Walking to {x},{y},{z} (stop {stopShort})." : "WalkTo failed.", "WalkTo");
         }
 
         private void ApiMinimapClickIcon()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Minimap.ClickIcon(ApiMinimapIconId);
@@ -255,6 +258,13 @@ namespace MESharp.ViewModels
 
         private void ApiMinimapClickIconAt()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Minimap.ClickIconAt(ApiMinimapIconId, ApiMinimapX, ApiMinimapY);
@@ -269,6 +279,13 @@ namespace MESharp.ViewModels
 
         private void ApiSpellbookByIndex()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Teleports.Spellbook(ApiSpellbookIndex);
@@ -283,6 +300,13 @@ namespace MESharp.ViewModels
 
         private void ApiSpellbookByName()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Teleports.Spellbook(ApiTeleportName);
@@ -297,6 +321,13 @@ namespace MESharp.ViewModels
 
         private void ApiJewelryTeleport()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Teleports.Jewelry(ApiJewelryItemName, ApiJewelryLocation1, ApiJewelryLocation2, ApiJewelryMenuLevel, ApiJewelryOffset);
@@ -311,6 +342,13 @@ namespace MESharp.ViewModels
 
         private void ApiSpiritTree()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Teleports.SpiritTree(ApiTeleportName);
@@ -325,6 +363,13 @@ namespace MESharp.ViewModels
 
         private void ApiGlider()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Teleports.Glider(ApiTeleportName);
@@ -339,6 +384,13 @@ namespace MESharp.ViewModels
 
         private void ApiFairy()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Teleports.Fairy(ApiTeleportName);
@@ -353,6 +405,13 @@ namespace MESharp.ViewModels
 
         private void ApiQuiver4()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             try
             {
                 var ok = Teleports.Quiver4(ApiTeleportName);
@@ -365,7 +424,7 @@ namespace MESharp.ViewModels
             }
         }
 
-        private void WalkPath()
+        private async Task WalkPathAsync()
         {
             var points = ParsePath(PathInput).ToArray();
             if (points.Length == 0)
@@ -374,17 +433,12 @@ namespace MESharp.ViewModels
                 return;
             }
 
-            try
-            {
-                var ok = Traversal.WalkPath(points, StopShortTiles, TimeoutMs, JitterTiles);
-                LastStatus = ok ? $"Walking path ({points.Length} waypoints)." : "WalkPath failed.";
-                AddLog(LastStatus);
-            }
-            catch (Exception ex)
-            {
-                LastStatus = $"WalkPath error: {ex.Message}";
-                AddLog(LastStatus);
-            }
+            var stopShort = StopShortTiles;
+            var timeout = TimeoutMs;
+            var jitter = JitterTiles;
+            await RunBlockingNavigationAsync(
+                () => Traversal.WalkPath(points, stopShort, timeout, jitter),
+                ok => ok ? $"Walking path ({points.Length} waypoints)." : "WalkPath failed.", "WalkPath");
         }
 
         /// <summary>
@@ -397,17 +451,29 @@ namespace MESharp.ViewModels
             var destination = TravelDestination.Trim();
             if (string.IsNullOrWhiteSpace(destination)) return;
 
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             _travelCts?.Dispose();
             _travelCts = new CancellationTokenSource();
+            var travelCts = _travelCts;
+            var cancellationToken = travelCts.Token;
             IsTraveling = true;
             LastStatus = $"Traveling to '{destination}'…";
             AddLog($"Webwalk travel → '{destination}'");
 
             try
             {
-                var result = await Navigation.ResolveAndTravelDetailedAsync(
+                var travelTask = Task.Run(() => Navigation.ResolveAndTravelDetailedAsync(
                     destination,
-                    cancellationToken: _travelCts.Token);
+                    cancellationToken: cancellationToken), cancellationToken);
+                _travelTask = travelTask;
+                var result = await travelTask;
+                if (_disposed) return;
 
                 if (result.PlanResult != null)
                 {
@@ -422,40 +488,44 @@ namespace MESharp.ViewModels
             }
             catch (OperationCanceledException)
             {
+                if (_disposed) return;
                 LastStatus = "Travel cancelled.";
                 AddLog(LastStatus);
             }
             catch (Exception ex)
             {
+                if (_disposed) return;
                 LastStatus = $"Travel error: {ex.Message}";
                 AddLog(LastStatus);
             }
             finally
             {
-                IsTraveling = false;
+                if (!_disposed) IsTraveling = false;
+                if (ReferenceEquals(_travelCts, travelCts)) _travelCts = null;
+                _travelTask = null;
+                travelCts.Dispose();
             }
         }
 
-        private void TeleportSelected()
+        private async Task TeleportSelectedAsync()
         {
             var selection = SelectedLodestone;
             if (selection == null) return;
-
-            try
-            {
-                var ok = Traversal.Lodestone(selection.Destination, TeleportTimeoutMs);
-                LastStatus = ok ? $"Lodestone to {selection.Name} issued." : $"Lodestone {selection.Name} failed.";
-                AddLog(LastStatus);
-            }
-            catch (Exception ex)
-            {
-                LastStatus = $"Lodestone error: {ex.Message}";
-                AddLog(LastStatus);
-            }
+            var timeout = TeleportTimeoutMs;
+            await RunBlockingNavigationAsync(
+                () => Traversal.Lodestone(selection.Destination, timeout),
+                ok => ok ? $"Lodestone to {selection.Name} issued." : $"Lodestone {selection.Name} failed.", "Lodestone");
         }
 
         private void ClickTo()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             if (!TryParseTarget(out var x, out var y, out var z))
             {
                 LastStatus = "Enter X and Y (ints).";
@@ -477,6 +547,13 @@ namespace MESharp.ViewModels
 
         private void ClickPath()
         {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
             var points = ParsePath(PathInput).ToArray();
             if (points.Length == 0)
             {
@@ -497,7 +574,7 @@ namespace MESharp.ViewModels
             }
         }
 
-        private void WaitUntilWithin()
+        private async Task WaitUntilWithinAsync()
         {
             if (!TryParseTarget(out var x, out var y, out var z))
             {
@@ -505,35 +582,22 @@ namespace MESharp.ViewModels
                 return;
             }
 
-            try
-            {
-                var ok = Traversal.WaitUntilWithin(x, y, z, StopShortTiles, TimeoutMs);
-                LastStatus = ok ? $"Arrived within {StopShortTiles} tiles." : $"Timeout waiting to reach {x},{y},{z}.";
-                AddLog(LastStatus);
-            }
-            catch (Exception ex)
-            {
-                LastStatus = $"WaitUntilWithin error: {ex.Message}";
-                AddLog(LastStatus);
-            }
+            var stopShort = StopShortTiles;
+            var timeout = TimeoutMs;
+            await RunBlockingNavigationAsync(
+                () => Traversal.WaitUntilWithin(x, y, z, stopShort, timeout),
+                ok => ok ? $"Arrived within {stopShort} tiles." : $"Timeout waiting to reach {x},{y},{z}.", "WaitUntilWithin");
         }
 
-        private void WaitWhileMoving()
+        private async Task WaitWhileMovingAsync()
         {
-            try
-            {
-                var ok = Traversal.WaitWhileMoving(TimeoutMs);
-                LastStatus = ok ? "Stopped moving within timeout." : "Still moving after timeout.";
-                AddLog(LastStatus);
-            }
-            catch (Exception ex)
-            {
-                LastStatus = $"WaitWhileMoving error: {ex.Message}";
-                AddLog(LastStatus);
-            }
+            var timeout = TimeoutMs;
+            await RunBlockingNavigationAsync(
+                () => Traversal.WaitWhileMoving(timeout),
+                ok => ok ? "Stopped moving within timeout." : "Still moving after timeout.", "WaitWhileMoving");
         }
 
-        private void TeleportByName()
+        private async Task TeleportByNameAsync()
         {
             var dest = LodestoneSearch?.Trim();
             if (string.IsNullOrWhiteSpace(dest))
@@ -542,21 +606,38 @@ namespace MESharp.ViewModels
                 return;
             }
 
-            try
+            var timeout = TeleportTimeoutMs;
+            await RunBlockingNavigationAsync(
+                () => Traversal.Lodestone(dest, timeout),
+                ok => ok ? $"Lodestone '{dest}' issued." : $"Lodestone '{dest}' failed.", "Lodestone");
+            if (!_disposed)
             {
-                var ok = Traversal.Lodestone(dest, TeleportTimeoutMs);
-                LastStatus = ok ? $"Lodestone '{dest}' issued." : $"Lodestone '{dest}' failed.";
-                AddLog(LastStatus);
-
                 var matched = Lodestones.FirstOrDefault(l => l.Name.IndexOf(dest, StringComparison.OrdinalIgnoreCase) >= 0);
                 if (matched != null)
-                {
                     SelectedLodestone = matched;
-                }
+            }
+        }
+
+        private async Task RunBlockingNavigationAsync(Func<bool> work, Func<bool, string> format, string operation)
+        {
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
+
+            try
+            {
+                var ok = await Task.Run(work);
+                if (_disposed) return;
+                LastStatus = format(ok);
+                AddLog(LastStatus);
             }
             catch (Exception ex)
             {
-                LastStatus = $"Lodestone error: {ex.Message}";
+                if (_disposed) return;
+                LastStatus = $"{operation} error: {ex.Message}";
                 AddLog(LastStatus);
             }
         }
@@ -657,7 +738,7 @@ namespace MESharp.ViewModels
             try { _refreshTimer.Stop(); } catch { /* ignored */ }
             _refreshTimer.Tick -= OnRefreshTick;
             try { _travelCts?.Cancel(); } catch { /* ignored */ }
-            try { _travelCts?.Dispose(); } catch { /* ignored */ }
+            try { _travelTask?.Wait(millisecondsTimeout: 1000); } catch { /* bounded shutdown */ }
             _travelCts = null;
         }
 

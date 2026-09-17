@@ -26,8 +26,12 @@ namespace MESharp.Services
         private static Task? _serverTask;
         private static int _port;
         private static string? _mutationToken;
+        private static bool _stopping;
         private static readonly object RequestSync = new();
+        internal const int MaxConcurrentRequests = 16;
+        private static readonly SemaphoreSlim RequestSlots = new(MaxConcurrentRequests, MaxConcurrentRequests);
         private static readonly System.Collections.Generic.HashSet<Task> ActiveRequests = new();
+        private static readonly System.Collections.Generic.HashSet<TcpClient> ActiveClients = new();
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -35,7 +39,7 @@ namespace MESharp.Services
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         };
 
-        public static bool IsRunning => _listener != null;
+        public static bool IsRunning { get { lock (ServerSync) return _listener != null; } }
 
         /// <summary>True while a record-from-map session is in flight (hub status strip).</summary>
         public static bool IsRecording
@@ -48,6 +52,8 @@ namespace MESharp.Services
         {
             lock (ServerSync)
             {
+                if (_stopping)
+                    throw new InvalidOperationException("Map server is stopping.");
                 if (_listener != null)
                     return BuildMapUrl();
 
@@ -69,7 +75,25 @@ namespace MESharp.Services
                             TcpClient client;
                             try { client = await listener.AcceptTcpClientAsync(token).ConfigureAwait(false); }
                             catch { break; }
-                            TrackRequest(Task.Run(() => HandleClient(client, token), CancellationToken.None));
+                            if (!RequestSlots.Wait(0))
+                            {
+                                client.Dispose();
+                                continue;
+                            }
+                            try
+                            {
+                                TrackRequest(client, Task.Run(() =>
+                                {
+                                    try { HandleClient(client, token); }
+                                    finally { RequestSlots.Release(); }
+                                }, CancellationToken.None));
+                            }
+                            catch
+                            {
+                                RequestSlots.Release();
+                                client.Dispose();
+                                throw;
+                            }
                         }
                     }
                     finally { serverCts.Dispose(); }
@@ -83,12 +107,16 @@ namespace MESharp.Services
 
         public static void Stop()
         {
+            var shutdownClock = System.Diagnostics.Stopwatch.StartNew();
+            int RemainingMs() => Math.Max(0, 3000 - (int)shutdownClock.ElapsedMilliseconds);
             Task[] requests;
-            Task? travelTask;
+            Task[] travelTasks;
             Task? serverTask;
             Task? recordTask;
             lock (ServerSync)
             {
+                if (_stopping) return;
+                _stopping = true;
                 serverTask = _serverTask;
                 try { _cts?.Cancel(); } catch { }
                 try { _listener?.Stop(); } catch { }
@@ -98,51 +126,86 @@ namespace MESharp.Services
                 _mutationToken = null;
             }
 
-            lock (PreviewSync)
-                _previewPlan = null;
-
-            // In-flight travel started from the map must not outlive the server —
-            // otherwise the character keeps walking after the tool closes, and the
-            // task's closure pins this tool's collectible ALC.
-            lock (TravelSync)
+            try
             {
-                try { _travelCts?.Cancel(); } catch { }
-                travelTask = _travelTask;
-            }
-
-            lock (RecordSync)
-            {
-                try { _recordCts?.Cancel(); } catch { }
-                recordTask = _recordTask;
-            }
-
-            lock (RequestSync) requests = ActiveRequests.ToArray();
-            var pending = requests
-                .Concat(new[] { serverTask, travelTask, recordTask }.Where(t => t != null).Cast<Task>())
-                .Distinct()
-                .ToArray();
-            try { Task.WaitAll(pending, millisecondsTimeout: 3000); } catch { /* bounded shutdown */ }
-
-            // A recording session must not outlive the server (pump user balance,
-            // hot-reload collectibility).
-            lock (RecordSync)
-            {
-                if (_recordCts != null)
+                lock (TravelSync)
                 {
-                    try { _recordCts.Cancel(); } catch { }
-                    _recordCts = null;
-                    _recordTask = null;
-                    _recordSamples = null;
-                    try { DoActionDebugSignals.StopNativePump(); } catch { }
+                    try { _travelCts?.Cancel(); } catch { }
+                    _travelCts = null;
+                    _travelRunning = false;
+                    _travelStatus = null;
                 }
+
+                lock (PreviewSync)
+                    _previewPlan = null;
+
+                // In-flight travel started from the map must not outlive the server —
+                // otherwise the character keeps walking after the tool closes, and the
+                // task's closure pins this tool's collectible ALC.
+                lock (RecordSync)
+                {
+                    try { _recordCts?.Cancel(); } catch { }
+                    recordTask = _recordTask;
+                }
+
+                // The accept loop is now closed; drain accepted requests before taking
+                // the travel snapshot so no request can start movement after it.
+                try { serverTask?.Wait(millisecondsTimeout: RemainingMs()); } catch { }
+                lock (RequestSync)
+                {
+                    foreach (var client in ActiveClients)
+                        try { client.Dispose(); } catch { }
+                    requests = ActiveRequests.ToArray();
+                }
+                try { Task.WaitAll(requests, millisecondsTimeout: RemainingMs()); } catch { }
+                lock (TravelSync)
+                {
+                    try { _travelCts?.Cancel(); } catch { }
+                    travelTasks = ActiveTravelTasks.ToArray();
+                }
+                var pending = requests
+                    .Concat(travelTasks)
+                    .Concat(new[] { serverTask, recordTask }.Where(t => t != null).Cast<Task>())
+                    .Distinct()
+                    .ToArray();
+                try { Task.WaitAll(pending, millisecondsTimeout: RemainingMs()); } catch { /* bounded shutdown */ }
+
+                // A recording session must not outlive the server (pump user balance,
+                // hot-reload collectibility).
+                lock (RecordSync)
+                {
+                    if (_recordCts != null)
+                    {
+                        try { _recordCts.Cancel(); } catch { }
+                        _recordCts = null;
+                        _recordTask = null;
+                        _recordSamples = null;
+                        try { DoActionDebugSignals.StopNativePump(); } catch { }
+                    }
+                }
+            }
+            finally
+            {
+                lock (ServerSync) _stopping = false;
             }
         }
 
-        private static void TrackRequest(Task task)
+        private static void TrackRequest(TcpClient client, Task task)
         {
-            lock (RequestSync) ActiveRequests.Add(task);
+            lock (RequestSync)
+            {
+                ActiveClients.Add(client);
+                ActiveRequests.Add(task);
+            }
             _ = task.ContinueWith(
-                completed => { lock (RequestSync) ActiveRequests.Remove(completed); },
+                completed =>
+                {
+                    lock (RequestSync)
+                    {
+                        ActiveRequests.Remove(completed);
+                        ActiveClients.Remove(client);
+                    }
+                },
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
@@ -156,6 +219,8 @@ namespace MESharp.Services
                 using (client)
                 using (var stream = client.GetStream())
                 {
+                    try
+                    {
                     stream.ReadTimeout = 5000;
                     var requestLine = ReadRequestLine(stream);
                     var method = ParseMethod(requestLine);
@@ -265,11 +330,30 @@ namespace MESharp.Services
                     }
 
                     WriteResponse(stream, status, contentType, body);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when the map server closes during a request.
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[NavTool] Map request failed: {ex}");
+                        try
+                        {
+                            WriteResponse(stream, "500 Internal Server Error", "application/json",
+                                JsonSerializer.SerializeToUtf8Bytes(new { succeeded = false, error = "Map request failed." }, JsonOptions));
+                        }
+                        catch { /* client may already have disconnected */ }
+                    }
                 }
             }
-            catch
+            catch (OperationCanceledException)
             {
-                // Per-request failures must never take down the host app.
+                // Expected when the map server closes during a request.
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[NavTool] Map request failed: {ex}");
             }
         }
 
@@ -532,7 +616,7 @@ namespace MESharp.Services
 
         private static readonly object TravelSync = new();
         private static CancellationTokenSource? _travelCts;
-        private static Task? _travelTask;
+        private static readonly System.Collections.Generic.HashSet<Task> ActiveTravelTasks = new();
         private static string? _travelStatus;
         private static bool _travelRunning;
 
@@ -541,13 +625,15 @@ namespace MESharp.Services
         /// The task's outcome (including exceptions, which were previously unobserved and
         /// therefore invisible) is captured into the travel status served with /player.json.
         /// </summary>
-        private static void StartTravelTask(string description, Func<CancellationToken, Task<bool>> run)
+        private static bool StartTravelTask(string description, Func<CancellationToken, Task<bool>> run, CancellationToken serverToken)
         {
             CancellationTokenSource myCts;
             lock (TravelSync)
             {
+                if (serverToken.IsCancellationRequested)
+                    return false;
                 try { _travelCts?.Cancel(); } catch { }
-                myCts = new CancellationTokenSource();
+                myCts = CancellationTokenSource.CreateLinkedTokenSource(serverToken);
                 _travelCts = myCts;
                 _travelRunning = true;
                 _travelStatus = description + "…";
@@ -559,7 +645,7 @@ namespace MESharp.Services
                 string status;
                 try
                 {
-                    var succeeded = await run(ct).ConfigureAwait(false);
+                    var succeeded = await NavigationExecutionGate.RunAsync(() => run(ct), ct).ConfigureAwait(false);
                     status = MapTravelStatus.FromResult(description, succeeded, ct.IsCancellationRequested);
                 }
                 catch (OperationCanceledException)
@@ -579,16 +665,19 @@ namespace MESharp.Services
                         _travelStatus = status;
                         _travelRunning = false;
                         _travelCts = null;
-                        _travelTask = null;
                     }
                 }
                 myCts.Dispose();
             }, CancellationToken.None);
             lock (TravelSync)
             {
-                if (ReferenceEquals(_travelCts, myCts))
-                    _travelTask = task;
+                ActiveTravelTasks.Add(task);
             }
+            _ = task.ContinueWith(completed =>
+            {
+                lock (TravelSync) ActiveTravelTasks.Remove(completed);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return true;
         }
 
         // Click-distance slider bounds (tiles). Default mirrors CollisionPathfinder.CreateDraftRoute's
@@ -749,12 +838,14 @@ namespace MESharp.Services
                         var requestedPlanId = GetString(payload, "planId");
                         if (TryTakePreviewPlan(requestedPlanId, to, out var preview))
                         {
-                            StartTravelTask($"Travel to {to}", ct => RunPreviewThenReplanAsync(preview, ct));
+                            if (!StartTravelTask($"Travel to {to}", ct => RunPreviewThenReplanAsync(preview, ct), cancellationToken))
+                                return new { succeeded = false, message = "Map server is stopping." };
                         }
                         else
                         {
                             var travelProfile = WebwalkProfile.FromGameState();
-                            StartTravelTask($"Travel to {to}", ct => Navigation.TravelToAsync(to, travelProfile, ct));
+                            if (!StartTravelTask($"Travel to {to}", ct => Navigation.TravelToAsync(to, travelProfile, ct), cancellationToken))
+                                return new { succeeded = false, message = "Map server is stopping." };
                         }
                         return new { succeeded = true, message = $"Travel to {to} started." };
                     }
@@ -765,7 +856,8 @@ namespace MESharp.Services
                         if (string.IsNullOrWhiteSpace(areaId))
                             return new { succeeded = false, message = "areaId required." };
                         var areaProfile = WebwalkProfile.FromGameState();
-                        StartTravelTask($"Travel into area '{areaId}'", ct => Navigation.TravelToAreaAsync(areaId, areaProfile, ct));
+                        if (!StartTravelTask($"Travel into area '{areaId}'", ct => Navigation.TravelToAreaAsync(areaId, areaProfile, ct), cancellationToken))
+                            return new { succeeded = false, message = "Map server is stopping." };
                         return new { succeeded = true, message = $"Travel into area '{areaId}' started." };
                     }
 
@@ -786,8 +878,9 @@ namespace MESharp.Services
                         if (pts.Count == 0)
                             return new { succeeded = false, error = "waypoints[] empty." };
 
-                        StartTravelTask($"Walk of {pts.Count} previewed waypoint(s)", ct => Traversal.WalkPathAsync(
-                            pts, waypointDistance: 2, timeoutMs: Math.Max(30000, pts.Count * 12000), cancellationToken: ct));
+                        if (!StartTravelTask($"Walk of {pts.Count} previewed waypoint(s)", ct => Traversal.WalkPathAsync(
+                            pts, waypointDistance: 2, timeoutMs: Math.Max(30000, pts.Count * 12000), cancellationToken: ct), cancellationToken))
+                            return new { succeeded = false, message = "Map server is stopping." };
                         return new { succeeded = true, message = $"Walking {pts.Count} previewed waypoint(s)." };
                     }
 
@@ -820,7 +913,7 @@ namespace MESharp.Services
 
                     // ── Record-from-map (R2-C) ───────────────────────────────────
                     case "/api/record_start":
-                        return StartRecording();
+                        return StartRecording(cancellationToken);
 
                     case "/api/record_stop":
                         return StopRecording();
@@ -1003,18 +1096,20 @@ namespace MESharp.Services
         private static List<WebwalkRecordedSample>? _recordSamples;
         private static CancellationTokenSource? _recordCts;
         private static Task? _recordTask;
+        private static bool _recordStopping;
         private static IReadOnlyList<WebwalkTrailSegment>? _pendingSegments;
         private static IReadOnlyList<WebwalkAuthoring.WebwalkObstacleCandidate>? _pendingObstacles;
         private static DateTime _recordStartUtc;
 
         private const int RecordSampleIntervalMs = 600;
 
-        private static object StartRecording()
+        private static object StartRecording(CancellationToken serverToken)
         {
             lock (RecordSync)
             {
-                if (_recordCts != null)
-                    return new { succeeded = false, error = "Already recording." };
+                serverToken.ThrowIfCancellationRequested();
+                if (_recordCts != null || _recordStopping)
+                    return new { succeeded = false, error = "A recording session is already active or stopping." };
 
                 _recordSamples = new List<WebwalkRecordedSample>();
                 _pendingSegments = null;
@@ -1063,6 +1158,7 @@ namespace MESharp.Services
             {
                 if (_recordCts == null)
                     return new { succeeded = false, error = "Not recording." };
+                _recordStopping = true;
                 _recordCts.Cancel();
                 _recordCts = null;
                 recordTask = _recordTask;
@@ -1071,41 +1167,48 @@ namespace MESharp.Services
                 _recordSamples = null;
             }
 
-            try { recordTask?.Wait(millisecondsTimeout: 1000); } catch { /* cancellation/timeout */ }
-
-            IReadOnlyList<WebwalkAuthoring.WebwalkObstacleCandidate> obstacles;
             try
             {
-                var signals = DoActionDebugSignals.Snapshot(500);
-                obstacles = WebwalkAuthoring.CollectObstacleCandidates(signals, _recordStartUtc, DateTime.UtcNow);
-            }
-            catch
-            {
-                obstacles = Array.Empty<WebwalkAuthoring.WebwalkObstacleCandidate>();
+                try { recordTask?.Wait(millisecondsTimeout: 1000); } catch { /* cancellation/timeout */ }
+
+                IReadOnlyList<WebwalkAuthoring.WebwalkObstacleCandidate> obstacles;
+                try
+                {
+                    var signals = DoActionDebugSignals.Snapshot(500);
+                    obstacles = WebwalkAuthoring.CollectObstacleCandidates(signals, _recordStartUtc, DateTime.UtcNow);
+                }
+                catch
+                {
+                    obstacles = Array.Empty<WebwalkAuthoring.WebwalkObstacleCandidate>();
+                }
+                finally
+                {
+                    DoActionDebugSignals.StopNativePump();
+                }
+
+                var segments = WebwalkAuthoring.SegmentSamples(samples);
+                lock (RecordSync)
+                {
+                    _pendingSegments = segments;
+                    _pendingObstacles = obstacles;
+                }
+
+                return new
+                {
+                    succeeded = true,
+                    sampleCount = samples.Count,
+                    segmentCount = segments.Count,
+                    obstacleCount = obstacles.Count,
+                    message = segments.Count == 0
+                        ? "No segments produced (trail too short?)."
+                        : $"{segments.Count} segment(s) ready — accept or discard them on the map." +
+                          (obstacles.Count > 0 ? $" {obstacles.Count} object click(s) captured as obstacle candidates." : "")
+                };
             }
             finally
             {
-                DoActionDebugSignals.StopNativePump();
+                lock (RecordSync) _recordStopping = false;
             }
-
-            var segments = WebwalkAuthoring.SegmentSamples(samples);
-            lock (RecordSync)
-            {
-                _pendingSegments = segments;
-                _pendingObstacles = obstacles;
-            }
-
-            return new
-            {
-                succeeded = true,
-                sampleCount = samples.Count,
-                segmentCount = segments.Count,
-                obstacleCount = obstacles.Count,
-                message = segments.Count == 0
-                    ? "No segments produced (trail too short?)."
-                    : $"{segments.Count} segment(s) ready — accept or discard them on the map." +
-                      (obstacles.Count > 0 ? $" {obstacles.Count} object click(s) captured as obstacle candidates." : "")
-            };
         }
 
         private static object GetRecorderState()

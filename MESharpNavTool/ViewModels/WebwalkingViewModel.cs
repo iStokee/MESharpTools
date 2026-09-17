@@ -28,6 +28,7 @@ namespace MESharp.ViewModels
         private readonly DispatcherTimer _refreshTimer;
         private readonly NotifyCollectionChangedEventHandler _currentRouteChangedHandler;
         private CancellationTokenSource? _runCts;
+        private Task? _runTask;
         private bool _isActive;
         private bool _disposed;
         private bool _isDirty;
@@ -798,11 +799,18 @@ namespace MESharp.ViewModels
         private async Task RunSavedRouteAsync(string routeId, string routeName)
         {
             if (_disposed || IsRunning) return;
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
 
             _runCts?.Cancel();
             _runCts?.Dispose();
             _runCts = new CancellationTokenSource();
-            var ct = _runCts.Token;
+            var runCts = _runCts;
+            var ct = runCts.Token;
 
             IsRunning = true;
             _lastRunSucceeded = false;
@@ -811,7 +819,10 @@ namespace MESharp.ViewModels
 
             try
             {
-                var result = await Webwalking.RunRouteDetailedAsync(routeId, ct);
+                var runTask = Task.Run(() => Webwalking.RunRouteDetailedAsync(routeId, ct), ct);
+                _runTask = runTask;
+                var result = await runTask;
+                if (_disposed) return;
                 _lastRunSucceeded = result.Succeeded;
                 LastStatus = FormatRouteResult(result);
                 AddLog(LastStatus);
@@ -819,26 +830,38 @@ namespace MESharp.ViewModels
             }
             catch (Exception ex)
             {
+                if (_disposed) return;
                 LastStatus = $"Route '{routeName}' error: {ex.Message}";
                 AddLog(LastStatus);
             }
             finally
             {
-                IsRunning = false;
-                RunStatus = "Idle";
-                _runCts?.Dispose();
-                _runCts = null;
+                if (!_disposed)
+                {
+                    IsRunning = false;
+                    RunStatus = "Idle";
+                }
+                if (ReferenceEquals(_runCts, runCts)) _runCts = null;
+                _runTask = null;
+                runCts.Dispose();
             }
         }
 
         private async Task RunDraftRouteAsync(string draftName, IReadOnlyList<WebwalkingWaypoint> waypoints)
         {
             if (_disposed || IsRunning) return;
+            using var lease = NavigationRunGate.TryEnter();
+            if (lease == null)
+            {
+                LastStatus = "Another navigation run is active.";
+                return;
+            }
 
             _runCts?.Cancel();
             _runCts?.Dispose();
             _runCts = new CancellationTokenSource();
-            var ct = _runCts.Token;
+            var runCts = _runCts;
+            var ct = runCts.Token;
 
             IsRunning = true;
             _lastRunSucceeded = false;
@@ -847,7 +870,10 @@ namespace MESharp.ViewModels
 
             try
             {
-                var result = await Webwalking.RunRouteDetailedAsync(waypoints, draftName, ct);
+                var runTask = Task.Run(() => Webwalking.RunRouteDetailedAsync(waypoints, draftName, ct), ct);
+                _runTask = runTask;
+                var result = await runTask;
+                if (_disposed) return;
                 _lastRunSucceeded = result.Succeeded;
                 LastStatus = FormatRouteResult(result);
                 AddLog(LastStatus);
@@ -855,15 +881,20 @@ namespace MESharp.ViewModels
             }
             catch (Exception ex)
             {
+                if (_disposed) return;
                 LastStatus = $"Draft '{draftName}' error: {ex.Message}";
                 AddLog(LastStatus);
             }
             finally
             {
-                IsRunning = false;
-                RunStatus = "Idle";
-                _runCts?.Dispose();
-                _runCts = null;
+                if (!_disposed)
+                {
+                    IsRunning = false;
+                    RunStatus = "Idle";
+                }
+                if (ReferenceEquals(_runCts, runCts)) _runCts = null;
+                _runTask = null;
+                runCts.Dispose();
             }
         }
 
@@ -1316,14 +1347,7 @@ namespace MESharp.ViewModels
                 // ignore
             }
 
-            try
-            {
-                _runCts?.Dispose();
-            }
-            catch
-            {
-                // ignore
-            }
+            try { _runTask?.Wait(millisecondsTimeout: 1000); } catch { /* bounded shutdown */ }
 
             _runCts = null;
         }

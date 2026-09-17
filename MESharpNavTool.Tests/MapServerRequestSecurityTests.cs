@@ -1,6 +1,8 @@
 using MESharp.Services;
 using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
+using System.Diagnostics;
 using Xunit;
 
 namespace MESharpNavTool.Tests;
@@ -50,6 +52,69 @@ public sealed class MapTravelStatusTests
 
 public sealed class CoverageMapServerAuthorizationTests
 {
+    [Fact]
+    public async Task ExcessConnections_AreClosedWhileRequestSlotsAreOccupied()
+    {
+        var url = new Uri(CoverageMapServer.Start());
+        var clients = new System.Collections.Generic.List<TcpClient>();
+        try
+        {
+            for (var i = 0; i < CoverageMapServer.MaxConcurrentRequests; i++)
+            {
+                var client = new TcpClient();
+                clients.Add(client);
+                await client.ConnectAsync(IPAddress.Loopback, url.Port);
+                await client.GetStream().WriteAsync(System.Text.Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\n"));
+            }
+            await Task.Delay(100);
+
+            using var excess = new TcpClient();
+            await excess.ConnectAsync(IPAddress.Loopback, url.Port);
+            await excess.GetStream().WriteAsync(System.Text.Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\n"));
+            var buffer = new byte[1];
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            try
+            {
+                Assert.Equal(0, await excess.GetStream().ReadAsync(buffer, timeout.Token));
+            }
+            catch (System.IO.IOException)
+            {
+                // A reset is also a closed excess connection on Windows.
+            }
+        }
+        finally
+        {
+            foreach (var client in clients) client.Dispose();
+            CoverageMapServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Stop_IsBoundedWithIncompleteRequest_AndServerCanRestart()
+    {
+        var first = new Uri(CoverageMapServer.Start());
+        using var client = new TcpClient();
+        try
+        {
+            await client.ConnectAsync(IPAddress.Loopback, first.Port);
+            var bytes = System.Text.Encoding.ASCII.GetBytes(
+                $"POST /api/travel HTTP/1.1\r\nHost: 127.0.0.1:{first.Port}\r\nContent-Length: 100\r\n\r\n{{");
+            await client.GetStream().WriteAsync(bytes);
+            await Task.Delay(100); // Allow the accept loop to enter its bounded request read.
+
+            var clock = Stopwatch.StartNew();
+            CoverageMapServer.Stop();
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(4));
+
+            var second = new Uri(CoverageMapServer.Start());
+            Assert.NotEqual(first.Fragment, second.Fragment);
+        }
+        finally
+        {
+            CoverageMapServer.Stop();
+        }
+    }
+
     [Fact]
     public async Task MutationApi_RejectsMissingCapabilityAndAcceptsFragmentCapability()
     {
