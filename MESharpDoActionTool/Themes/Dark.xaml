@@ -45,7 +45,8 @@
         <Setter Property="Background" Value="{DynamicResource App.CardBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="14,8" />
+        <Setter Property="Padding" Value="12,7" />
+        <Setter Property="MinHeight" Value="32" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="FontSize" Value="14" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -55,6 +56,7 @@
                 <ControlTemplate TargetType="Button">
                     <Border
                         x:Name="border"
+                        Padding="{TemplateBinding Padding}"
                         Background="{TemplateBinding Background}"
                         BorderBrush="{TemplateBinding BorderBrush}"
                         BorderThickness="{TemplateBinding BorderThickness}"
@@ -1004,10 +1006,26 @@
     <!--  Retain keyed access for explicit usage if needed  -->
     <Style x:Key="ScrollBar" TargetType="ScrollBar" BasedOn="{StaticResource AppScrollBarBase}" />
 
-    <!--  ScrollViewer style to ensure scrollbars use our theme  -->
-    <Style TargetType="ScrollViewer">
-        <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
-        <Setter Property="HorizontalScrollBarVisibility" Value="Auto" />
+    <!-- Scrollbars are themed by their own styles. Do not override inherited viewer settings. -->
+
+
+    <Style TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource App.ForegroundBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+            <StackPanel Orientation="Horizontal" Background="Transparent" Margin="0,4">
+                <Grid Width="16" Height="16" Margin="0,0,7,0" VerticalAlignment="Center">
+                    <Ellipse x:Name="Ring" Stroke="{DynamicResource App.SubtleForegroundBrush}" StrokeThickness="1.5" />
+                    <Ellipse x:Name="Dot" Fill="{DynamicResource PrimaryBrush}" Margin="4" Visibility="Collapsed" />
+                </Grid>
+                <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" />
+            </StackPanel>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsChecked" Value="True"><Setter TargetName="Dot" Property="Visibility" Value="Visible" /><Setter TargetName="Ring" Property="Stroke" Value="{DynamicResource PrimaryBrush}" /></Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Ring" Property="StrokeThickness" Value="3" /></Trigger>
+                <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5" /></Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
     </Style>
 
 </ResourceDictionary>

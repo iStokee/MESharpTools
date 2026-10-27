@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using MESharp.Services.NavigationData;
 using MESharp.ViewModels;
 
 namespace MESharp.Views
@@ -68,8 +69,7 @@ namespace MESharp.Views
                 PreloadWebView2Loader();
 
                 var userDataFolder = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "MESharp", "WebView2");
+                    NavigationDataManager.RuntimeDirectory, "webview2");
                 Directory.CreateDirectory(userDataFolder);
 
                 var environment = await CoreWebView2Environment.CreateAsync(
@@ -88,7 +88,8 @@ namespace MESharp.Views
                 if (string.IsNullOrEmpty(url))
                     throw new InvalidOperationException("Coverage map server did not start.");
 
-                webView.Source = new Uri(url);
+                // The WPF hub owns the journey bar. Browser fallback keeps the page's bar.
+                webView.Source = new UriBuilder(url) { Query = "embedded=1" }.Uri;
                 _webView = webView;
                 webView = null;
                 if (vm != null) vm.WebViewFailed = false;
@@ -111,25 +112,7 @@ namespace MESharp.Views
             }
         }
 
-        private void OnHelpClick(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var window = new SectionHelpWindow(NavHelpContent.Map());
-                var owner = Window.GetWindow(this);
-                if (owner != null)
-                {
-                    window.Owner = owner;
-                }
-                window.ShowDialog();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Managed] Could not open map help: {ex.Message}");
-            }
-        }
-
-        private void OnReloadClick(object sender, RoutedEventArgs e)
+        internal void ReloadPage()
         {
             if (_webView?.CoreWebView2 != null)
             {
@@ -170,7 +153,7 @@ namespace MESharp.Views
             }
 
             // Tool live updates install only MESharpNavTool.dll. Keep that path self-contained by
-            // extracting the embedded x64 loader to a versioned local-app-data directory on first use.
+            // extracting the embedded x64 loader to a versioned portable runtime directory on first use.
             try
             {
                 using var resource = typeof(MapView).Assembly.GetManifestResourceStream("MESharp.WebView2Loader.x64.dll");
@@ -178,8 +161,7 @@ namespace MESharp.Views
                 {
                     var version = typeof(MapView).Assembly.GetName().Version?.ToString() ?? "unknown";
                     var nativeDir = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "MESharp", "Native", version);
+                        NavigationDataManager.RuntimeDirectory, "native", version);
                     Directory.CreateDirectory(nativeDir);
                     // Keep the canonical filename: WebView2's managed P/Invokes request this exact
                     // module name after we preload it by full path.

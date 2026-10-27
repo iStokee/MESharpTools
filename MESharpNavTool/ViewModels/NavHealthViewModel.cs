@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using MESharp.API;
+using MESharp.Services.NavigationData;
 using MESharp.CacheDerivation;
 using MESharp.Commands;
 using MESharp.Slayer;
@@ -26,6 +27,14 @@ namespace MESharp.ViewModels
         public string Title { get => _title; set => SetProperty(ref _title, value); }
         public string Detail { get => _detail; set => SetProperty(ref _detail, value); }
         public string State { get => _state; set => SetProperty(ref _state, value); }
+        public string StateLabel => State switch { "ok" => "Ready", "warn" => "Review", "error" => "Unavailable", _ => "Optional" };
+        public string Summary => State == "ok" ? Title switch
+        {
+            "Collision grids" => "Static walking terrain is loaded.",
+            "Obstacle catalog" => "Traversal object definitions are loaded.",
+            "Webwalk graph" => "Named locations and connections are loaded.",
+            _ => "Source is configured; expand Details for its status."
+        } : "Expand Details for the source status and next action.";
     }
 
     /// <summary>
@@ -51,6 +60,16 @@ namespace MESharp.ViewModels
         private bool _disposed;
 
         public ObservableCollection<HealthIndicator> Indicators { get; } = new();
+        private bool _showDeveloperTools;
+        public bool ShowDeveloperTools { get => _showDeveloperTools; set => SetProperty(ref _showDeveloperTools, value); }
+        private static bool IsCoreIndicator(HealthIndicator item) => item.Title is "Collision grids" or "Obstacle catalog" or "Webwalk graph";
+        public System.Collections.Generic.IEnumerable<HealthIndicator> CoreIndicators => Indicators.Where(IsCoreIndicator);
+        public System.Collections.Generic.IEnumerable<HealthIndicator> OptionalIndicators => Indicators.Where(i => !IsCoreIndicator(i));
+        public string ReadinessSummary => CoreIndicators.Any(i => i.State == "error")
+            ? "Navigation needs attention. Review the required data below."
+            : "Core navigation data is available. Optional sources can expand the network.";
+        public string InstalledCacheDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Jagex", "RuneScape");
+        public string ActiveCollisionDirectory => CollisionPathfinder.GetGridDirectory();
 
         public NavHealthViewModel()
         {
@@ -62,6 +81,7 @@ namespace MESharp.ViewModels
             _treatWildernessDitchAsCrossable = settings.TreatWildernessDitchAsCrossable;
 
             RefreshCommand = new RelayCommand(_ => Refresh(), _ => !IsBusy);
+            BuildNavigationCommand = new RelayCommand(_ => BuildNavigation(), _ => !IsBusy);
             SaveDumpPathCommand = new RelayCommand(_ => SaveSettings(), _ => !IsBusy);
             CancelBusyCommand = new RelayCommand(_ => { try { _busyCts?.Cancel(); } catch { } Append("Cancellation requested…"); }, _ => IsBusy);
 
@@ -168,6 +188,7 @@ namespace MESharp.ViewModels
         public ICommand SaveDumpPathCommand { get; }
         public ICommand CancelBusyCommand { get; }
         public ICommand RegenerateCollisionCommand { get; }
+        public ICommand BuildNavigationCommand { get; }
         public ICommand RegenerateObstaclesCommand { get; }
         public ICommand ImportLadderSeedsCommand { get; }
         public ICommand RegenerateAreasCommand { get; }
@@ -191,10 +212,16 @@ namespace MESharp.ViewModels
 
         // ── health snapshot ───────────────────────────────────────────────────────
 
-        private string LadderSeedPath => Path.Combine(ObstacleDeriver.DefaultOutputDirectory, "ladders.seed.json");
-        private string CatalogPath => Path.Combine(ObstacleDeriver.DefaultOutputDirectory, "obstacles.json");
+        private string LadderSeedPath => DerivedArtifact("ladders.seed.json");
+        private string CatalogPath => DerivedArtifact("obstacles.json");
         private string AreaSeedPath => Path.Combine(AreaDeriver.DefaultOutputDirectory, "areas.seed.json");
         private string NpcAreaSeedPath => Path.Combine(NpcAreaDeriver.DefaultOutputDirectory, "npc_areas.seed.json");
+
+        private static string DerivedArtifact(string name)
+        {
+            var active = Path.Combine(NavigationDataManager.ActiveDerivedDirectory, name);
+            return File.Exists(active) ? active : Path.Combine(NavigationDataManager.DerivedDirectory, name);
+        }
 
         public void Refresh()
         {
@@ -211,7 +238,7 @@ namespace MESharp.ViewModels
                 State = CollisionPathfinder.IsAvailable() ? "ok" : "error",
                 Detail = CollisionPathfinder.IsAvailable()
                     ? $"{gridCount} squares in {gridDir}"
-                    : $"No grids found in {gridDir} — regenerate from the dump."
+                    : $"No grids found in {gridDir}. Build Local Navigation reads the installed game cache."
             });
 
             Indicators.Add(new HealthIndicator
@@ -339,6 +366,10 @@ namespace MESharp.ViewModels
             });
 
             RaisePropertyChanged(nameof(DumpStatusText));
+            RaisePropertyChanged(nameof(CoreIndicators));
+            RaisePropertyChanged(nameof(OptionalIndicators));
+            RaisePropertyChanged(nameof(ReadinessSummary));
+            RaisePropertyChanged(nameof(ActiveCollisionDirectory));
             InvalidateCommands();
         }
 
@@ -367,6 +398,23 @@ namespace MESharp.ViewModels
             });
         }
 
+        private void BuildNavigation()
+        {
+            SaveSettings();
+            RunBackground("Building local navigation from game cache", (log, ct) =>
+            {
+                var build = NavigationWorkspaceBuilder.BuildAsync(
+                    extractor: null,
+                    dumpDirectory: DumpDirectory, log: log, cancellationToken: ct,
+                    wildernessDitchCrossable: TreatWildernessDitchAsCrossable).GetAwaiter().GetResult();
+                CollisionPathfinder.SetGridDirectory(null);
+                ObstacleCatalog.Invalidate();
+                WebwalkGraph.ReloadGraph();
+                return $"Built {build.Squares} walkability squares; {build.Skipped} coverage gaps (see coverage-gaps.json) in {build.Directory}. " +
+                    (NavigationDataManager.ActiveDirectory == null ? "Local generation is active." : "Published navigation remains active; local generation is available for development.");
+            });
+        }
+
         private void RunCollisionAudit()
         {
             SaveSettings();
@@ -378,8 +426,8 @@ namespace MESharp.ViewModels
                     log,
                     ct);
                 var reportPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "MESharp", "collision", "collision-audit.json");
+                    MESharp.Services.NavigationData.NavigationDataManager.WorkspaceDirectory,
+                    "reports", "collision-audit.json");
                 CollisionAudit.SaveReport(report, reportPath);
                 var dispatcher = Application.Current?.Dispatcher;
                 if (dispatcher != null) dispatcher.BeginInvoke(() => CollisionAuditSummary = report.Summary);
@@ -491,6 +539,12 @@ namespace MESharp.ViewModels
 
         private void GenerateWikiMapData()
         {
+            if (MessageBox.Show(
+                    "Import Advanced Wiki Maps into the local navigation graph now? This updates graph areas and may replace matching entries.",
+                    "Apply Wiki map data",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                return;
             RunBackground("Generating wiki map web data", (log, ct) =>
             {
                 var result = RuneScapeWikiDungeonImporter.IngestAdvancedMapCatalogAsync(

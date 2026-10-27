@@ -17,13 +17,9 @@ namespace csharp_interop.Documentation.Services
 
 		public ApiDocumentationService()
 		{
-			// The browser documents the MESharp.API surface, which lives in csharp_interop — NOT in
-			// this tool assembly. Resolve the already-loaded csharp_interop by name (ME loads it once
-			// from Build_DLL; tools share that instance). Fall back to this assembly only if it cannot
-			// be found, so design-time/test hosts still get a non-null assembly.
-			_apiAssembly = AppDomain.CurrentDomain.GetAssemblies()
-				              .FirstOrDefault(a => string.Equals(a.GetName().Name, "csharp_interop", StringComparison.OrdinalIgnoreCase))
-			              ?? typeof(ApiDocumentationService).Assembly;
+			// Resolve the actual API assembly even when the browser is the first consumer to load it.
+			// The host's assembly resolver still supplies the shared interop instance.
+			_apiAssembly = typeof(MESharp.API.Inventory).Assembly;
 			LoadXmlDocumentation();
 		}
 
@@ -157,10 +153,10 @@ namespace csharp_interop.Documentation.Services
 				methodInfo.Parameters.Add(new ApiParameterInfo
 				{
 					Name = param.Name,
-					Type = GetFriendlyTypeName(param.ParameterType),
+					Type = (param.IsOut ? "out " : param.ParameterType.IsByRef ? (param.IsIn ? "in " : "ref ") : param.GetCustomAttribute<ParamArrayAttribute>() != null ? "params " : "") + GetFriendlyTypeName(param.ParameterType),
 					Description = GetParamDescription(memberName, param.Name),
 					IsOptional = param.IsOptional,
-					DefaultValue = param.DefaultValue?.ToString()
+					DefaultValue = param.HasDefaultValue ? FormatLiteral(param.DefaultValue, param.ParameterType) : null
 				});
 			}
 
@@ -448,17 +444,19 @@ namespace csharp_interop.Documentation.Services
 
 		private string GenerateMethodExample(MethodInfo method, ParameterInfo[] parameters)
 		{
+			var prelude = string.Concat(parameters.Where(p => p.ParameterType.IsByRef && !p.IsOut && !p.IsIn)
+				.Select(p => $"var {p.Name} = default({GetQualifiedTypeName(p.ParameterType.GetElementType())});{Environment.NewLine}"));
 			var className = method.DeclaringType?.Name;
 			var arguments = string.Join(", ", parameters.Select(GetExampleArgument));
 			var call = $"{className}.{method.Name}({arguments})";
 
 			if (method.ReturnType == typeof(void))
 			{
-				return $"{call};";
+				return $"{prelude}{call};";
 			}
 
 			var variableName = GetExampleVariableName(method.Name, method.ReturnType);
-			return $"var {variableName} = {call};";
+			return $"{prelude}var {variableName} = {call};";
 		}
 
 		private string NormalizeExampleUsage(string example)
@@ -482,6 +480,9 @@ namespace csharp_interop.Documentation.Services
 
 		private string GetExampleArgument(ParameterInfo parameter)
 		{
+			if (parameter.IsOut) return "out _";
+			if (parameter.ParameterType.IsByRef)
+				return parameter.IsIn ? GetExampleValue(parameter.ParameterType.GetElementType(), parameter.Name) : "ref " + parameter.Name;
 			if (parameter.IsOptional && parameter.HasDefaultValue)
 			{
 				return FormatLiteral(parameter.DefaultValue, parameter.ParameterType);
@@ -616,6 +617,9 @@ namespace csharp_interop.Documentation.Services
 		/// </summary>
 		private string GetFriendlyTypeName(Type type)
 		{
+			if (type.IsByRef) return GetFriendlyTypeName(type.GetElementType());
+			if (type.IsArray) return GetFriendlyTypeName(type.GetElementType()) + "[" + new string(',', type.GetArrayRank() - 1) + "]";
+			if (Nullable.GetUnderlyingType(type) is { } underlying) return GetFriendlyTypeName(underlying) + "?";
 			if (type == typeof(void)) return "void";
 			if (type == typeof(int)) return "int";
 			if (type == typeof(long)) return "long";

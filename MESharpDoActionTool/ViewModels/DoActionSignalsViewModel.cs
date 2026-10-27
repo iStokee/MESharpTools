@@ -87,16 +87,26 @@ namespace MESharp.ViewModels
         /// <summary>Last few parsed in-game clicks (newest first) for the "Click History" panel.</summary>
         public ObservableCollection<ClickHistoryRow> ClickHistory { get; } = new();
 
+        private string _filterText = string.Empty;
+        public string FilterText
+        {
+            get => _filterText;
+            set { if (SetProperty(ref _filterText, value)) RefreshSignals(force: true); }
+        }
+
+        public bool IsFeedEmpty => ShowClickHistoryView ? ClickHistory.Count == 0 : Signals.Count == 0;
+        public string FeedSummary => $"{Signals.Count} signals / {ClickHistory.Count} parsed clicks shown";
+
         public int MaxCount
         {
             get => _maxCount;
-            set => SetProperty(ref _maxCount, Math.Clamp(value, 10, 500));
+            set { if (SetProperty(ref _maxCount, Math.Clamp(value, 10, 500))) RefreshSignals(force: true); }
         }
 
         public bool IncludeFailed
         {
             get => _includeFailed;
-            set => SetProperty(ref _includeFailed, value);
+            set { if (SetProperty(ref _includeFailed, value)) RefreshSignals(force: true); }
         }
 
         public bool AutoRefresh
@@ -199,6 +209,7 @@ namespace MESharp.ViewModels
                 if (SetProperty(ref _showClickHistoryView, value))
                 {
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowSignalsView)));
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFeedEmpty)));
                     CommandManager.InvalidateRequerySuggested();
                 }
             }
@@ -231,7 +242,7 @@ namespace MESharp.ViewModels
             RefreshCommand = new RelayCommand(_ => RefreshSignals(force: true));
             ClearBufferCommand = new RelayCommand(_ => ClearBuffer());
             CopySelectedCommand = new RelayCommand(_ => CopySelected(), _ => HasSelection);
-            CopyAllCommand = new RelayCommand(_ => CopyAll(), _ => Signals.Count > 0);
+            CopyAllCommand = new RelayCommand(_ => CopyAll(), _ => ShowClickHistoryView ? ClickHistory.Count > 0 : Signals.Count > 0);
             CopyAsApiCallCommand = new RelayCommand(_ => CopyAsApiCall(), _ => HasSelection);
             CopyClickCommand = new RelayCommand(CopyClick, p => p is ClickHistoryRow);
 
@@ -251,6 +262,7 @@ namespace MESharp.ViewModels
 
         public void OnActivated()
         {
+            if (_isActive || _disposed) return;
             _isActive = true;
             // Stream real player clicks live: the pump drains the native DoAction hook
             // into the managed buffer with real timestamps and the player's tile.
@@ -296,6 +308,7 @@ namespace MESharp.ViewModels
 
         public void OnDeactivated()
         {
+            if (!_isActive) return;
             _isActive = false;
             try { DoActionDebugSignals.StopNativePump(); } catch { }
             UpdateTimer();
@@ -330,7 +343,11 @@ namespace MESharp.ViewModels
         {
             try
             {
-                var snapshot = DoActionDebugSignals.Snapshot(MaxCount, IncludeFailed);
+                var source = DoActionDebugSignals.Snapshot(MaxCount, IncludeFailed);
+                var filter = FilterText.Trim();
+                IReadOnlyList<DoActionDebugSignals.DoActionSignal> snapshot = source.Where(s => filter.Length == 0 ||
+                    string.Join(" ", s.Kind, s.Surface, s.Operation, s.Snippet, s.Notes)
+                        .Contains(filter, StringComparison.OrdinalIgnoreCase)).ToArray();
                 var signature = (snapshot.Count, snapshot.Count > 0 ? snapshot[0].TimestampUtc.Ticks : 0L, MaxCount, IncludeFailed);
                 if (!force && signature == _lastSignalSignature)
                 {
@@ -338,6 +355,8 @@ namespace MESharp.ViewModels
                 }
                 _lastSignalSignature = signature;
 
+                var selectedSignal = SelectedSignal;
+                var selectedClick = SelectedClick;
                 Signals.Clear();
                 foreach (var signal in snapshot)
                 {
@@ -356,6 +375,14 @@ namespace MESharp.ViewModels
                 }
 
                 RebuildClickHistory(snapshot);
+
+                SelectedSignal = Signals.FirstOrDefault(s => selectedSignal != null &&
+                    s.TimestampUtc == selectedSignal.TimestampUtc && s.Surface == selectedSignal.Surface &&
+                    s.Operation == selectedSignal.Operation && s.Snippet == selectedSignal.Snippet);
+                SelectedClick = ClickHistory.FirstOrDefault(s => selectedClick != null &&
+                    s.TimestampUtc == selectedClick.TimestampUtc && s.Snippet == selectedClick.Snippet && s.Surface == selectedClick.Surface);
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFeedEmpty)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FeedSummary)));
 
                 StatusMessage = $"Loaded {Signals.Count} signal(s).";
                 CommandManager.InvalidateRequerySuggested();
@@ -544,6 +571,12 @@ namespace MESharp.ViewModels
 
         private void CopyAll()
         {
+            if (ShowClickHistoryView)
+            {
+                TrySetClipboard(string.Join(Environment.NewLine, ClickHistory.Select(c => c.ApiSnippet)),
+                    $"Copied {ClickHistory.Count} parsed clicks as C#.");
+                return;
+            }
             var lines = Signals.Select(s =>
                 $"[{s.TimestampUtc.ToString("O", CultureInfo.InvariantCulture)}] {s.Surface}.{s.Operation} => {(s.Result ? "OK" : "FAILED")} | {s.Snippet}");
             TrySetClipboard(string.Join(Environment.NewLine, lines), $"Copied {Signals.Count} signals.");
@@ -570,6 +603,7 @@ namespace MESharp.ViewModels
             }
 
             _timer.Stop();
+            OnDeactivated();
             _timer.Tick -= _timerTickHandler;
             _disposed = true;
         }

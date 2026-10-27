@@ -27,6 +27,7 @@ namespace MESharp.Services
         private static int _port;
         private static string? _mutationToken;
         private static bool _stopping;
+        private static volatile bool _developerToolsEnabled;
         private static readonly object RequestSync = new();
         internal const int MaxConcurrentRequests = 16;
         private static readonly SemaphoreSlim RequestSlots = new(MaxConcurrentRequests, MaxConcurrentRequests);
@@ -40,6 +41,12 @@ namespace MESharp.Services
         };
 
         public static bool IsRunning { get { lock (ServerSync) return _listener != null; } }
+
+        public static void SetDeveloperToolsEnabled(bool enabled)
+        {
+            _developerToolsEnabled = enabled;
+            if (!enabled && IsRecording) StopRecording();
+        }
 
         /// <summary>True while a record-from-map session is in flight (hub status strip).</summary>
         public static bool IsRecording
@@ -96,7 +103,25 @@ namespace MESharp.Services
                             }
                         }
                     }
-                    finally { serverCts.Dispose(); }
+                    finally
+                    {
+                        // Accept can terminate without Stop() (listener/socket failure). Clear the
+                        // published state only when it still belongs to this server generation so a
+                        // later Start() never observes a stale non-null listener.
+                        lock (ServerSync)
+                        {
+                            if (ReferenceEquals(_listener, listener))
+                            {
+                                try { listener.Stop(); } catch { }
+                                _listener = null;
+                                if (ReferenceEquals(_cts, serverCts)) _cts = null;
+                                _serverTask = null;
+                                _mutationToken = null;
+                                _port = 0;
+                            }
+                        }
+                        serverCts.Dispose();
+                    }
                 }, CancellationToken.None);
 
                 return BuildMapUrl();
@@ -182,6 +207,8 @@ namespace MESharp.Services
                         _recordSamples = null;
                         try { DoActionDebugSignals.StopNativePump(); } catch { }
                     }
+                    _recordingLease?.Dispose();
+                    _recordingLease = null;
                 }
             }
             finally
@@ -258,6 +285,10 @@ namespace MESharp.Services
 
                     switch (path)
                     {
+                        case "/catalog.json":
+                            body = JsonSerializer.SerializeToUtf8Bytes(GetCatalogState(ParseQuery(requestLine)), JsonOptions);
+                            contentType = "application/json";
+                            break;
                         case "/player.json":
                             body = JsonSerializer.SerializeToUtf8Bytes(GetPlayerState(), JsonOptions);
                             contentType = "application/json";
@@ -323,9 +354,18 @@ namespace MESharp.Services
                             break;
 
                         default:
-                            body = Encoding.UTF8.GetBytes("Not found.");
-                            contentType = "text/plain";
-                            status = "404 Not Found";
+                            var asset = LoadMapAsset(path);
+                            if (asset.HasValue)
+                            {
+                                body = asset.Value.Body;
+                                contentType = asset.Value.ContentType;
+                            }
+                            else
+                            {
+                                body = Encoding.UTF8.GetBytes("Not found.");
+                                contentType = "text/plain";
+                                status = "404 Not Found";
+                            }
                             break;
                     }
 
@@ -334,6 +374,10 @@ namespace MESharp.Services
                     catch (OperationCanceledException)
                     {
                         // Expected when the map server closes during a request.
+                    }
+                    catch (IOException ex) when (IsClientDisconnect(ex))
+                    {
+                        // Fetch cancellation, map reload and closing WebView abandon responses.
                     }
                     catch (Exception ex)
                     {
@@ -351,17 +395,25 @@ namespace MESharp.Services
             {
                 // Expected when the map server closes during a request.
             }
+            catch (IOException ex) when (IsClientDisconnect(ex))
+            {
+                // The browser disconnected while the request/response was in flight.
+            }
             catch (Exception ex)
             {
                 Console.WriteLine($"[NavTool] Map request failed: {ex}");
             }
         }
 
+        internal static bool IsClientDisconnect(IOException error)
+            => error.InnerException is SocketException socket && socket.SocketErrorCode is
+                SocketError.ConnectionAborted or SocketError.ConnectionReset or SocketError.OperationAborted or SocketError.Shutdown;
+
         private static object GetCollisionAuditState(System.Collections.Generic.Dictionary<string, string> query)
         {
             var reportPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MESharp", "collision", "collision-audit.json");
+                MESharp.Services.NavigationData.NavigationDataManager.WorkspaceDirectory,
+                "reports", "collision-audit.json");
             if (!File.Exists(reportPath)) return new { available = false };
             try
             {
@@ -405,6 +457,23 @@ namespace MESharp.Services
             stream.Write(body, 0, body.Length);
         }
 
+        private static object GetCatalogState(System.Collections.Generic.Dictionary<string, string> query)
+        {
+            var version = WebwalkGraph.GetDataVersion() + "|" + Webwalking.GetCatalogVersion();
+            if (query.TryGetValue("version", out var previous) && previous == version)
+                return new { unchanged = true, version };
+            return new
+            {
+                version,
+                graph = WebwalkGraph.GetGraph(),
+                routes = Webwalking.GetRoutes().Select(r => new
+                {
+                    id = r.Id, name = r.Name, category = r.Category, tags = r.Tags,
+                    waypoints = r.Waypoints.Select(w => new { x = w.Point.X, y = w.Point.Y, z = w.Point.Z }).ToArray()
+                }).ToArray()
+            };
+        }
+
         // ── Live player state (R2-A) ─────────────────────────────────────────────
 
         // ── Show-on-map focus ────────────────────────────────────────────────────
@@ -436,22 +505,19 @@ namespace MESharp.Services
                 }
             }
 
-            object? travel;
-            lock (TravelSync)
-            {
-                travel = _travelStatus == null ? null : new { running = _travelRunning, message = _travelStatus };
-            }
+            var state = TravelState;
+            object? travel = state.Message == null ? null : new { running = state.Running, message = state.Message };
 
             try
             {
                 var pos = Traversal.GetCurrentPosition();
                 if (pos.X <= 0 && pos.Y <= 0)
-                    return new { available = false, focus, travel };
-                return new { available = true, x = pos.X, y = pos.Y, z = pos.Z, focus, travel };
+                    return new { available = false, focus, travel, developerTools = _developerToolsEnabled };
+                return new { available = true, x = pos.X, y = pos.Y, z = pos.Z, focus, travel, developerTools = _developerToolsEnabled };
             }
             catch
             {
-                return new { available = false, focus, travel };
+                return new { available = false, focus, travel, developerTools = _developerToolsEnabled };
             }
         }
 
@@ -526,7 +592,11 @@ namespace MESharp.Services
 
         private static object[] PulseStoreSurvey(int plane, int minX, int minY, int maxX, int maxY, int step)
         {
-            var cells = SurveyStore.Default.TilesInBounds(plane, minX, minY, maxX, maxY);
+            // Survey membership records where we scanned. Its saved classification
+            // belongs to the old dataset; project against current terrain after builds.
+            var surveyed = SurveyStore.Default.TilesInBounds(plane, minX, minY, maxX, maxY);
+            var current = CollisionPathfinder.GetWalkability(surveyed.Select(c => c.Tile).ToArray());
+            var cells = ProjectSurveyTerrain(surveyed, current);
             if (step <= 1)
                 return cells.Select(c => (object)new { x = c.X, y = c.Y, s = (int)c.Status }).ToArray();
 
@@ -543,6 +613,17 @@ namespace MESharp.Services
             }
             return blockStatus.Select(kv => (object)new { x = kv.Key.X, y = kv.Key.Y, s = kv.Value }).ToArray();
         }
+
+        internal static SurveyCell[] ProjectSurveyTerrain(
+            System.Collections.Generic.IReadOnlyList<SurveyCell> cells,
+            System.Collections.Generic.IReadOnlyList<bool?> walkability)
+            => cells.Select((c, i) => (Cell: c, Walkable: walkability[i]))
+            .Where(c => c.Walkable.HasValue).Select(c => new SurveyCell
+            {
+                X = c.Cell.X, Y = c.Cell.Y, Z = c.Cell.Z,
+                Status = c.Walkable.Value ? SurveyStatus.Clear : SurveyStatus.Blocked,
+                Count = c.Cell.Count, LastSeenUtcTicks = c.Cell.LastSeenUtcTicks
+            }).ToArray();
 
         private static int FloorDiv(int a, int b) => (int)Math.Floor(a / (double)b);
 
@@ -616,6 +697,22 @@ namespace MESharp.Services
 
         private static readonly object TravelSync = new();
         private static CancellationTokenSource? _travelCts;
+        internal static event Action? TravelStateChanged;
+        internal static (bool Running, string? Message) TravelState
+        {
+            get
+            {
+                lock (TravelSync)
+                    return (_travelRunning, MapTravelStatus.WithPreparation(_travelStatus, _travelRunning,
+                        MESharp.Services.NavigationData.NavigationReadiness.IsPreparing,
+                        MESharp.Services.NavigationData.NavigationReadiness.Message));
+            }
+        }
+
+        internal static void CancelTravel()
+        {
+            lock (TravelSync) { try { _travelCts?.Cancel(); } catch (ObjectDisposedException) { } }
+        }
         private static readonly System.Collections.Generic.HashSet<Task> ActiveTravelTasks = new();
         private static string? _travelStatus;
         private static bool _travelRunning;
@@ -626,6 +723,14 @@ namespace MESharp.Services
         /// therefore invisible) is captured into the travel status served with /player.json.
         /// </summary>
         private static bool StartTravelTask(string description, Func<CancellationToken, Task<bool>> run, CancellationToken serverToken)
+            => StartTravelStatusTask(description, async ct =>
+                MapTravelStatus.FromResult(description, await run(ct).ConfigureAwait(false), ct.IsCancellationRequested), serverToken);
+
+        private static bool StartTravelTask(string description, Func<CancellationToken, Task<NavigationResult>> run, CancellationToken serverToken)
+            => StartTravelStatusTask(description, async ct =>
+                MapTravelStatus.FromResult(description, await run(ct).ConfigureAwait(false), ct.IsCancellationRequested), serverToken);
+
+        private static bool StartTravelStatusTask(string description, Func<CancellationToken, Task<string>> run, CancellationToken serverToken)
         {
             CancellationTokenSource myCts;
             lock (TravelSync)
@@ -645,8 +750,7 @@ namespace MESharp.Services
                 string status;
                 try
                 {
-                    var succeeded = await NavigationExecutionGate.RunAsync(() => run(ct), ct).ConfigureAwait(false);
-                    status = MapTravelStatus.FromResult(description, succeeded, ct.IsCancellationRequested);
+                    status = await NavigationExecutionGate.RunAsync(() => run(ct), ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -667,6 +771,7 @@ namespace MESharp.Services
                         _travelCts = null;
                     }
                 }
+                TravelStateChanged?.Invoke();
                 myCts.Dispose();
             }, CancellationToken.None);
             lock (TravelSync)
@@ -677,6 +782,7 @@ namespace MESharp.Services
             {
                 lock (TravelSync) ActiveTravelTasks.Remove(completed);
             }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            TravelStateChanged?.Invoke();
             return true;
         }
 
@@ -695,6 +801,13 @@ namespace MESharp.Services
                 cancellationToken.ThrowIfCancellationRequested();
                 using var doc = string.IsNullOrWhiteSpace(body) ? JsonDocument.Parse("{}") : JsonDocument.Parse(body);
                 var payload = doc.RootElement;
+
+                if (!_developerToolsEnabled &&
+                    (path is "/api/node" or "/api/edge" or "/api/area" or "/api/area_delete" or
+                        "/api/record_start" or "/api/record_stop" or "/api/record_save" or "/api/record_discard" or
+                        "/api/scan" or "/api/scan_mode" ||
+                     path == "/api/generate_route" && payload.TryGetProperty("save", out var saveRequested) && saveRequested.ValueKind == JsonValueKind.True))
+                    return new { succeeded = false, error = "Enable Developer tools to edit navigation data." };
 
                 switch (path)
                 {
@@ -811,8 +924,8 @@ namespace MESharp.Services
                         // Live profile so the preview reflects what THIS account can actually use —
                         // a charged glory, the standard spellbook, agility shortcuts at level, etc.
                         // Degrades to empty (lodestones + walking) when no game session is attached.
-                        var planProfile = WebwalkProfile.FromGameState();
-                        var plan = WebwalkGraph.FindPath(from, to, planProfile, cancellationToken);
+                        var navigationPlan = Navigation.PlanTravel(from, to, cancellationToken: cancellationToken);
+                        var plan = navigationPlan?.Path;
                         if (plan == null)
                             return new
                             {
@@ -820,12 +933,14 @@ namespace MESharp.Services
                                 error = $"No plan from {from} to {to} — no route/transport connects them.",
                                 gridsAvailable = CollisionPathfinder.IsAvailable()
                             };
-                        var planId = CachePreviewPlan(from, to, plan, planProfile);
+                        var planId = CachePreviewPlan(navigationPlan!);
                         return new
                         {
                             succeeded = true,
                             planId,
                             totalCostMs = plan.TotalCostMs,
+                            estimatedDurationMs = plan.EstimatedDurationMs,
+                            gridsAvailable = CollisionPathfinder.IsAvailable(),
                             legs = BuildPlanLegs(from, to, plan, cancellationToken)
                         };
                     }
@@ -844,7 +959,7 @@ namespace MESharp.Services
                         else
                         {
                             var travelProfile = WebwalkProfile.FromGameState();
-                            if (!StartTravelTask($"Travel to {to}", ct => Navigation.TravelToAsync(to, travelProfile, ct), cancellationToken))
+                            if (!StartTravelTask($"Travel to {to}", ct => Navigation.TravelToDetailedAsync(to, travelProfile, ct), cancellationToken))
                                 return new { succeeded = false, message = "Map server is stopping." };
                         }
                         return new { succeeded = true, message = $"Travel to {to} started." };
@@ -856,13 +971,13 @@ namespace MESharp.Services
                         if (string.IsNullOrWhiteSpace(areaId))
                             return new { succeeded = false, message = "areaId required." };
                         var areaProfile = WebwalkProfile.FromGameState();
-                        if (!StartTravelTask($"Travel into area '{areaId}'", ct => Navigation.TravelToAreaAsync(areaId, areaProfile, ct), cancellationToken))
+                        if (!StartTravelTask($"Travel into area '{areaId}'", ct => Navigation.TravelToAreaDetailedAsync(areaId, areaProfile, ct), cancellationToken))
                             return new { succeeded = false, message = "Map server is stopping." };
                         return new { succeeded = true, message = $"Travel into area '{areaId}' started." };
                     }
 
                     case "/api/travel_stop":
-                        lock (TravelSync) { try { _travelCts?.Cancel(); } catch { } }
+                        CancelTravel();
                         return new { succeeded = true, message = "Travel cancelled." };
 
                     case "/api/walk_route":
@@ -896,11 +1011,30 @@ namespace MESharp.Services
                         if (center.X <= 0 && center.Y <= 0)
                             return new { succeeded = false, error = "No player position to scan (not logged in?)." };
                         var snap = PulseSnapshot.ScanAndRecord(center, surveyRadius: GetInt(payload, "radius", 14));
+                        var tiles = snap.SurveyTiles(GetInt(payload, "radius", 14)).ToArray();
+                        var surveyedTiles = tiles.Length;
+                        var clearTiles = tiles.Count(t => t.Walkable);
+                        var centerCovered = snap.HasCoverage(center);
+                        var centerWalkable = centerCovered && snap.IsWalkable(center);
+                        var player = Traversal.GetCurrentPosition();
+                        var playerMismatch = player.X == center.X && player.Y == center.Y && player.Z == center.Z && centerCovered && !centerWalkable;
                         return new
                         {
                             succeeded = true,
                             center = new { x = center.X, y = center.Y, z = center.Z },
-                            obstacles = snap.Obstacles.Count
+                            obstacles = snap.Obstacles.Count,
+                            surveyedTiles,
+                            clearTiles,
+                            blockedTiles = surveyedTiles - clearTiles,
+                            centerCovered,
+                            centerWalkable,
+                            playerMismatch,
+                            terrainVersion = CollisionPathfinder.GetDataVersion(),
+                            collisionDirectory = CollisionPathfinder.GetGridDirectory(),
+                            message = surveyedTiles == 0
+                                ? "No collision coverage here. Obstacles were observed, but terrain remains unknown. Check navigation build status."
+                                : $"Surveyed {surveyedTiles} covered tiles: {clearTiles} clear, {surveyedTiles - clearTiles} blocked; observed {snap.Obstacles.Count} doors/gates." +
+                                  (playerMismatch ? " Collision mismatch: the player's occupied tile is classified blocked. This scan does not independently verify terrain." : " Terrain classification comes from the current collision dataset.")
                         };
                     }
 
@@ -908,7 +1042,13 @@ namespace MESharp.Services
                     {
                         // Toggle continuous "scanning mode" (capture-as-you-move). Defaults to ON.
                         PulseStore.CaptureEnabled = !(payload.TryGetProperty("on", out var on) && on.ValueKind == JsonValueKind.False);
-                        return new { succeeded = true, scanning = PulseStore.CaptureEnabled };
+                        return new
+                        {
+                            succeeded = true, scanning = PulseStore.CaptureEnabled,
+                            message = !PulseStore.CaptureEnabled ? "paused" : CollisionPathfinder.IsAvailable()
+                                ? "Capturing obstacles and covered terrain as you move."
+                                : "Capturing obstacles; terrain awaits a navigation build. Open Status for Build Local Navigation."
+                        };
                     }
 
                     // ── Record-from-map (R2-C) ───────────────────────────────────
@@ -1026,18 +1166,15 @@ namespace MESharp.Services
             WorldPoint From,
             WorldPoint To,
             WebwalkGraphPath Plan,
-            WebwalkProfile Profile,
+            NavigationPlan ExecutionPlan,
             DateTime CreatedUtc);
 
         private static string CachePreviewPlan(
-            WorldPoint from,
-            WorldPoint to,
-            WebwalkGraphPath plan,
-            WebwalkProfile profile)
+            NavigationPlan plan)
         {
             var id = Guid.NewGuid().ToString("N");
             lock (PreviewSync)
-                _previewPlan = new CachedPreviewPlan(id, from, to, plan, profile, DateTime.UtcNow);
+                _previewPlan = new CachedPreviewPlan(id, plan.From, plan.Destination, plan.Path, plan, DateTime.UtcNow);
             return id;
         }
 
@@ -1074,16 +1211,12 @@ namespace MESharp.Services
             return true;
         }
 
-        private static async Task<bool> RunPreviewThenReplanAsync(
+        private static async Task<NavigationResult> RunPreviewThenReplanAsync(
             CachedPreviewPlan preview,
             CancellationToken cancellationToken)
         {
-            var result = await Webwalking.RunPlanDetailedAsync(preview.Plan, cancellationToken).ConfigureAwait(false);
-            if (result.Succeeded)
-                return true;
-            if (result.Status == WebwalkPlanRunStatus.Cancelled || cancellationToken.IsCancellationRequested)
-                return false;
-            return await Navigation.TravelToAsync(preview.To, preview.Profile, cancellationToken).ConfigureAwait(false);
+            return await Navigation.TravelPlannedDetailedAsync(preview.ExecutionPlan,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         // ── Record-from-map (R2-C) ───────────────────────────────────────────────
@@ -1100,6 +1233,7 @@ namespace MESharp.Services
         private static IReadOnlyList<WebwalkTrailSegment>? _pendingSegments;
         private static IReadOnlyList<WebwalkAuthoring.WebwalkObstacleCandidate>? _pendingObstacles;
         private static DateTime _recordStartUtc;
+        private static IDisposable? _recordingLease;
 
         private const int RecordSampleIntervalMs = 600;
 
@@ -1110,6 +1244,10 @@ namespace MESharp.Services
                 serverToken.ThrowIfCancellationRequested();
                 if (_recordCts != null || _recordStopping)
                     return new { succeeded = false, error = "A recording session is already active or stopping." };
+
+                _recordingLease = NavigationCaptureGate.TryEnter("Navigation map recorder");
+                if (_recordingLease == null)
+                    return new { succeeded = false, error = $"Recording is already active in {NavigationCaptureGate.ActiveOwner ?? "another navigation surface"}." };
 
                 _recordSamples = new List<WebwalkRecordedSample>();
                 _pendingSegments = null;
@@ -1207,7 +1345,12 @@ namespace MESharp.Services
             }
             finally
             {
-                lock (RecordSync) _recordStopping = false;
+                lock (RecordSync)
+                {
+                    _recordStopping = false;
+                    _recordingLease?.Dispose();
+                    _recordingLease = null;
+                }
             }
         }
 
@@ -1453,6 +1596,31 @@ namespace MESharp.Services
             {
                 return null;
             }
+        }
+
+        private static (byte[] Body, string ContentType)? LoadMapAsset(string path)
+        {
+            var resource = path switch
+            {
+                "/leaflet.js" => "MESharp.webwalk_map.leaflet.js",
+                "/leaflet.css" => "MESharp.webwalk_map.leaflet.css",
+                "/leaflet-license.txt" => "MESharp.webwalk_map.leaflet.LICENSE",
+                "/images/layers-2x.png" => "MESharp.webwalk_map.leaflet.images.layers-2x.png",
+                "/images/layers.png" => "MESharp.webwalk_map.leaflet.images.layers.png",
+                "/images/marker-icon-2x.png" => "MESharp.webwalk_map.leaflet.images.marker-icon-2x.png",
+                "/images/marker-icon.png" => "MESharp.webwalk_map.leaflet.images.marker-icon.png",
+                "/images/marker-shadow.png" => "MESharp.webwalk_map.leaflet.images.marker-shadow.png",
+                _ => null
+            };
+            if (resource == null) return null;
+            using var stream = typeof(CoverageMapServer).Assembly.GetManifestResourceStream(resource);
+            if (stream == null) return null;
+            using var memory = new MemoryStream();
+            stream.CopyTo(memory);
+            var contentType = path.EndsWith(".js", StringComparison.Ordinal) ? "text/javascript" :
+                path.EndsWith(".css", StringComparison.Ordinal) ? "text/css" :
+                path.EndsWith(".png", StringComparison.Ordinal) ? "image/png" : "text/plain";
+            return (memory.ToArray(), contentType);
         }
 
         private static string ReadRequestLine(NetworkStream stream)

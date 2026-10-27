@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="../ME_CSharp_Scripts/SharpSlayer/MESharp.Slayer/MESharp.Slayer.csproj" />
   <Project Path="../csharp_interop/csharp_interop.csproj" />
   <Project Path="../MESharp.CacheDerivation/MESharp.CacheDerivation.csproj" />
   <Project Path="../MESharp.CacheDerivation.Tests/MESharp.CacheDerivation.Tests.csproj" />

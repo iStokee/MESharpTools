@@ -4,11 +4,13 @@ using MESharp.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows.Threading;
+using System.Windows.Data;
 
 namespace MESharp.ViewModels
 {
@@ -117,6 +119,7 @@ namespace MESharp.ViewModels
         private readonly List<WebwalkRecordedSample> _rawSamples = new();
         private readonly List<WebwalkAuthoring.WebwalkObstacleCandidate> _recordedObstacles = new();
         private DateTime _recordStartUtc;
+        private IDisposable? _recordingLease;
         private DateTime _lastWaypointCaptureUtc;
 
         // Fixed raw-sample cadence, matching the map recorder, so dwell/teleport
@@ -125,6 +128,24 @@ namespace MESharp.ViewModels
 
         // ── Graph view ────────────────────────────────────────────────────────────
         public ObservableCollection<GraphNodeDisplay> Nodes { get; } = new();
+        public ICollectionView NodeView { get; }
+        public ICollectionView EdgeView { get; }
+        public ICollectionView RouteView { get; }
+        public ICollectionView AreaView { get; }
+        private string _graphSearchText = string.Empty;
+        public string GraphSearchText
+        {
+            get => _graphSearchText;
+            set
+            {
+                if (!SetProperty(ref _graphSearchText, value)) return;
+                NodeView.Refresh(); EdgeView.Refresh(); RouteView.Refresh(); AreaView.Refresh();
+            }
+        }
+        private int _selectedWorkspaceTabIndex;
+        public int SelectedWorkspaceTabIndex { get => _selectedWorkspaceTabIndex; set => SetProperty(ref _selectedWorkspaceTabIndex, value); }
+        private bool MatchesSearch(params string?[] values) => string.IsNullOrWhiteSpace(GraphSearchText) ||
+            values.Any(v => v?.Contains(GraphSearchText.Trim(), StringComparison.OrdinalIgnoreCase) == true);
         public ObservableCollection<GraphEdgeDisplay> Edges { get; } = new();
         public ObservableCollection<GraphRouteDisplay> Routes { get; } = new();
         public ObservableCollection<GraphAreaDisplay> Areas { get; } = new();
@@ -241,6 +262,10 @@ namespace MESharp.ViewModels
 
         public WebwalkGraphViewModel()
         {
+            NodeView = new ListCollectionView(Nodes) { Filter = item => item is GraphNodeDisplay n && MatchesSearch(n.Id, n.Name, n.Tags) };
+            EdgeView = new ListCollectionView(Edges) { Filter = item => item is GraphEdgeDisplay e && MatchesSearch(e.Id, e.From, e.To, e.Kind, e.Source) };
+            RouteView = new ListCollectionView(Routes) { Filter = item => item is GraphRouteDisplay r && MatchesSearch(r.Id, r.Name, r.Category) };
+            AreaView = new ListCollectionView(Areas) { Filter = item => item is GraphAreaDisplay a && MatchesSearch(a.Id, a.Name, a.Tags, a.Source) };
             StartRecordingCommand = new RelayCommand(_ => StartRecording(), _ => !IsRecording);
             StopRecordingCommand = new RelayCommand(_ => StopRecording(), _ => IsRecording);
             ClearRecordingCommand = new RelayCommand(_ => ClearRecording(), _ => !IsRecording);
@@ -311,6 +336,14 @@ namespace MESharp.ViewModels
 
         private void StartRecording()
         {
+            _recordingLease = NavigationCaptureGate.TryEnter("Navigation Studio graph recorder");
+            if (_recordingLease == null)
+            {
+                LastStatus = $"Recording is already active in {NavigationCaptureGate.ActiveOwner ?? "another navigation surface"}.";
+                AddLog(LastStatus);
+                return;
+            }
+
             // A new recording must be an independent trail. Retaining samples from the
             // previous session causes segmentation to invent a teleport between sessions.
             ResetRecordingSession();
@@ -347,6 +380,8 @@ namespace MESharp.ViewModels
             finally
             {
                 DoActionDebugSignals.StopNativePump();
+                _recordingLease?.Dispose();
+                _recordingLease = null;
             }
 
             AddLog($"Recording stopped. {_recordedSamples.Count} waypoints captured, {_recordedObstacles.Count} obstacle candidate(s).");
@@ -963,9 +998,14 @@ namespace MESharp.ViewModels
             SelectedRoute = string.IsNullOrWhiteSpace(selectedRouteId) ? null : Routes.FirstOrDefault(r => string.Equals(r.Id, selectedRouteId, StringComparison.OrdinalIgnoreCase));
         }
 
-        private void PreviewPath()
+        private async void PreviewPath()
         {
-            if (!TryBuildPath(out var path, out var message))
+            NavigationPlan? preview;
+            string message;
+            try { (preview, message) = await BuildPathAsync(); }
+            catch (Exception ex) { if (!_disposed) LastStatus = ex.Message; return; }
+            if (_disposed) return;
+            if (preview == null)
             {
                 PathPreview = message;
                 LastStatus = PathPreview;
@@ -973,10 +1013,11 @@ namespace MESharp.ViewModels
                 return;
             }
 
+            var path = preview.Path;
             var edgeList = path.Edges.Count == 0
                 ? "(already at target)"
                 : string.Join(" -> ", path.Edges.Select(e => e.Id));
-            PathPreview = $"{path.Edges.Count} edge(s), ~{path.TotalCostMs / 1000.0:0.0}s: {edgeList}";
+            PathPreview = $"{path.Edges.Count} edge(s), estimated {path.EstimatedDurationMs / 1000.0:0.0}s (routing score {path.TotalCostMs}): {edgeList}";
             LastStatus = PathPreview;
             AddLog("Path preview: " + PathPreview);
         }
@@ -990,32 +1031,28 @@ namespace MESharp.ViewModels
                 PathRunStatus = "Another navigation run is active.";
                 return;
             }
-            if (!TryBuildPath(out var path, out var message))
-            {
-                PathRunStatus = message;
-                LastStatus = message;
-                AddLog(message);
-                return;
-            }
-
             _pathRunCts?.Dispose();
             _pathRunCts = new CancellationTokenSource();
             var pathRunCts = _pathRunCts;
             IsPathRunning = true;
-            PathRunStatus = $"Running {path.Edges.Count} edge(s).";
+            PathRunStatus = "Planning journey...";
             LastStatus = PathRunStatus;
             AddLog(PathRunStatus);
 
             try
             {
-                var runTask = Task.Run(() => Webwalking.RunPlanDetailedAsync(path, pathRunCts.Token), pathRunCts.Token);
+                var (preview, message) = await BuildPathAsync(pathRunCts.Token);
+                if (preview == null) { LastStatus = PathRunStatus = message; return; }
+                var runTask = Task.Run(() => Navigation.TravelPlannedDetailedAsync(preview,
+                    cancellationToken: pathRunCts.Token), pathRunCts.Token);
                 _pathRunTask = runTask;
                 var result = await runTask.ConfigureAwait(true);
                 if (_disposed) return;
-                var edgeSummary = result.Edges.Count == 0
+                var edges = result.Attempts.SelectMany(a => a.Result.Edges).ToArray();
+                var edgeSummary = edges.Length == 0
                     ? "no edges"
-                    : string.Join(", ", result.Edges.Select((e, i) => $"{i + 1}:{e.EdgeId}={e.Succeeded}"));
-                PathRunStatus = $"{result.Status}: {result.Message} ({edgeSummary})";
+                    : string.Join(", ", edges.Select((e, i) => $"{i + 1}:{e.EdgeId}={e.Succeeded}"));
+                PathRunStatus = $"{result} ({edgeSummary})";
                 LastStatus = PathRunStatus;
                 AddLog("Path run: " + PathRunStatus);
             }
@@ -1049,21 +1086,18 @@ namespace MESharp.ViewModels
             AddLog(LastStatus);
         }
 
-        private bool TryBuildPath(out WebwalkGraphPath path, out string message)
+        private Task<(NavigationPlan? Plan, string Message)> BuildPathAsync(CancellationToken cancellationToken = default)
         {
             var from = PathFromNodeId.Trim();
             var to = PathToNodeId.Trim();
-            var found = WebwalkGraph.FindPath(from, to);
-            if (found == null)
+            return Task.Run<(NavigationPlan?, string)>(() =>
             {
-                path = new WebwalkGraphPath();
-                message = $"No path from '{from}' to '{to}'.";
-                return false;
-            }
-
-            path = found;
-            message = string.Empty;
-            return true;
+                if (!WebwalkGraph.TryGetNode(from, out var fromNode) || fromNode?.Enabled != true ||
+                    !WebwalkGraph.TryGetNode(to, out var toNode) || toNode?.Enabled != true)
+                    return (null, "Choose enabled start and destination locations.");
+                var plan = Navigation.PlanTravel(fromNode.Position, toNode.Position, cancellationToken: cancellationToken);
+                return (plan, plan == null ? $"No path from '{from}' to '{to}'." : string.Empty);
+            }, cancellationToken);
         }
 
         private bool CanPlanPath()

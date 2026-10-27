@@ -8,5 +8,15 @@ namespace MESharp.Views
         {
             InitializeComponent();
         }
+
+        private void OnLocationSelected(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.AddedItems.Count > 0 && InspectorTabs != null) InspectorTabs.SelectedIndex = 1;
+        }
+
+        private void OnConnectionSelected(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.AddedItems.Count > 0 && InspectorTabs != null) InspectorTabs.SelectedIndex = 2;
+        }
     }
 }

@@ -15,6 +15,12 @@
     <UserControl.Resources>
         <converters:SyntaxHighlightConverter x:Key="SyntaxHighlightConverter" />
 
+        <!-- Shared tool themes can otherwise override the ListBox's inherited scroll settings. -->
+        <Style TargetType="ScrollViewer">
+            <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+        </Style>
+
         <!--  Theme-aware gradient for header  -->
         <LinearGradientBrush x:Key="DocsHeaderBrush" StartPoint="0,0" EndPoint="1,1">
             <GradientStop Offset="0" Color="{DynamicResource MahApps.Colors.Accent}" />
@@ -29,7 +35,7 @@
         </Style>
 
         <Style x:Key="DocsCardBorderStyle" TargetType="Border">
-            <Setter Property="Padding" Value="20,16" />
+            <Setter Property="Padding" Value="16,14" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.ThemeBackground}" />
             <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent4}" />
@@ -311,11 +317,11 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <Button
-                            Grid.Column="1"
-                            Margin="14,0,0,0"
-                            VerticalAlignment="Top"
+                        <WrapPanel Grid.Column="1" MaxWidth="130" Margin="10,0,0,0" VerticalAlignment="Top">
+                        <Button Margin="0,0,0,6" Content="Copy signature"
                             Command="{Binding DataContext.CopySignatureCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}" Style="{StaticResource DocsCopyButtonStyle}" />
+                        <Button Command="{Binding DataContext.CopyExampleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Style="{StaticResource DocsCopyButtonStyle}"
                             ToolTip="Copy example usage to clipboard">
@@ -324,6 +330,7 @@
                                 <TextBlock Text="Copy example" />
                             </StackPanel>
                         </Button>
+                        </WrapPanel>
                     </Grid>
 
                     <TextBlock
@@ -424,11 +431,11 @@
                             </TextBlock>
                         </StackPanel>
 
-                        <Button
-                            Grid.Column="1"
-                            Margin="14,0,0,0"
-                            VerticalAlignment="Top"
+                        <WrapPanel Grid.Column="1" MaxWidth="130" Margin="10,0,0,0" VerticalAlignment="Top">
+                        <Button Margin="0,0,0,6" Content="Copy signature"
                             Command="{Binding DataContext.CopySignatureCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}" Style="{StaticResource DocsCopyButtonStyle}" />
+                        <Button Command="{Binding DataContext.CopyExampleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Style="{StaticResource DocsCopyButtonStyle}"
                             ToolTip="Copy example usage to clipboard">
@@ -437,6 +444,7 @@
                                 <TextBlock Text="Copy example" />
                             </StackPanel>
                         </Button>
+                        </WrapPanel>
                     </Grid>
 
                     <!--  Summary  -->
@@ -647,6 +655,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!--  Toolbar  -->
@@ -862,7 +871,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" ClipToBounds="True">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition
                     x:Name="SidebarColumn"
@@ -876,7 +885,7 @@
             <!--  Sidebar navigation  -->
             <Border
                 Grid.Column="0"
-                Padding="20,18"
+                Padding="14,16"
                 Background="{DynamicResource MahApps.Brushes.ThemeBackground}"
                 BorderBrush="{DynamicResource MahApps.Brushes.Gray6}"
                 BorderThickness="0,0,1,0">
@@ -902,11 +911,16 @@
                     </StackPanel>
 
                     <ListBox
+                        x:Name="ClassList"
                         Grid.Row="1"
                         Padding="0,0,8,0"
                         Background="Transparent"
                         BorderThickness="0"
                         ItemsSource="{Binding DisplayedClasses}"
+                        ClipToBounds="True"
+                        ScrollViewer.CanContentScroll="True"
+                        VirtualizingPanel.IsVirtualizing="True"
+                        VirtualizingPanel.VirtualizationMode="Recycling"
                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                         SelectedItem="{Binding SelectedClass, Mode=TwoWay}">
                         <ListBox.ItemContainerStyle>
@@ -937,7 +951,7 @@
                                                         Grid.Column="0"
                                                         Background="Transparent"
                                                         CornerRadius="6,0,0,6" />
-                                                    <ContentPresenter Grid.Column="1" Margin="12,10,14,10" />
+                                                    <ContentPresenter Grid.Column="1" Margin="10,10,10,10" HorizontalAlignment="Stretch" />
                                                 </Grid>
                                             </Border>
                                             <ControlTemplate.Triggers>
@@ -964,6 +978,7 @@
                                         FontSize="14"
                                         FontWeight="SemiBold"
                                         Foreground="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=Foreground}"
+                                        ToolTip="{Binding FullName}"
                                         Text="{Binding Name}"
                                         TextTrimming="CharacterEllipsis" />
                                     <TextBlock
@@ -989,7 +1004,7 @@
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
-                                    <StackPanel Margin="0,9,0,0" Orientation="Horizontal">
+                                    <WrapPanel Margin="0,9,0,0">
                                         <Border
                                             Margin="0,0,6,0"
                                             Padding="7,3"
@@ -1017,7 +1032,7 @@
                                                 <Run Text="props" />
                                             </TextBlock>
                                         </Border>
-                                    </StackPanel>
+                                    </WrapPanel>
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -1051,8 +1066,9 @@
 
             <!--  Detail panel  -->
             <ScrollViewer
+                x:Name="DetailScroll"
                 Grid.Column="2"
-                Padding="36,32"
+                Padding="24,22"
                 Background="{DynamicResource MahApps.Brushes.ThemeBackground}"
                 HorizontalScrollBarVisibility="Disabled"
                 VerticalScrollBarVisibility="Auto">
@@ -1337,5 +1353,6 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
+        <TextBlock Grid.Row="2" Margin="14,7" FontSize="11" Foreground="{DynamicResource MahApps.Brushes.Gray}" Text="{Binding CopyStatus}" TextWrapping="Wrap" />
     </Grid>
 </UserControl>

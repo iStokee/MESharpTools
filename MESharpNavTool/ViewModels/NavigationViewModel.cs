@@ -2,6 +2,7 @@ using MESharp.API;
 using MESharp.Commands;
 using MESharp.Models;
 using MESharp.Services;
+using MESharp.Services.NavigationData;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -19,9 +20,18 @@ namespace MESharp.ViewModels
         private readonly DispatcherTimer _refreshTimer;
         private bool _isActive;
         private bool _disposed;
+        private bool _showDiagnostics;
 
         public ObservableCollection<string> ActivityLog { get; } = new();
         public ObservableCollection<LodestoneOption> Lodestones { get; }
+
+        public bool ShowDiagnostics { get => _showDiagnostics; set => SetProperty(ref _showDiagnostics, value && AllowDiagnostics); }
+        private bool _allowDiagnostics;
+        public bool AllowDiagnostics
+        {
+            get => _allowDiagnostics;
+            set { if (SetProperty(ref _allowDiagnostics, value) && !value) ShowDiagnostics = false; }
+        }
 
         // Live status
         private string _tilePosition = "--";
@@ -62,7 +72,12 @@ namespace MESharp.ViewModels
         public string TilePosition { get => _tilePosition; set => SetProperty(ref _tilePosition, value); }
         public string ExactPosition { get => _exactPosition; set => SetProperty(ref _exactPosition, value); }
         public bool IsMoving { get => _isMoving; set => SetProperty(ref _isMoving, value); }
-        public string LastStatus { get => _lastStatus; set => SetProperty(ref _lastStatus, value); }
+        public string LastStatus
+        {
+            get => MapTravelStatus.WithPreparation(_lastStatus, IsTraveling,
+                NavigationReadiness.IsPreparing, NavigationReadiness.Message)!;
+            set => SetProperty(ref _lastStatus, value);
+        }
 
         public string TargetX { get => _targetX; set => SetProperty(ref _targetX, value); }
         public string TargetY { get => _targetY; set => SetProperty(ref _targetY, value); }
@@ -123,28 +138,45 @@ namespace MESharp.ViewModels
         private bool _isTraveling;
 
         public string TravelDestination { get => _travelDestination; set => SetProperty(ref _travelDestination, value); }
-        public bool IsTraveling { get => _isTraveling; set => SetProperty(ref _isTraveling, value); }
+        public bool IsTraveling
+        {
+            get => _isTraveling;
+            set
+            {
+                if (SetProperty(ref _isTraveling, value)) RaisePropertyChanged(nameof(LastStatus));
+            }
+        }
         public ICommand TravelCommand { get; }
         public ICommand StopTravelCommand { get; }
+        public ICommand TravelCoordinatesCommand { get; }
         public ICommand ShowHelpCommand { get; }
 
         /// <summary>Everything ResolveAndTravel can resolve — node ids, node tags, route ids — for the editable destination combo.</summary>
         public ObservableCollection<string> DestinationOptions { get; } = new();
+        private readonly Dictionary<string, string> _destinationKeys = new(StringComparer.OrdinalIgnoreCase);
 
         private void RefreshDestinationOptions()
         {
             try
             {
                 var options = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                _destinationKeys.Clear();
                 foreach (var node in MESharp.API.WebwalkGraph.GetNodes())
                 {
                     if (!node.Enabled) continue;
-                    options.Add(node.Id);
+                    var label = $"{node.Name} [{node.Id}]";
+                    options.Add(label);
+                    _destinationKeys[label] = node.Id;
                     foreach (var tag in node.Tags ?? new())
                         if (!string.IsNullOrWhiteSpace(tag)) options.Add(tag.Trim());
                 }
                 foreach (var route in MESharp.API.Webwalking.GetRoutes())
-                    if (!string.IsNullOrWhiteSpace(route.Id)) options.Add(route.Id);
+                    if (!string.IsNullOrWhiteSpace(route.Id))
+                    {
+                        var label = $"{route.Name} [route: {route.Id}]";
+                        options.Add(label);
+                        _destinationKeys[label] = route.Id;
+                    }
 
                 DestinationOptions.Clear();
                 foreach (var option in options)
@@ -171,6 +203,11 @@ namespace MESharp.ViewModels
             TeleportSelectedCommand = new RelayCommand(async _ => await TeleportSelectedAsync(), _ => SelectedLodestone != null);
             TravelCommand = new RelayCommand(async _ => await TravelAsync(), _ => !IsTraveling && !string.IsNullOrWhiteSpace(TravelDestination));
             StopTravelCommand = new RelayCommand(_ => _travelCts?.Cancel(), _ => IsTraveling);
+            TravelCoordinatesCommand = new RelayCommand(async _ =>
+            {
+                TravelDestination = $"{TargetX},{TargetY},{TargetZ}";
+                await TravelAsync();
+            }, _ => !IsTraveling && TryParseCoordinateDestination($"{TargetX},{TargetY},{TargetZ}", out var tile));
             ShowHelpCommand = new RelayCommand(_ =>
             {
                 try { new Views.SectionHelpWindow(Views.NavHelpContent.Travel()).ShowDialog(); }
@@ -205,6 +242,7 @@ namespace MESharp.ViewModels
 
         private void RefreshPosition()
         {
+            if (IsTraveling) RaisePropertyChanged(nameof(LastStatus));
             try
             {
                 var tile = LocalPlayer.GetTilePosition();
@@ -446,10 +484,24 @@ namespace MESharp.ViewModels
         /// plan via Dijkstra over the seeded graph, and execute with replanning. Logs the
         /// resolved target and per-edge results.
         /// </summary>
+        internal static bool TryParseCoordinateDestination(string input, out WorldPoint point)
+        {
+            point = default;
+            var parts = input.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length is < 2 or > 3 || !int.TryParse(parts[0], out var x) ||
+                !int.TryParse(parts[1], out var y) || x <= 0 || y <= 0) return false;
+            var plane = 0;
+            if (parts.Length == 3 && !int.TryParse(parts[2], out plane)) return false;
+            if (plane is < 0 or > 3) return false;
+            point = new WorldPoint(x, y, plane);
+            return true;
+        }
+
         private async Task TravelAsync()
         {
             var destination = TravelDestination.Trim();
             if (string.IsNullOrWhiteSpace(destination)) return;
+            if (_destinationKeys.TryGetValue(destination, out var key)) destination = key;
 
             using var lease = NavigationRunGate.TryEnter();
             if (lease == null)
@@ -468,17 +520,21 @@ namespace MESharp.ViewModels
 
             try
             {
-                var travelTask = Task.Run(() => Navigation.ResolveAndTravelDetailedAsync(
-                    destination,
-                    cancellationToken: cancellationToken), cancellationToken);
+                var travelTask = Task.Run(() => TryParseCoordinateDestination(destination, out var tile)
+                    ? Navigation.TravelToDetailedAsync(tile, WebwalkProfile.FromGameState(), cancellationToken)
+                    : Navigation.ResolveAndTravelDetailedAsync(destination, cancellationToken: cancellationToken), cancellationToken);
                 _travelTask = travelTask;
                 var result = await travelTask;
                 if (_disposed) return;
 
-                if (result.PlanResult != null)
+                if (result.Attempts.Count > 0)
                 {
-                    foreach (var edge in result.PlanResult.Edges)
-                        AddLog($"  [{(edge.Succeeded ? "ok" : "FAIL")}] {edge.Kind} {edge.FromNodeId} → {edge.ToNodeId} ({edge.ElapsedMs}ms){(edge.Succeeded ? "" : $" — {edge.Message}")}");
+                    foreach (var attempt in result.Attempts)
+                    {
+                        AddLog($"Attempt {attempt.Number} from {attempt.From}: {attempt.Result.Message}");
+                        foreach (var edge in attempt.Result.Edges)
+                            AddLog($"  [{(edge.Succeeded ? "ok" : "FAIL")}] {edge.Kind} {edge.FromNodeId} → {edge.ToNodeId} ({edge.ElapsedMs}ms){(edge.Succeeded ? "" : $" — {edge.Message}")}");
+                    }
                 }
 
                 LastStatus = result.Succeeded
@@ -775,11 +831,8 @@ namespace MESharp.ViewModels
 
             _isActive = false;
             try { _refreshTimer.Stop(); } catch { /* ignored */ }
-            if (IsTraveling)
-            {
-                AddLog("Travel stopped: the Travel section was deactivated while running.");
-                _travelCts?.Cancel();
-            }
+            // A journey belongs to the hub, not the selected page. Stop remains
+            // available in the shared hub bar; Dispose still cancels on shutdown.
         }
 
         private void OnRefreshTick(object? sender, EventArgs e) => RefreshPosition();

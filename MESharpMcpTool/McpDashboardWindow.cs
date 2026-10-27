@@ -210,7 +210,9 @@ namespace csharp_interop.McpTools
 
         private UIElement BuildHeader()
         {
-            var header = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 12) };
+            var root = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
+            var header = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 6) };
+            root.Children.Add(header);
 
             var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             right.Children.Add(_startBtn);
@@ -221,8 +223,8 @@ namespace csharp_interop.McpTools
             DockPanel.SetDock(right, Dock.Right);
             header.Children.Add(right);
 
-            var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            left.Children.Add(new TextBlock
+            var left = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+            header.Children.Add(new TextBlock
             {
                 Text = "MCP Dashboard",
                 FontSize = 22,
@@ -242,7 +244,7 @@ namespace csharp_interop.McpTools
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(11, 5, 11, 5),
-                Margin = new Thickness(16, 0, 0, 0),
+                Margin = new Thickness(0, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = pillContent
             };
@@ -259,8 +261,10 @@ namespace csharp_interop.McpTools
             _clientChip.Child = _clientChipText;
             left.Children.Add(_clientChip);
 
-            header.Children.Add(left);
-            return header;
+            _statusPillText.Text = "Bridge status unavailable";
+            _clientChipText.Text = "No client";
+            root.Children.Add(left);
+            return root;
         }
 
         private UIElement BuildStatCards()
@@ -354,11 +358,11 @@ namespace csharp_interop.McpTools
             }
         }
 
-        private static TabItem MakeTab(string headerText, UIElement content) => new()
+        private static TabItem MakeTab(string headerText, UIElement content)
         {
-            Header = headerText,
-            Content = content
-        };
+            content.SetValue(System.Windows.Documents.TextElement.FontWeightProperty, FontWeights.Normal);
+            return new TabItem { Header = headerText, Content = content };
+        }
 
         // ═══════════════════════════════════════════════════════════════════════
         //  Overview tab
@@ -528,7 +532,7 @@ namespace csharp_interop.McpTools
         {
             var layout = new DockPanel();
 
-            var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             toolbar.Children.Add(ToolbarLabel("Filter"));
             _activityFilter.TextChanged += (_, _) => { _activityFilterDirty = true; RefreshActivity(); };
             toolbar.Children.Add(_activityFilter);
@@ -601,13 +605,15 @@ namespace csharp_interop.McpTools
         {
             var layout = new DockPanel();
 
-            var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             toolbar.Children.Add(ToolbarLabel("Search"));
             _toolsSearch.TextChanged += (_, _) => RefreshTools();
             toolbar.Children.Add(_toolsSearch);
             _toolsCategory.SelectionChanged += (_, _) => RefreshTools();
+            toolbar.Children.Add(ToolbarLabel("Category"));
             toolbar.Children.Add(_toolsCategory);
             _toolsSafety.SelectionChanged += (_, _) => RefreshTools();
+            toolbar.Children.Add(ToolbarLabel("Safety"));
             toolbar.Children.Add(_toolsSafety);
             _toolsCount.Foreground = TextDimBrush;
             toolbar.Children.Add(_toolsCount);
@@ -623,6 +629,13 @@ namespace csharp_interop.McpTools
             view.Columns.Add(MakeColumn("Description", nameof(ToolRow.Description), 520));
             _toolsList.View = view;
             _toolsList.ItemContainerStyle = BuildListItemBaseStyle();
+            toolbar.Children.Add(MakeButton("Copy tool name", (_, _) =>
+            {
+                if (_toolsList.SelectedItem is ToolRow selected)
+                    CopyToClipboard(selected.Name, $"Copied tool name '{selected.Name}'.");
+                else
+                    SetStatus("Select a tool to copy its name.");
+            }));
             _toolsList.MouseDoubleClick += (_, _) =>
             {
                 if (_toolsList.SelectedItem is ToolRow row)
@@ -669,7 +682,7 @@ namespace csharp_interop.McpTools
         {
             var layout = new DockPanel();
 
-            var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             toolbar.Children.Add(ToolbarLabel("Filter"));
             _logsFilter.Text = "MCP";
             _logsFilter.TextChanged += (_, _) => { _logsDirty = true; RefreshLogs(); };
@@ -1213,13 +1226,26 @@ namespace csharp_interop.McpTools
 
         private static ResourceDictionary BuildSharedStyles()
         {
-            var dictionary = new ResourceDictionary();
+            var dictionary = new ResourceDictionary
+            {
+                ["Mcp.Field"] = BgFieldBrush,
+                ["Mcp.Text"] = TextBrush,
+                ["Mcp.Border"] = BorderLineBrush,
+                ["Mcp.Accent"] = AccentBlueBrush,
+                ["Mcp.AccentText"] = AccentForegroundBrush
+            };
+            dictionary.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("/MESharpMcpTool;component/Themes/McpControls.xaml", UriKind.Relative)
+            });
 
             // Buttons: flat, rounded, dim when disabled.
             var buttonTemplate = new ControlTemplate(typeof(Button));
             var buttonBorder = new FrameworkElementFactory(typeof(Border));
             buttonBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
             buttonBorder.SetBinding(Border.BackgroundProperty, TemplatedParentBinding(nameof(Background)));
+            buttonBorder.SetBinding(Border.BorderBrushProperty, TemplatedParentBinding(nameof(BorderBrush)));
+            buttonBorder.SetBinding(Border.BorderThicknessProperty, TemplatedParentBinding(nameof(BorderThickness)));
             buttonBorder.SetBinding(Border.PaddingProperty, TemplatedParentBinding(nameof(Padding)));
             var buttonContent = new FrameworkElementFactory(typeof(ContentPresenter));
             buttonContent.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
@@ -1229,6 +1255,15 @@ namespace csharp_interop.McpTools
 
             var buttonStyle = new Style(typeof(Button));
             buttonStyle.Setters.Add(new Setter(TemplateProperty, buttonTemplate));
+            buttonStyle.Setters.Add(new Setter(BackgroundProperty, BgFieldBrush));
+            buttonStyle.Setters.Add(new Setter(ForegroundProperty, TextBrush));
+            buttonStyle.Setters.Add(new Setter(Control.BorderBrushProperty, BorderLineBrush));
+            buttonStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+            buttonStyle.Setters.Add(new Setter(MinHeightProperty, 32.0));
+            var buttonFocus = new Trigger { Property = IsKeyboardFocusedProperty, Value = true };
+            buttonFocus.Setters.Add(new Setter(Control.BorderBrushProperty, AccentBlueBrush));
+            buttonFocus.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(2)));
+            buttonStyle.Triggers.Add(buttonFocus);
             buttonStyle.Setters.Add(new Setter(CursorProperty, System.Windows.Input.Cursors.Hand));
             var buttonHover = new Trigger { Property = IsMouseOverProperty, Value = true };
             buttonHover.Setters.Add(new Setter(OpacityProperty, 0.82));
@@ -1247,19 +1282,12 @@ namespace csharp_interop.McpTools
             textBoxStyle.Setters.Add(new Setter(ForegroundProperty, TextBrush));
             textBoxStyle.Setters.Add(new Setter(Control.BorderBrushProperty, BorderLineBrush));
             textBoxStyle.Setters.Add(new Setter(System.Windows.Controls.Primitives.TextBoxBase.CaretBrushProperty, TextBrush));
-            textBoxStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(5, 3, 5, 3)));
+            textBoxStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8, 5, 8, 5)));
+            textBoxStyle.Setters.Add(new Setter(MinHeightProperty, 32.0));
+            var fieldFocus = new Trigger { Property = IsKeyboardFocusWithinProperty, Value = true };
+            fieldFocus.Setters.Add(new Setter(Control.BorderBrushProperty, AccentBlueBrush));
+            textBoxStyle.Triggers.Add(fieldFocus);
             dictionary.Add(typeof(TextBox), textBoxStyle);
-
-            var comboBoxStyle = new Style(typeof(ComboBox));
-            comboBoxStyle.Setters.Add(new Setter(BackgroundProperty, BgFieldBrush));
-            comboBoxStyle.Setters.Add(new Setter(ForegroundProperty, TextBrush));
-            comboBoxStyle.Setters.Add(new Setter(Control.BorderBrushProperty, BorderLineBrush));
-            comboBoxStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(5, 3, 5, 3)));
-            dictionary.Add(typeof(ComboBox), comboBoxStyle);
-
-            var checkBoxStyle = new Style(typeof(CheckBox));
-            checkBoxStyle.Setters.Add(new Setter(ForegroundProperty, TextBrush));
-            dictionary.Add(typeof(CheckBox), checkBoxStyle);
 
             // List views: dark surface.
             var listStyle = new Style(typeof(ListView));
@@ -1307,10 +1335,14 @@ namespace csharp_interop.McpTools
             var tabSelected = new Trigger { Property = TabItem.IsSelectedProperty, Value = true };
             tabSelected.Setters.Add(new Setter(Border.BorderBrushProperty, AccentBlueBrush, "TabBorder"));
             tabSelected.Setters.Add(new Setter(ForegroundProperty, TextStrongBrush));
+            tabSelected.Setters.Add(new Setter(Border.BackgroundProperty, BgFieldBrush, "TabBorder"));
             tabTemplate.Triggers.Add(tabSelected);
             var tabHover = new Trigger { Property = IsMouseOverProperty, Value = true };
             tabHover.Setters.Add(new Setter(ForegroundProperty, TextStrongBrush));
             tabTemplate.Triggers.Add(tabHover);
+            var tabFocus = new Trigger { Property = IsKeyboardFocusedProperty, Value = true };
+            tabFocus.Setters.Add(new Setter(Border.BorderBrushProperty, AccentBlueBrush, "TabBorder"));
+            tabTemplate.Triggers.Add(tabFocus);
 
             var tabStyle = new Style(typeof(TabItem));
             tabStyle.Setters.Add(new Setter(TemplateProperty, tabTemplate));

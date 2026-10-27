@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Input;
 using MESharp.API;
 using MESharp.Commands;
@@ -34,8 +35,8 @@ namespace MESharp.ViewModels
         private string _summary = "No preview loaded.";
         private string _log = string.Empty;
         private bool _isBusy;
-        private bool _replaceExactIds = true;
-        private bool _replaceMatchingAreas = true;
+        private bool _replaceExactIds;
+        private bool _replaceMatchingAreas;
         private WikiDungeonGraphFragment? _currentFragment;
         private readonly System.Threading.CancellationTokenSource _shutdownCts = new();
         private bool _disposed;
@@ -190,6 +191,15 @@ namespace MESharp.ViewModels
         private void ImportPreview()
         {
             if (_currentFragment == null) return;
+            var replacement = ReplaceExactIds || ReplaceMatchingAreas
+                ? "Matching graph entries may be replaced."
+                : "New graph entries will be added.";
+            if (MessageBox.Show(
+                    $"Apply this Wiki preview to your local navigation graph?\n\n{Summary}\n\n{replacement}",
+                    "Apply dungeon map preview",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                return;
             try
             {
                 var result = RuneScapeWikiDungeonImporter.ImportFragment(

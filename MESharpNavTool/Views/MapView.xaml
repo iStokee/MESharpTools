@@ -11,47 +11,14 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
     </UserControl.Resources>
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <!-- Toolbar -->
-        <Border Grid.Row="0" Background="{DynamicResource App.CardBrush}" CornerRadius="6" Padding="8,4" Margin="0,0,0,6">
-            <DockPanel>
-                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
-                    <Button Click="OnHelpClick" Width="26" Padding="0,3" Margin="0,0,6,0"
-                            ToolTip="What can I do on this map? Modes, recording, layers and live-session actions explained.">
-                        <TextBlock Text="?" FontWeight="Bold" Foreground="{DynamicResource PrimaryBrush}" HorizontalAlignment="Center" />
-                    </Button>
-                    <Button Click="OnReloadClick" Padding="8,3" Margin="0,0,6,0" ToolTip="Reload the map page (picks up graph/route edits)">
-                        <StackPanel Orientation="Horizontal">
-                            <iconPacks:PackIconMaterial Kind="Refresh" Width="14" Height="14" Margin="0,0,5,0" VerticalAlignment="Center"
-                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            <TextBlock Text="Reload" />
-                        </StackPanel>
-                    </Button>
-                    <Button Command="{Binding OpenInBrowserCommand}" Padding="8,3" ToolTip="Open the same live map in your default browser">
-                        <StackPanel Orientation="Horizontal">
-                            <iconPacks:PackIconMaterial Kind="OpenInNew" Width="14" Height="14" Margin="0,0,5,0" VerticalAlignment="Center"
-                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            <TextBlock Text="Browser" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-                <TextBlock Text="{Binding Status}" VerticalAlignment="Center"
-                           Foreground="{DynamicResource App.SubtleForegroundBrush}" FontSize="11" TextTrimming="CharacterEllipsis" />
-            </DockPanel>
-        </Border>
-
         <!-- WebView2 host (control is created in code-behind so init failures degrade gracefully) -->
-        <Border Grid.Row="1" x:Name="WebHostBorder"
+        <Border x:Name="WebHostBorder"
                 Background="{DynamicResource App.CardBrush}" CornerRadius="6" ClipToBounds="True">
             <Grid x:Name="WebHost" />
         </Border>
 
         <!-- Fallback when WebView2 is unavailable -->
-        <Border Grid.Row="1" Background="{DynamicResource App.CardBrush}" CornerRadius="6" Padding="24"
+        <Border Background="{DynamicResource App.CardBrush}" CornerRadius="6" Padding="24"
                 Visibility="{Binding WebViewFailed, Converter={StaticResource BoolToVisibilityConverter}}">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520">
                 <iconPacks:PackIconMaterial Kind="WebOff" Width="40" Height="40" HorizontalAlignment="Center"

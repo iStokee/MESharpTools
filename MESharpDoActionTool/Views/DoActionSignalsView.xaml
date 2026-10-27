@@ -9,6 +9,7 @@
     d:DataContext="{d:DesignInstance Type=vm:DoActionSignalsViewModel}"
     d:DesignHeight="450"
     d:DesignWidth="800"
+    Background="{DynamicResource App.BackgroundBrush}"
     mc:Ignorable="d">
 
     <UserControl.Resources>
@@ -65,7 +66,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Margin="8">
+    <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -83,6 +84,7 @@
             Padding="10"
             Background="{DynamicResource App.CardBrush}"
             CornerRadius="6">
+            <StackPanel>
             <WrapPanel VerticalAlignment="Center">
                 <!--
                     Capture toggle: master switch for the native DoAction hook. Far left and
@@ -156,13 +158,6 @@
                     </StackPanel>
                 </Border>
 
-                <TextBlock VerticalAlignment="Center" Text="Max:" />
-                <TextBox Width="60" Margin="6,0,12,0" Text="{Binding MaxCount, UpdateSourceTrigger=PropertyChanged}" />
-
-                <CheckBox Margin="0,0,12,0" VerticalAlignment="Center" Content="Include Failed" IsChecked="{Binding IncludeFailed}" />
-                <CheckBox Margin="0,0,12,0" VerticalAlignment="Center" Content="Auto Refresh" IsChecked="{Binding AutoRefresh}" />
-                <CheckBox Margin="0,0,12,0" VerticalAlignment="Center" Content="Echo To Console" IsChecked="{Binding EchoToConsole}" />
-
                 <Button Margin="0,0,8,0" Padding="10,4" Command="{Binding RefreshCommand}" Content="Refresh" Style="{StaticResource AccentButton}" />
                 <Button
                     Margin="0,0,8,0"
@@ -171,9 +166,22 @@
                     Content="Copy API call"
                     ToolTip="Copy the selected click as a ready-to-paste C# API call (Objects.DoActionByIds / NPC.DoActionByIds / ...)." />
                 <Button Margin="0,0,8,0" Padding="10,4" Command="{Binding CopySelectedCommand}" Content="Copy Selected" />
-                <Button Margin="0,0,8,0" Padding="10,4" Command="{Binding CopyAllCommand}" Content="Copy All" />
-                <Button Padding="10,4" Command="{Binding ClearBufferCommand}" Content="Clear Buffer" />
+                <Button Margin="0,0,8,0" Padding="10,4" Command="{Binding CopyAllCommand}" Content="Copy visible" ToolTip="Copy the active view: parsed C# calls in Click History, or signal details in Signals." />
+                <Button Padding="10,4" Command="{Binding ClearBufferCommand}" Content="Clear buffer" />
             </WrapPanel>
+            <WrapPanel Margin="0,12,0,0" VerticalAlignment="Center">
+                <TextBlock Text="Filter feed" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBox Width="210" Margin="0,0,16,0" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Filter the current buffer by type, source, operation, ID or snippet." />
+                <TextBlock VerticalAlignment="Center" Text="Max:" />
+                <TextBox Width="60" Margin="6,0,12,0" Text="{Binding MaxCount, UpdateSourceTrigger=PropertyChanged}" />
+
+                <CheckBox Margin="0,0,12,0" VerticalAlignment="Center" Content="Include Failed" IsChecked="{Binding IncludeFailed}" />
+                <CheckBox Margin="0,0,12,0" VerticalAlignment="Center" Content="Auto Refresh" IsChecked="{Binding AutoRefresh}" />
+                <CheckBox Margin="0,0,12,0" VerticalAlignment="Center" Content="Echo To Console" IsChecked="{Binding EchoToConsole}" />
+
+
+            </WrapPanel>
+            </StackPanel>
         </Border>
 
         <DataGrid
@@ -264,7 +272,7 @@
                 <DataGridTextColumn Width="120" Binding="{Binding Operation}" Header="Operation" />
                 <DataGridTextColumn Width="110" Binding="{Binding TileText}" Header="Player Tile" />
                 <DataGridTextColumn Width="80" Binding="{Binding Result}" Header="Result" />
-                <DataGridTextColumn Width="900" MinWidth="600" Binding="{Binding Snippet}" Header="Snippet">
+                <DataGridTextColumn Width="*" MinWidth="240" Binding="{Binding Snippet}" Header="Snippet">
                     <DataGridTextColumn.ElementStyle>
                         <Style TargetType="TextBlock">
                             <Setter Property="FontFamily" Value="Consolas" />
@@ -295,7 +303,7 @@
                     DockPanel.Dock="Top"
                     Margin="0,2,0,8"
                     Foreground="{DynamicResource App.MutedBrush}"
-                    Text="Last 50 in-game clicks — select a card to copy via the toolbar, or click ⧉ on a card to copy a ready-to-paste API call." />
+                    TextWrapping="Wrap" Text="Latest 50 parsed clicks from the filtered buffer. Select a card to copy its C# call." />
                 <ListBox
                     Background="Transparent"
                     BorderThickness="0"
@@ -454,6 +462,13 @@
             </DockPanel>
         </Border>
 
+        <StackPanel Grid.Row="1" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="440" IsHitTestVisible="False"
+                    Visibility="{Binding IsFeedEmpty, Converter={StaticResource BoolToVis}}">
+            <TextBlock FontSize="20" FontWeight="SemiBold" Text="No matching activity yet" TextAlignment="Center" />
+            <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource App.SubtleForegroundBrush}"
+                Text="Enable capture and click in the game window. Clear the filter to see the full buffer, or switch to Signals for tool-dispatched actions." />
+        </StackPanel>
+
         <Border
             Grid.Row="2"
             Grid.ColumnSpan="2"
@@ -477,12 +492,15 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
-                <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource App.SubtleForegroundBrush}" Text="{Binding StatusMessage}" />
+                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource App.SubtleForegroundBrush}" Text="{Binding StatusMessage}" />
+                <TextBlock Margin="0,4,0,0" Foreground="{DynamicResource App.MutedBrush}" Text="{Binding FeedSummary}" />
+                <Expander Header="How capture works" Margin="0,6,0,0">
                 <TextBlock
                     Margin="0,6,0,0"
                     Foreground="{DynamicResource App.MutedBrush}"
                     Text="Unified feed: tool-dispatched API DoAction calls plus real player clicks streamed live from the native DoAction hook (ringed dots, with the player's tile at click time). Color = signal kind: orange object, red NPC, blue walk, purple interface, green inventory, teal bank. Select a row and 'Copy API call', or copy any click-history card, to paste a calibrated API call straight into a script."
                     TextWrapping="Wrap" />
+                </Expander>
             </StackPanel>
         </Border>
     </Grid>

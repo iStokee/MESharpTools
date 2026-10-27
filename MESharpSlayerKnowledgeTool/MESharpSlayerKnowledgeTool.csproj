@@ -23,7 +23,5 @@
     <ProjectReference Include="..\..\csharp_interop\csharp_interop.csproj" />
     <ProjectReference Include="..\..\ME_CSharp_Scripts\SharpSlayer\MESharp.Slayer\MESharp.Slayer.csproj" />
   </ItemGroup>
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipDeployToMe)' != 'true'">
-    <Exec Command="if not exist &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetPath)&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;exit /b 0" />
-  </Target>
+  <Import Project="..\..\MESharpTool.targets" />
 </Project>

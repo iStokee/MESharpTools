@@ -18,14 +18,32 @@ namespace MESharp
     public static class ScriptEntry
     {
         private static readonly NavToolScript Script = new();
+        private static readonly System.Threading.CancellationTokenSource BuildCancellation = new();
 
         public static void Initialize()
         {
+            NavigationDataManager.EnsurePortableLayout();
             NavigationDataManager.CheckForUpdatesInBackground();
             Script.Initialize();
+            // The same readiness path is used by the scripting API, including stale-data rebuilds.
+            {
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        await NavigationReadiness.EnsureReadyAsync(BuildCancellation.Token);
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex) { Console.WriteLine("[Navigation build] " + ex.Message); }
+                });
+            }
         }
 
-        public static void Shutdown() => Script.Shutdown();
+        public static void Shutdown()
+        {
+            BuildCancellation.Cancel();
+            Script.Shutdown();
+        }
     }
 
     internal sealed class NavToolScript : WpfScriptBase
@@ -36,6 +54,33 @@ namespace MESharp
             BootstrapResources(app);
             TryApplyTheme();
             return new NavHubWindow();
+        }
+
+        protected override void OnShutdown()
+        {
+            // Application.Current is process-wide and survives collectible tool reloads. Remove every
+            // dictionary sourced from this tool assembly so the old AssemblyLoadContext is not pinned.
+            var app = Application.Current;
+            if (app == null) return;
+            void RemoveToolDictionaries()
+            {
+                var assemblyName = Assembly.GetExecutingAssembly().GetName().Name ?? "MESharpNavTool";
+                var marker = $"/{assemblyName};component/";
+                for (var i = app.Resources.MergedDictionaries.Count - 1; i >= 0; i--)
+                {
+                    var source = app.Resources.MergedDictionaries[i].Source?.ToString();
+                    if (source?.Contains(marker, StringComparison.OrdinalIgnoreCase) == true)
+                        app.Resources.MergedDictionaries.RemoveAt(i);
+                }
+            }
+
+            if (app.Dispatcher.CheckAccess()) RemoveToolDictionaries();
+            else
+            {
+                using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
+                app.Dispatcher.Invoke(RemoveToolDictionaries, System.Windows.Threading.DispatcherPriority.Send,
+                    timeout.Token, TimeSpan.FromSeconds(2));
+            }
         }
 
         /// <summary>

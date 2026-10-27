@@ -22,7 +22,5 @@
     <ProjectReference Include="../MESharp.Tooling/MESharp.Tooling.csproj" />
     <ProjectReference Include="../../csharp_interop/csharp_interop.csproj" />
   </ItemGroup>
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="if not exist &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; mkdir &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetPath)&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot;&#xD;&#xA;copy /Y &quot;$(TargetDir)$(TargetName).pdb&quot; &quot;%25USERPROFILE%25\MemoryError\CSharp_scripts\&quot; 2&gt;nul&#xD;&#xA;exit /b 0" />
-  </Target>
+  <Import Project="..\..\MESharpTool.targets" />
 </Project>

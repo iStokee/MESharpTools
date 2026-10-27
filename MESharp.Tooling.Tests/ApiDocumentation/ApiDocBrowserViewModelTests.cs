@@ -7,6 +7,33 @@ namespace csharp_interop.Tests;
 public sealed class ApiDocBrowserViewModelTests
 {
     [Fact]
+    public void Exact_class_search_selects_that_class_and_keeps_its_full_reference()
+    {
+        var vm = new ApiDocBrowserViewModel { SearchText = "Inventory" };
+        Assert.Equal("Inventory", vm.DisplayedClasses[0].Name);
+        Assert.Equal("Inventory", vm.SelectedClass.Name);
+        Assert.Equal(vm.SelectedClass.Methods.Count, vm.DisplayedMethods.Count);
+        Assert.Equal(vm.SelectedClass.Properties.Count, vm.DisplayedProperties.Count);
+        Assert.Contains("Showing all", vm.SelectedClassFilterSummary);
+    }
+
+    [Fact]
+    public void Member_search_respects_disabled_member_categories()
+    {
+        var vm = new ApiDocBrowserViewModel { IncludeClasses = false, IncludeProperties = false, SearchText = "DoAction" };
+        Assert.NotEmpty(vm.DisplayedMethods);
+        Assert.All(vm.DisplayedMethods, m => Assert.Contains("DoAction", m.Name));
+        Assert.Empty(vm.DisplayedProperties);
+    }
+
+    [Fact]
+    public void Copy_example_is_disabled_when_no_example_exists()
+    {
+        var vm = new ApiDocBrowserViewModel();
+        Assert.False(vm.CopyExampleCommand.CanExecute(new csharp_interop.Documentation.Services.ApiMethodInfo()));
+        Assert.True(vm.CopyExampleCommand.CanExecute(new csharp_interop.Documentation.Services.ApiMethodInfo { Example = "Inventory.GetAll();" }));
+    }
+    [Fact]
     public void Constructor_loads_api_classes()
     {
         var viewModel = new ApiDocBrowserViewModel();

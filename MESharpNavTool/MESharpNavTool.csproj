@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>annotations</Nullable>
@@ -49,6 +49,10 @@
   <!-- Embed the coverage map page so CoverageMapServer can serve it regardless of run location. -->
   <ItemGroup>
     <EmbeddedResource Include="..\..\..\tools\webwalk_map\index.html" Link="webwalk_map\index.html" LogicalName="MESharp.webwalk_map.index.html" />
+    <EmbeddedResource Include="..\..\..\tools\webwalk_map\vendor\leaflet\leaflet.js" LogicalName="MESharp.webwalk_map.leaflet.js" />
+    <EmbeddedResource Include="..\..\..\tools\webwalk_map\vendor\leaflet\leaflet.css" LogicalName="MESharp.webwalk_map.leaflet.css" />
+    <EmbeddedResource Include="..\..\..\tools\webwalk_map\vendor\leaflet\LICENSE" LogicalName="MESharp.webwalk_map.leaflet.LICENSE" />
+    <EmbeddedResource Include="..\..\..\tools\webwalk_map\vendor\leaflet\images\*.png" LogicalName="MESharp.webwalk_map.leaflet.images.%(Filename)%(Extension)" />
     <!-- Native P/Invoke loader for live-update installs, which otherwise receive only this tool DLL. -->
     <EmbeddedResource Include="$(PkgMicrosoft_Web_WebView2)\runtimes\win-x64\native\WebView2Loader.dll" LogicalName="MESharp.WebView2Loader.x64.dll" />
   </ItemGroup>
@@ -58,14 +62,5 @@
     are embedded. Never copy the whole TargetDir: a stray csharp_interop.dll in the scripts folder
     breaks hot reload (DUPLICATE_ASSEMBLY_FIX.md).
   -->
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipDeployToMe)' != 'true'">
-    <PropertyGroup>
-      <ToolDeployRoot Condition="'$(ToolDeployRoot)' == ''">$(USERPROFILE)\MemoryError\CSharp_scripts\tools</ToolDeployRoot>
-      <ToolDeployDir>$(ToolDeployRoot)\$(AssemblyName)\</ToolDeployDir>
-    </PropertyGroup>
-    <MakeDir Directories="$(ToolDeployDir)" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ToolDeployDir)" />
-    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(ToolDeployDir)" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
-    <WriteLinesToFile File="$(ToolDeployDir)tool.json" Overwrite="true" Lines="{ &quot;displayName&quot;: &quot;$(MESharpToolDisplayName)&quot;, &quot;assetName&quot;: &quot;$(TargetFileName)&quot;, &quot;version&quot;: &quot;$(AssemblyVersion)&quot;, &quot;updateUrl&quot;: &quot;https://github.com/iStokee/MESharpTools/releases/latest/download/$(AssemblyName).tool.json&quot; }" />
-  </Target>
+  <Import Project="..\..\MESharpTool.targets" />
 </Project>

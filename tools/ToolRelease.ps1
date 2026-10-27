@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds every MESharp tool, bundles the DLLs + a manifest, and (optionally) publishes a single
+    Builds changed MESharp tools, carries forward unchanged DLLs, and (optionally) publishes a single
     umbrella GitHub release that the in-client ToolUpdater parses to update tools individually.
 
 .DESCRIPTION
@@ -9,8 +9,8 @@
         <IsMESharpTool>true</IsMESharpTool>
         <MESharpToolDisplayName>Navigation</MESharpToolDisplayName>
 
-    This script auto-discovers every such project (no hardcoded catalog), builds each at the version
-    recorded in tools/versions.json (keyed by tool Id == AssemblyName, default 1.0.0), and produces ONE
+    This script auto-discovers every such project, builds new tools and version bumps from
+    tools/versions.json, reuses exact published DLLs for unchanged versions, and produces ONE
     release tagged `tools-vN`. The release carries every tool DLL plus `tools-manifest.json`, which maps
     id -> {displayName, assetName, version, sha256}. The client compares each manifest version to the
     installed DLL and hot-reloads only the tools that changed.
@@ -25,33 +25,54 @@
     GitHub "owner/repo" that hosts the releases. Default: iStokee/MESharpTools.
 
 .PARAMETER BundleVersion
-    Override the umbrella release number N (tag becomes tools-vN). Default: auto-incremented from the
-    newest existing tools-v* tag (1 if none / offline).
+    Override the umbrella release number N (tag becomes tools-vN). Default: increment the largest
+    tools-vN found in release discovery, or the supplied offline baseline (1 for an initial release).
 
 .PARAMETER Publish
-    Build + create the GitHub release via `gh`. Without -Publish/-Stage you get the interactive menu.
+    Publish the reviewed directory supplied by -PublishFrom without rebuilding.
 
 .PARAMETER Stage
-    Build + stage the bundle (manifest, sha256, paste-ready release fields) without publishing.
+    Build changed tools and stage the complete catalog without publishing.
+
+.PARAMETER BuildTools
+    Optional ids to rebuild (alias -Tools). Existing tools must have a version bump. New tools
+    are built automatically; bumped existing tools outside this selection stop staging.
+
+.PARAMETER BaselineDirectory
+    Optional local directory containing a previous tools-manifest.json and DLLs for offline staging.
+    By default, the latest published stable catalog and unchanged DLLs are downloaded from GitHub.
+
+.PARAMETER IncludeToolManager
+    Build an independently versioned first-party manager module. Bump _toolManagerVersion first.
+    Later catalog releases carry its exact DLL and metadata forward when this switch is omitted.
 
 .EXAMPLE
     pwsh ToolRelease.ps1                 # interactive menu (set versions, stage, or publish)
 .EXAMPLE
     pwsh ToolRelease.ps1 -Stage          # build + stage the whole bundle (dry run)
 .EXAMPLE
-    pwsh ToolRelease.ps1 -Publish        # build + publish one tools-vN release with all tools
+    pwsh ToolRelease.ps1 -Publish -PublishFrom ../artifacts/bundle/tools-v2
 #>
 [CmdletBinding()]
 param(
     [string]$Repo = 'iStokee/MESharpTools',
     [string]$Configuration = 'Release',
     [string]$NavigationDataSource,
+    [switch]$AllowMissingNavigationData,
+    [switch]$SkipNavigationData,
     [int]$BundleVersion,
     [switch]$Publish,
-    [switch]$Stage
+    [switch]$Stage,
+    [string]$PublishFrom,
+    [string]$PreviousManifest,
+    [string]$BaselineDirectory,
+    [Alias('Tools')][string[]]$BuildTools = @(),
+    [switch]$IncludeToolManager,
+    [switch]$ValidateOnly
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ToolReleasePipeline.ps1')
 $root = Split-Path -Parent $PSScriptRoot   # C#/MESharpTools
 $csharpRoot = Split-Path -Parent $root     # C#
 $versionsPath = Join-Path $PSScriptRoot 'versions.json'
@@ -59,9 +80,6 @@ $navigationDataExplicit = -not [string]::IsNullOrWhiteSpace($NavigationDataSourc
 if (-not $NavigationDataSource) {
     $NavigationDataSource = Join-Path $PSScriptRoot 'navigation-data'
 }
-
-# Publish state: seeded from -Publish, toggled by the menu.
-$script:PublishMode = [bool]$Publish
 
 # ----------------------------- versions.json -----------------------------
 
@@ -175,25 +193,13 @@ function Get-ToolProjects {
 
 # ----------------------------- release -----------------------------
 
-# Next umbrella release number: -BundleVersion wins, else newest tools-v* tag + 1 (1 if none/offline).
-function Resolve-BundleNumber {
-    if ($BundleVersion) { return $BundleVersion }
-    if (Get-Command gh -ErrorAction SilentlyContinue) {
-        try {
-            $tags = gh release list --repo $Repo --limit 200 --json tagName --jq '.[].tagName' 2>$null
-            $nums = $tags | ForEach-Object { if ($_ -match '^tools-v(\d+)$') { [int]$Matches[1] } }
-            if ($nums) { return (($nums | Measure-Object -Maximum).Maximum + 1) }
-        }
-        catch { Write-Host "   (could not read existing tags; defaulting bundle number)" -ForegroundColor DarkYellow }
-    }
-    return 1
-}
-
 function Invoke-BundleRelease {
     $discovered = Get-ToolProjects
     if (-not $discovered) { throw "No tool projects found (no .csproj with <IsMESharpTool>true under $csharpRoot)." }
 
     $discoveredIds = @($discovered | ForEach-Object Id)
+    $duplicates = @($discovered | Group-Object Id | Where-Object Count -gt 1)
+    if ($duplicates.Count -gt 0) { throw "Duplicate discovered assembly ids: $($duplicates.Name -join ', ')" }
     $missingPublicIds = @(Get-Included | Where-Object { $discoveredIds -notcontains $_ })
     if ($missingPublicIds.Count -gt 0) {
         throw "versions.json `_include` contains undiscovered tool id(s): $($missingPublicIds -join ', ')"
@@ -203,29 +209,39 @@ function Invoke-BundleRelease {
     $skipped = @($discovered | Where-Object { -not $_.Active })
     if (-not $tools) { throw "No discovered tools are public - add at least one id to versions.json `_include`." }
 
-    $bundleN = Resolve-BundleNumber
+    $baselineCache = Join-Path $root ('artifacts/baselines/' + [guid]::NewGuid().ToString('N'))
+    $baseline = Get-ToolReleaseBaseline $Repo $baselineCache $BaselineDirectory
+    $plan = @(Get-ToolReleasePlan $tools $baseline $BuildTools)
+    $bundleN = if ($BundleVersion) { $BundleVersion } elseif ($baseline) { $baseline.MaximumBundle + 1 } else { 1 }
     $tag = "tools-v$bundleN"
     $stage = Join-Path $root "artifacts/bundle/$tag"
-    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+    if (Test-Path -LiteralPath $stage) { throw "Staged bundle already exists: $stage. Choose a new -BundleVersion; reviewed artifacts are never overwritten." }
     New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
     Write-Host ""
-    Write-Host "==> Building bundle $tag ($($tools.Count) public tool(s))" -ForegroundColor Cyan
+    Write-Host "==> Staging complete catalog $tag ($($tools.Count) public tool(s))" -ForegroundColor Cyan
     if ($skipped) { Write-Host "    Internal: $(($skipped | ForEach-Object { $_.Id }) -join ', ')" -ForegroundColor DarkYellow }
 
     $manifestTools = @()
     $assetPaths = @()
-    foreach ($t in $tools) {
+    $versions = Get-Versions
+    foreach ($item in $plan) {
+        $t = $item.Tool
+        $minimum = Get-ToolMinimumInteropVersion $versions $t.Id $item.Previous $item.Build
         $av = "$($t.Version).0"
-        Write-Host "==> $($t.Id) $($t.Version)  (AssemblyVersion=$av)"
-        dotnet build $t.ProjectPath -c $Configuration -p:AssemblyVersion=$av -p:FileVersion=$av -p:SkipDeployToMe=true --nologo
-        if ($LASTEXITCODE -ne 0) { throw "Build failed for $($t.Id)." }
-
-        $dll = Join-Path $t.ProjectDir "bin/$Configuration/$($t.Tfm)/$($t.AssetName)"
-        if (-not (Test-Path $dll)) { throw "Built DLL not found: $dll" }
-
         $staged = Join-Path $stage $t.AssetName
-        Copy-Item $dll $staged -Force
+        if ($item.Build) {
+            Write-Host "==> Building $($t.Id) $($t.Version)  (AssemblyVersion=$av)"
+            dotnet build $t.ProjectPath -c $Configuration -p:AssemblyVersion=$av -p:FileVersion=$av -p:SkipDeployToMe=true --nologo
+            if ($LASTEXITCODE -ne 0) { throw "Build failed for $($t.Id)." }
+            $dll = Join-Path $t.ProjectDir "bin/$Configuration/$($t.Tfm)/$($t.AssetName)"
+            if (-not (Test-Path $dll)) { throw "Built DLL not found: $dll" }
+            Copy-Item -LiteralPath $dll -Destination $staged
+        }
+        else {
+            Write-Host "==> Reusing published $($t.Id) $($t.Version) from $($baseline.Catalog.release)"
+            Copy-PublishedTool $baseline $item.Previous $staged
+        }
         $sha = (Get-FileHash -Algorithm SHA256 -Path $staged).Hash.ToLowerInvariant()
 
         $manifestTools += [ordered]@{
@@ -234,6 +250,7 @@ function Invoke-BundleRelease {
             assetName   = $t.AssetName
             version     = $t.Version
             sha256      = $sha
+            minInteropVersion = $minimum
         }
         $assetPaths += $staged
 
@@ -244,7 +261,9 @@ function Invoke-BundleRelease {
             displayName = $t.DisplayName
             assetName   = $t.AssetName
             version     = $t.Version
-            updateUrl   = "https://github.com/iStokee/MESharpTools/releases/latest/download/$($t.Id).tool.json"
+            updateUrl   = "https://github.com/$Repo/releases/download/$tag/$($t.Id).tool.json"
+            source      = $Repo
+            minInteropVersion = $minimum
             sha256      = $sha
         } | ConvertTo-Json | Set-Content -Path $toolManifestPath -Encoding utf8
         $assetPaths += $toolManifestPath
@@ -258,13 +277,15 @@ function Invoke-BundleRelease {
     $manifestNavigationData = $null
     $navCollision = Join-Path $NavigationDataSource 'collision'
     $navGraph = Join-Path $NavigationDataSource 'webwalk_graph.json'
-    $hasNavigationData = (Test-Path (Join-Path $navCollision 'index.json') -PathType Leaf) -and
+    $hasNavigationData = $navigationDataExplicit -and (Test-Path (Join-Path $navCollision 'index.json') -PathType Leaf) -and
         (Test-Path $navGraph -PathType Leaf)
-    if (-not $hasNavigationData -and $navigationDataExplicit) {
+    if ($SkipNavigationData -and $navigationDataExplicit) { throw 'Do not combine -SkipNavigationData with -NavigationDataSource.' }
+    if ($SkipNavigationData) { $hasNavigationData = $false }
+    if (-not $hasNavigationData -and -not $SkipNavigationData -and $navigationDataExplicit) {
         throw "Navigation data source is missing collision/index.json: $NavigationDataSource"
     }
     if (-not $hasNavigationData) {
-        Write-Host "    Navigation data omitted (default publisher source is not prepared)." -ForegroundColor DarkYellow
+        Write-Host "    Navigation data omitted; tools generate local data after launch." -ForegroundColor DarkYellow
     }
     else {
     $navVersion = Resolve-NavigationDataVersion
@@ -320,6 +341,10 @@ function Invoke-BundleRelease {
         }
     }
     Copy-Item $navGraph (Join-Path $navContent 'webwalk_graph.json') -Force
+    $navRoutes = Join-Path $NavigationDataSource 'routes.json'
+    if (Test-Path $navRoutes -PathType Leaf) {
+        Copy-Item $navRoutes (Join-Path $navContent 'routes.json') -Force
+    }
     $navObstacles = Join-Path $NavigationDataSource 'obstacles.json'
     if (Test-Path $navObstacles -PathType Leaf) {
         Copy-Item $navObstacles (Join-Path $navContent 'obstacles.json') -Force
@@ -329,6 +354,10 @@ function Invoke-BundleRelease {
         version = $navVersion
         generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
     } | ConvertTo-Json | Set-Content -Path (Join-Path $navContent 'navigation-data.json') -Encoding utf8
+
+    $navValidator = Join-Path $csharpRoot 'MESharp.NavigationDataTool\MESharp.NavigationDataTool.csproj'
+    & dotnet run --project $navValidator -c $Configuration -p:SkipDeployToMe=true -- --validate $navContent --version $navVersion
+    if ($LASTEXITCODE -ne 0) { throw 'Navigation package validation failed; release staging stopped.' }
 
     $navAssetName = 'mesharp-navigation-data.zip'
     $navAssetPath = Join-Path $stage $navAssetName
@@ -348,12 +377,35 @@ function Invoke-BundleRelease {
     }
     }
 
+    $managerEntry = $null
+    if ($IncludeToolManager) {
+        if ($Repo -cne 'iStokee/MESharpTools') { throw 'Tool manager updates are owned by the first-party repository.' }
+        $managerVersion = (Get-Versions)._toolManagerVersion
+        if ($managerVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Set _toolManagerVersion before staging the manager.' }
+        $oldManager = $baseline.Catalog.toolManager
+        if ($oldManager -and [version]$managerVersion -le [version]$oldManager.version) {
+            throw 'Bump _toolManagerVersion before rebuilding the manager.'
+        }
+        $managerProject = Join-Path $csharpRoot 'MESharp.ToolManager/MESharp.ToolManager.csproj'
+        dotnet build $managerProject -c $Configuration -p:SkipDeployToMe=true "-p:AssemblyVersion=$managerVersion.0" "-p:Version=$managerVersion" --nologo
+        if ($LASTEXITCODE -ne 0) { throw 'Tool manager build failed.' }
+        $managerPath = Join-Path $stage 'MESharp.ToolManager.dll'
+        Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $managerProject) "bin/$Configuration/net10.0-windows/MESharp.ToolManager.dll") -Destination $managerPath
+        $managerEntry = [ordered]@{ assetName = 'MESharp.ToolManager.dll'; version = $managerVersion;
+            sha256 = (Get-FileHash -LiteralPath $managerPath -Algorithm SHA256).Hash.ToLowerInvariant();
+            minInteropVersion = '1.2.0'; contractVersion = 1 }
+    }
+    elseif ($baseline.Catalog.toolManager) {
+        $managerEntry = $baseline.Catalog.toolManager
+        Copy-PublishedAsset $baseline $managerEntry (Join-Path $stage $managerEntry.assetName)
+    }
     $manifest = [ordered]@{
-        schema         = 1
+        schema         = 2
         release        = $tag
         generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         tools          = $manifestTools
         navigationData = $manifestNavigationData
+        toolManager    = $managerEntry
     }
     $manifestPath = Join-Path $stage 'tools-manifest.json'
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding utf8
@@ -361,48 +413,22 @@ function Invoke-BundleRelease {
     $navSummary = if ($manifestNavigationData) { ", navigation data $navVersion" } else { "" }
     Write-Host "==> Staged $($tools.Count) DLL(s)$navSummary, and manifests in: $stage" -ForegroundColor Green
 
-    if ($script:PublishMode) {
-        if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw '`gh` CLI not found; cannot publish.' }
-        $title = "MESharp Tools $tag"
-        $notes = "Umbrella release $tag. Tools: " + (($manifestTools | ForEach-Object { "$($_.id) $($_.version)" }) -join ', ') + '.'
-        if ($manifestNavigationData) { $notes += " Navigation data $navVersion." }
-        $ghArgs = @('release', 'create', $tag) + $assetPaths + @($manifestPath, '--repo', $Repo, '--title', $title, '--notes', $notes)
-        Write-Host "==> Creating GitHub release $tag on $Repo" -ForegroundColor Cyan
-        gh @ghArgs
-        if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
-        Write-Host "==> Published $tag" -ForegroundColor Green
-    }
-    else {
-        Write-Host ""
-        Write-Host "==> Dry run (no publish)." -ForegroundColor Yellow
-        Write-Host "    Paste into GitHub -> $Repo -> Releases -> Draft a new release:" -ForegroundColor Yellow
-        Write-Host "    -------------------------------------------------------------------"
-        Write-Host "    Tag version:    $tag"
-        Write-Host "    Release title:  MESharp Tools $tag"
-        Write-Host "    Attach assets:  (everything in $stage)"
-        foreach ($p in ($assetPaths + $manifestPath)) { Write-Host "                    $p" }
-        Write-Host "    -------------------------------------------------------------------"
-        Write-Host "    (then type your release description and click Publish)"
-        Write-Host "    Or via CLI:  gh release create $tag <dlls...> tools-manifest.json --repo $Repo"
-    }
+    $validationBaseline = if ($PreviousManifest) { $PreviousManifest } elseif ($baseline) { $baseline.ManifestPath } else { $null }
+    Test-ToolBundle $stage $validationBaseline | Out-Null
+    Write-Host "Validated staged bundle: $stage" -ForegroundColor Green
+    Write-Host "Review/test these artifacts, then publish without rebuilding:"
+    Write-Host "pwsh tools/ToolRelease.ps1 -Publish -PublishFrom '$stage' -Repo '$Repo'"
 }
-
-function Confirm-Publish {
-    $ans = (Read-Host "PUBLISH the bundle to $Repo - create a live GitHub release? (y/N)").Trim().ToLower()
-    return $ans -eq 'y'
-}
-
 # ----------------------------- menu -----------------------------
 
 function Show-Menu {
     while ($true) {
         $tools = Get-ToolProjects
         $activeCount = @($tools | Where-Object Active).Count
-        $mode = if ($script:PublishMode) { 'PUBLISH (creates a GitHub release)' } else { 'DRY RUN (stage only)' }
         Write-Host ""
         Write-Host "============ MESharp Tool Release (umbrella) ============" -ForegroundColor Cyan
         Write-Host " Repo: $Repo"
-        Write-Host " Mode: " -NoNewline; Write-Host $mode -ForegroundColor ($(if ($script:PublishMode) { 'Red' } else { 'Yellow' }))
+        Write-Host ' Mode: stage and validate; publish reviewed artifacts separately.'
         Write-Host " $($tools.Count) tool(s) discovered, $activeCount public. [x] = public, [ ] = internal:"
         Write-Host "--------------------------------------------------------"
         for ($i = 0; $i -lt $tools.Count; $i++) {
@@ -416,17 +442,14 @@ function Show-Menu {
         Write-Host "--------------------------------------------------------"
         Write-Host "  #) toggle a tool public/internal"
         Write-Host "  s) set a tool's version"
-        Write-Host "  r) build + release the bundle (public tools only)"
-        Write-Host "  p) toggle publish/dry-run (currently: $(if ($script:PublishMode){'publish'}else{'dry run'}))"
+        Write-Host "  r) stage complete catalog (build new/version-bumped tools; reuse unchanged DLLs)"
         Write-Host "  q) quit"
         Write-Host "========================================================"
         $choice = (Read-Host 'Select an option').Trim().ToLower()
 
         switch ($choice) {
             'q' { return }
-            'p' { $script:PublishMode = -not $script:PublishMode }
             'r' {
-                if ($script:PublishMode -and -not (Confirm-Publish)) { continue }
                 try { Invoke-BundleRelease } catch { Write-Host "!! $($_.Exception.Message)" -ForegroundColor Red }
             }
             's' {
@@ -449,9 +472,10 @@ function Show-Menu {
 }
 
 # ----------------------------- dispatch -----------------------------
-if ($Publish -or $Stage) {
-    Invoke-BundleRelease
+if ($Publish -or $ValidateOnly) {
+    if (-not $PublishFrom) { throw 'Supply -PublishFrom with the reviewed staged bundle directory. Publishing never rebuilds.' }
+    if ($ValidateOnly) { Test-ToolBundle $PublishFrom $PreviousManifest }
+    else { Publish-ToolBundle $PublishFrom $Repo }
 }
-else {
-    Show-Menu
-}
+elseif ($Stage) { Invoke-BundleRelease }
+else { Show-Menu }

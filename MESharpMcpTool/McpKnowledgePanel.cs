@@ -90,7 +90,7 @@ namespace csharp_interop.McpTools
         {
             Text = "● Unsaved changes",
             FontSize = 11,
-            Foreground = new SolidColorBrush(Color.FromRgb(255, 167, 38)),
+            Foreground = AccentOrangeBrush,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(10, 0, 0, 0),
             Visibility = Visibility.Collapsed
@@ -213,7 +213,7 @@ namespace csharp_interop.McpTools
                 Width = 12,
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Stretch,
-                Background = Brushes.Transparent,
+                Background = BorderLineBrush,
                 ResizeBehavior = GridResizeBehavior.PreviousAndNext,
                 ResizeDirection = GridResizeDirection.Columns,
                 ToolTip = "Drag to resize the list/editor split"
@@ -315,13 +315,12 @@ namespace csharp_interop.McpTools
 
         private UIElement BuildEditorHeader()
         {
-            var header = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+            var header = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+            buttons.Children.Add(MakeButton("Save", (_, _) => SaveCurrent(), "Save the editor contents to the knowledge store."));
             buttons.Children.Add(MakeButton("New", (_, _) => NewItem(), "Start a new draft item in the editor (not saved until you press Save)."));
             buttons.Children.Add(MakeButton("Refresh", (_, _) => RefreshItems(), "Reload the list from the knowledge store."));
-            DockPanel.SetDock(buttons, Dock.Right);
-            header.Children.Add(buttons);
-            var titlePanel = new StackPanel { Orientation = Orientation.Horizontal };
+            var titlePanel = new WrapPanel();
             titlePanel.Children.Add(new TextBlock
             {
                 Text = "Knowledge Editor",
@@ -332,6 +331,7 @@ namespace csharp_interop.McpTools
             });
             titlePanel.Children.Add(_dirtyIndicator);
             header.Children.Add(titlePanel);
+            header.Children.Add(buttons);
             return header;
         }
 
@@ -445,7 +445,7 @@ namespace csharp_interop.McpTools
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                 FontFamily = Mono,
                 FontSize = 11,
-                Foreground = Brushes.LightGray
+                Foreground = TextBrush
             };
             DockPanel.SetDock(confValue, Dock.Right);
             confHeader.Children.Add(confValue);
@@ -532,16 +532,21 @@ namespace csharp_interop.McpTools
 
         private UIElement BuildActionButtons()
         {
-            var panel = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-            panel.Children.Add(MakeButton("Save", (_, _) => SaveCurrent(), "Create or update the item with the editor contents."));
-            panel.Children.Add(MakeButton("✓ Worked", (_, _) => RecordOutcome(succeeded: true),
+            var panel = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+            var outcomes = new WrapPanel();
+            var lifecycle = new WrapPanel();
+            panel.Children.Add(Label("Record an outcome for saved guidance"));
+            panel.Children.Add(outcomes);
+            panel.Children.Add(Label("Manage saved knowledge"));
+            panel.Children.Add(lifecycle);
+            outcomes.Children.Add(MakeButton("✓ Worked", (_, _) => RecordOutcome(succeeded: true),
                 "Record that this item's guidance was applied and helped: creates a linked outcome item, increments validations/usage, and recalculates confidence (same as kb.outcome)."));
-            panel.Children.Add(MakeButton("✗ Failed", (_, _) => RecordOutcome(succeeded: false),
+            outcomes.Children.Add(MakeButton("✗ Failed", (_, _) => RecordOutcome(succeeded: false),
                 "Record that this item's guidance was applied and did NOT help: creates a linked outcome item, increments failures/usage, and recalculates confidence (same as kb.outcome)."));
-            panel.Children.Add(MakeButton("Review", (_, _) => ReviewCurrent(), "Stamp the item as reviewed now (updates Last Reviewed)."));
-            panel.Children.Add(MakeButton("Promote", (_, _) => PromoteCurrent(), "Promote an answered item to reusable knowledge: Kind=knowledge, Status=promoted, confidence at least 75."));
-            panel.Children.Add(MakeButton("Deprecate", (_, _) => { if (_selected != null) { _statusBox.Text = "deprecated"; SaveCurrent(); } }, "Mark the item as no longer valid (kept for history)."));
-            panel.Children.Add(MakeButton("Archive", (_, _) => { if (_selected != null) { _statusBox.Text = "archived"; SaveCurrent(); } }, "Hide the item from day-to-day views without deleting it."));
+            lifecycle.Children.Add(MakeButton("Review", (_, _) => ReviewCurrent(), "Stamp the item as reviewed now (updates Last Reviewed)."));
+            lifecycle.Children.Add(MakeButton("Promote", (_, _) => PromoteCurrent(), "Promote an answered item to reusable knowledge: Kind=knowledge, Status=promoted, confidence at least 75."));
+            lifecycle.Children.Add(MakeButton("Deprecate", (_, _) => { if (_selected != null) { _statusBox.Text = "deprecated"; SaveCurrent(); } }, "Mark the item as no longer valid (kept for history)."));
+            lifecycle.Children.Add(MakeButton("Archive", (_, _) => { if (_selected != null) { _statusBox.Text = "archived"; SaveCurrent(); } }, "Hide the item from day-to-day views without deleting it."));
             panel.Children.Add(MakeButton("Delete", (_, _) => DeleteCurrent(), "Permanently remove the item from the store."));
             return panel;
         }
@@ -561,6 +566,7 @@ namespace csharp_interop.McpTools
                 Target = (_targetFilter.SelectedItem as string) is { Length: > 0 } tgt ? tgt : null,
                 TimeHorizon = (_timeHorizonFilter.SelectedItem as string) is { Length: > 0 } th ? th : null,
                 Blocking = _blockingCheck.IsChecked == true ? true : (bool?)null,
+                IncludeArchived = string.Equals(_statusFilter.SelectedItem as string, "archived", StringComparison.OrdinalIgnoreCase),
                 MaxCount = 500
             };
 
@@ -605,7 +611,7 @@ namespace csharp_interop.McpTools
                 _suppressSelectionLoad = false;
             }
 
-            _setStatus($"{_items.Count} knowledge item(s) · {Knowledge.GetStorePath()}");
+            _setStatus($"{_items.Count} knowledge item(s){(items.Count >= query.MaxCount ? " · Result limit reached; narrow the filters" : string.Empty)} · {Knowledge.GetStorePath()}");
         }
 
         /// <summary>
@@ -705,6 +711,13 @@ namespace csharp_interop.McpTools
 
         private void NewItem()
         {
+            if (_dirty && MessageBox.Show("Discard unsaved changes and start a new item?", "Unsaved changes",
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                return;
+
+            _suppressSelectionLoad = true;
+            try { _itemsList.SelectedItem = null; }
+            finally { _suppressSelectionLoad = false; }
             _selected = new KnowledgeItem
             {
                 Title = "New knowledge item",
@@ -714,7 +727,6 @@ namespace csharp_interop.McpTools
                 Status = "draft",
                 Confidence = 50
             };
-            _itemsList.SelectedItem = null;
             LoadEditor(_selected);
         }
 
@@ -740,7 +752,12 @@ namespace csharp_interop.McpTools
             {
                 // Editable ComboBoxes bubble the inner TextBox's TextChanged.
                 combo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
-                    new TextChangedEventHandler((_, _) => Dirty()));
+                    new TextChangedEventHandler((_, _) =>
+                    {
+                        // Editable templates synchronize their inner text when first realized.
+                        // That deferred initialization is not a user edit.
+                        if (combo.IsKeyboardFocusWithin || combo.IsDropDownOpen) Dirty();
+                    }));
                 combo.SelectionChanged += (_, _) => Dirty();
             }
 
@@ -810,6 +827,9 @@ namespace csharp_interop.McpTools
 
         private void SaveCurrent()
         {
+            // Retain counters and verification evidence updated since the editor was opened.
+            if (_selected != null && Knowledge.TryGet(_selected.Id, out var latest) && latest != null)
+                _selected = latest;
             _selected ??= new KnowledgeItem();
             _selected.Title = _titleBox.Text;
             _selected.Body = _bodyBox.Text;
@@ -852,6 +872,8 @@ namespace csharp_interop.McpTools
             if (_selected == null || string.IsNullOrWhiteSpace(_selected.Id))
                 return;
 
+            if (Knowledge.TryGet(_selected.Id, out var latest) && latest != null)
+                _selected = latest;
             _selected.LastReviewedAt = DateTime.UtcNow;
             _selected.UpdatedUtc = DateTime.UtcNow;
 
@@ -1024,12 +1046,12 @@ namespace csharp_interop.McpTools
 
             var promotedTrigger = new DataTrigger { Binding = new DataBinding("Status"), Value = "promoted" };
             promotedTrigger.Setters.Add(new Setter(TextBlock.FontWeightProperty, FontWeights.Bold));
-            promotedTrigger.Setters.Add(new Setter(TextBlock.ForegroundProperty, new SolidColorBrush(Color.FromRgb(102, 187, 106))));
+            promotedTrigger.Setters.Add(new Setter(TextBlock.ForegroundProperty, AccentGreenBrush));
             titleStyle.Triggers.Add(promotedTrigger);
 
             var staleTrigger = new DataTrigger { Binding = new DataBinding("Status"), Value = "stale" };
             staleTrigger.Setters.Add(new Setter(TextBlock.FontStyleProperty, FontStyles.Italic));
-            staleTrigger.Setters.Add(new Setter(TextBlock.ForegroundProperty, new SolidColorBrush(Color.FromRgb(158, 158, 158))));
+            staleTrigger.Setters.Add(new Setter(TextBlock.ForegroundProperty, TextDimBrush));
             titleStyle.Triggers.Add(staleTrigger);
 
             var archivedTrigger = new DataTrigger { Binding = new DataBinding("Status"), Value = "archived" };
@@ -1095,10 +1117,28 @@ namespace csharp_interop.McpTools
         private static Style BuildListItemContainerStyle()
         {
             var style = new Style(typeof(ListBoxItem));
+            var template = new ControlTemplate(typeof(ListBoxItem));
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetBinding(Border.BackgroundProperty, new DataBinding(nameof(Control.Background)) { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+            border.SetBinding(Border.BorderBrushProperty, new DataBinding(nameof(Control.BorderBrush)) { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+            border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(3));
+            border.AppendChild(new FrameworkElementFactory(typeof(ContentPresenter)));
+            template.VisualTree = border;
+            style.Setters.Add(new Setter(Control.TemplateProperty, template));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brushes.Transparent));
             style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
             style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0)));
             style.Setters.Add(new Setter(Control.ForegroundProperty, TextBrush));
             style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, System.Windows.HorizontalAlignment.Stretch));
+            var selected = new Trigger { Property = ListBoxItem.IsSelectedProperty, Value = true };
+            selected.Setters.Add(new Setter(Control.BackgroundProperty, BgFieldBrush));
+            selected.Setters.Add(new Setter(Control.BorderBrushProperty, AccentBlueBrush));
+            style.Triggers.Add(selected);
+            var focused = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true };
+            focused.Setters.Add(new Setter(Control.BorderBrushProperty, AccentBlueBrush));
+            style.Triggers.Add(focused);
             return style;
         }
 
@@ -1184,7 +1224,7 @@ namespace csharp_interop.McpTools
         {
             FontFamily = Mono,
             FontSize = 11,
-            Foreground = Brushes.LightGray
+            Foreground = TextBrush
         };
 
         private static TextBlock Label(string text) => new()
@@ -1204,6 +1244,10 @@ namespace csharp_interop.McpTools
                 MinWidth = 80,
                 Padding = new Thickness(10, 4, 10, 4),
                 Margin = new Thickness(0, 0, 8, 4),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                Background = text == "Save" ? AccentBlueBrush : BgFieldBrush,
+                Foreground = text == "Save" ? AccentForegroundBrush : TextBrush,
+                BorderBrush = text == "Delete" ? AccentRedBrush : BorderLineBrush,
                 ToolTip = toolTip
             };
             button.Click += handler;

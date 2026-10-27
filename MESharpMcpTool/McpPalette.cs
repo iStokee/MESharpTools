@@ -35,7 +35,7 @@ namespace csharp_interop.McpTools
             State.BgWindow = isDark ? Color.FromRgb(18, 20, 24) : Color.FromRgb(247, 247, 250);
             State.BgCard = isDark ? Color.FromRgb(28, 32, 40) : Color.FromRgb(240, 240, 245);
             State.BgField = isDark ? Color.FromRgb(38, 43, 54) : Colors.White;
-            State.Border = isDark ? Color.FromRgb(52, 58, 72) : Color.FromRgb(210, 214, 222);
+            State.Border = isDark ? Color.FromRgb(112, 123, 144) : Color.FromRgb(123, 132, 148);
             State.AccentBlue = isDark ? Color.FromRgb(66, 165, 245) : Color.FromRgb(30, 112, 196);
             State.AccentGreen = isDark ? Color.FromRgb(102, 187, 106) : Color.FromRgb(46, 125, 50);
             State.AccentRed = isDark ? Color.FromRgb(239, 83, 80) : Color.FromRgb(198, 40, 40);

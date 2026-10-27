@@ -1,23 +1,22 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using MESharp.Services.NavigationData;
 
 namespace MESharp.Services
 {
     /// <summary>
     /// Tiny persistence for the diagnostics panel — just the rs3cache dump directory used by the
-    /// in-process regenerate buttons. Stored at %LocalAppData%/MESharp/nav_diagnostics.json so it
+    /// in-process regenerate buttons. Stored in the portable navigation user directory so it
     /// survives hot reloads and tool restarts. Failures degrade to the default path.
     /// </summary>
     public static class NavDiagnosticsStore
     {
         private static readonly string DefaultDumpDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MESharp", "rs3dump");
+            NavigationDataManager.WorkspaceDirectory, "sources", "rs3dump");
 
         private static readonly string FilePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MESharp", "nav_diagnostics.json");
+            NavigationDataManager.UserDirectory, "nav-diagnostics.json");
 
         private sealed class Settings
         {
@@ -71,7 +70,7 @@ namespace MESharp.Services
                         ,CollisionAuditDatabase = settings.CollisionAuditDatabase
                     },
                     new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(FilePath, json);
+                MESharp.Data.AtomicFile.WriteAllText(FilePath, json);
             }
             catch { /* best-effort */ }
         }

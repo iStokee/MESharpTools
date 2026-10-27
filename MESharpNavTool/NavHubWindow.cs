@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -25,7 +26,7 @@ namespace MESharp
             Title = "MESharp Navigation";
             Width = 1200;
             Height = 820;
-            MinWidth = 1000;
+            MinWidth = 940;
             MinHeight = 640;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             SetResourceReference(BackgroundProperty, "App.BackgroundBrush");
@@ -38,8 +39,16 @@ namespace MESharp
             _isDarkMode = Native_UI.TryGetManagedToolsDarkMode(out var isDark) ? isDark : settings.IsDark;
 
             Loaded += (_, _) => { _vm.OnActivated(); _themeTimer.Start(); };
+            Closing += OnClosing;
             Closed += OnClosed;
             _themeTimer.Tick += OnThemeTimerTick;
+        }
+
+        private void OnClosing(object? sender, CancelEventArgs e)
+        {
+            // Stop/reload must discard the draft and reach Closed so movement and the
+            // map listener are torn down. Only an ordinary user close may be cancelled.
+            if (!WpfScriptHost.IsShutdownRequested(this) && !_vm.ConfirmClose()) e.Cancel = true;
         }
 
         private void OnThemeTimerTick(object? sender, EventArgs e)
@@ -58,6 +67,7 @@ namespace MESharp
         private void OnClosed(object? sender, EventArgs e)
         {
             Closed -= OnClosed;
+            Closing -= OnClosing;
             _themeTimer.Stop();
             _themeTimer.Tick -= OnThemeTimerTick;
 

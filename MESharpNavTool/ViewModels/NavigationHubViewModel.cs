@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -47,6 +48,7 @@ namespace MESharp.ViewModels
         private string _validationDetail = "Graph has not been validated yet.";
         private string _validationState = "busy"; // ok | warn | error | busy
         private bool _isValidating;
+        private bool _validationPending;
         private CancellationTokenSource? _validationCts;
 
         // ── Live status strip ────────────────────────────────────────────────
@@ -63,21 +65,58 @@ namespace MESharp.ViewModels
         private int _nodeCacheCountdown;
 
         public MapViewModel Map => _map ??= new MapViewModel();
-        private NavigationViewModel Travel => _travel ??= new NavigationViewModel();
-        private WebwalkingViewModel Routes => _routes ??= new WebwalkingViewModel();
-        private WebwalkGraphViewModel Graph => _graph ??= new WebwalkGraphViewModel();
+        private NavigationViewModel Travel
+        {
+            get
+            {
+                if (_travel == null)
+                {
+                    _travel = new NavigationViewModel { AllowDiagnostics = ShowDeveloperTools };
+                    _travel.PropertyChanged += OnJourneyPropertyChanged;
+                }
+                return _travel;
+            }
+        }
+        private WebwalkingViewModel Routes
+        {
+            get
+            {
+                if (_routes == null)
+                {
+                    _routes = new WebwalkingViewModel();
+                    _routes.PropertyChanged += OnJourneyPropertyChanged;
+                }
+                return _routes;
+            }
+        }
+        private WebwalkGraphViewModel Graph
+        {
+            get
+            {
+                if (_graph == null)
+                {
+                    _graph = new WebwalkGraphViewModel();
+                    _graph.PropertyChanged += OnJourneyPropertyChanged;
+                }
+                return _graph;
+            }
+        }
         private DungeonImportViewModel Dungeons => _dungeons ??= new DungeonImportViewModel();
-        private NavHealthViewModel Status => _status ??= new NavHealthViewModel();
+        private NavHealthViewModel Status => _status ??= new NavHealthViewModel { ShowDeveloperTools = ShowDeveloperTools };
 
         public bool ShowDeveloperTools
         {
             get => _showDeveloperTools;
             set
             {
-                if (!SetProperty(ref _showDeveloperTools, value) || value)
+                if (!SetProperty(ref _showDeveloperTools, value))
                     return;
 
-                if (IsDeveloperSection(CurrentSection))
+                Services.CoverageMapServer.SetDeveloperToolsEnabled(value);
+                if (_travel != null) _travel.AllowDiagnostics = value;
+                if (_status != null) _status.ShowDeveloperTools = value;
+
+                if (!value && IsDeveloperSection(CurrentSection))
                     ShowSection(NavigationHubSection.Map);
             }
         }
@@ -140,9 +179,28 @@ namespace MESharp.ViewModels
         public ICommand ShowDungeonsCommand { get; }
         public ICommand ShowStatusCommand { get; }
         public ICommand RefreshValidationCommand { get; }
+        public ICommand ReviewValidationCommand { get; }
+        public ICommand StopJourneyCommand { get; }
+        private string _journeyText = "Choose a destination on the map or in Go To.";
+        private bool _isJourneyActive;
+        private string _journeySource = string.Empty;
+        public string JourneyText { get => _journeyText; private set => SetProperty(ref _journeyText, value); }
+        public bool IsJourneyActive
+        {
+            get => _isJourneyActive;
+            private set
+            {
+                if (SetProperty(ref _isJourneyActive, value)) RaisePropertyChanged(nameof(JourneyHeading));
+            }
+        }
+        public string JourneyHeading => IsJourneyActive ? "Journey in progress" :
+            string.IsNullOrEmpty(_journeySource) ? "Ready" : "Last journey";
+        private bool HasActiveJourney => !_disposed && (_travel?.IsTraveling == true || _routes?.IsRunning == true ||
+            _graph?.IsPathRunning == true || Services.CoverageMapServer.TravelState.Running);
 
         public NavigationHubViewModel()
         {
+            Services.CoverageMapServer.SetDeveloperToolsEnabled(false);
             ShowMapCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Map));
             ShowTravelCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Travel));
             ShowRoutesCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Routes));
@@ -150,10 +208,76 @@ namespace MESharp.ViewModels
             ShowDungeonsCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Dungeons));
             ShowStatusCommand = new RelayCommand(_ => ShowSection(NavigationHubSection.Status));
             RefreshValidationCommand = new RelayCommand(_ => RunValidation());
+            ReviewValidationCommand = new RelayCommand(_ =>
+            {
+                ShowSection(NavigationHubSection.Graph);
+                Graph.SelectedWorkspaceTabIndex = 1;
+            }, _ => ShowDeveloperTools);
+            StopJourneyCommand = new RelayCommand(_ =>
+            {
+                if (!HasActiveJourney) return;
+                if (_travel?.StopTravelCommand.CanExecute(null) == true) _travel.StopTravelCommand.Execute(null);
+                if (_routes?.StopRouteCommand.CanExecute(null) == true) _routes.StopRouteCommand.Execute(null);
+                if (_graph?.StopPathCommand.CanExecute(null) == true) _graph.StopPathCommand.Execute(null);
+                Services.CoverageMapServer.CancelTravel();
+            }, _ => HasActiveJourney);
 
             // "Show on map" from the Routes/Graph panes: flip to the map; the page
             // itself picks the queued focus tile up on its next /player.json poll.
             Services.CoverageMapServer.FocusRequested += OnMapFocusRequested;
+            Services.CoverageMapServer.TravelStateChanged += OnJourneyStateChanged;
+        }
+
+        private void OnJourneyPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(NavigationViewModel.IsTraveling) or nameof(WebwalkingViewModel.IsRunning) or
+                nameof(WebwalkGraphViewModel.IsPathRunning) or nameof(NavigationViewModel.LastStatus) or nameof(WebwalkingViewModel.RunStatus))
+                RefreshJourney(sender == _travel ? "travel" : sender == _routes ? "route" : "connection");
+        }
+
+        private void OnJourneyStateChanged() => RefreshJourney("map");
+
+        private void RefreshJourney(string source)
+        {
+            if (_disposed) return;
+            void Update()
+            {
+                if (_disposed) return;
+                _journeySource = source;
+                UpdateJourneyStatus();
+            }
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess()) Update();
+            else if (!dispatcher.HasShutdownStarted)
+            {
+                try { dispatcher.BeginInvoke((Action)Update); }
+                catch (InvalidOperationException) { /* dispatcher closed during notification */ }
+            }
+        }
+
+        private void UpdateJourneyStatus()
+        {
+            if (_disposed) return;
+            var mapJourney = Services.CoverageMapServer.TravelState;
+            var active = HasActiveJourney;
+            if (IsJourneyActive != active)
+            {
+                IsJourneyActive = active;
+                CommandManager.InvalidateRequerySuggested();
+            }
+            if (_travel?.IsTraveling == true) _journeySource = "travel";
+            else if (_routes?.IsRunning == true) _journeySource = "route";
+            else if (_graph?.IsPathRunning == true) _journeySource = "connection";
+            else if (mapJourney.Running) _journeySource = "map";
+            JourneyText = (_journeySource switch
+            {
+                "travel" => _travel?.LastStatus,
+                "route" => _routes?.IsRunning == true ? _routes.RunStatus : _routes?.LastStatus,
+                "connection" => _graph?.IsPathRunning == true ? "Running the connection test journey." : _graph?.LastStatus,
+                "map" => mapJourney.Message,
+                _ => null
+            }) ?? "Choose a destination on the map or in Go To.";
+            RaisePropertyChanged(nameof(JourneyHeading));
         }
 
         private void OnMapFocusRequested()
@@ -165,6 +289,8 @@ namespace MESharp.ViewModels
                     ShowSection(NavigationHubSection.Map);
             });
         }
+
+        public bool ConfirmClose() => _routes?.ConfirmDiscardDraft("close Navigation") ?? true;
 
         public void ShowSection(NavigationHubSection section)
         {
@@ -199,7 +325,7 @@ namespace MESharp.ViewModels
         }
 
         private static bool IsDeveloperSection(NavigationHubSection section) =>
-            section is NavigationHubSection.Graph or NavigationHubSection.Dungeons or NavigationHubSection.Status;
+            section is NavigationHubSection.Routes or NavigationHubSection.Graph or NavigationHubSection.Dungeons;
 
         private object? ActiveChild() => IsMapSelected ? _map : CurrentDetailViewModel;
 
@@ -248,6 +374,7 @@ namespace MESharp.ViewModels
             if (_disposed || !_isActive) return;
 
             IsRecordingActive = _graph?.IsRecording == true || Services.CoverageMapServer.IsRecording;
+            UpdateJourneyStatus();
 
             NavigationDataStatus? navigationData = null;
             try { navigationData = NavigationDataManager.GetStatus(); } catch { }
@@ -293,7 +420,12 @@ namespace MESharp.ViewModels
 
             try
             {
-                if (!CollisionPathfinder.IsAvailable())
+                if (NavigationReadiness.IsPreparing)
+                {
+                    CollisionText = "Preparing navigation data…";
+                    CollisionState = "warn";
+                }
+                else if (!CollisionPathfinder.IsAvailable())
                 {
                     CollisionText = navigationData?.IsChecking == true
                         ? "Preparing navigation data…"
@@ -364,7 +496,12 @@ namespace MESharp.ViewModels
 
         private void RunValidation()
         {
-            if (_isValidating || _disposed) return;
+            if (_disposed) return;
+            if (_isValidating)
+            {
+                _validationPending = true;
+                return;
+            }
             _isValidating = true;
             ValidationState = "busy";
             ValidationText = "Validating…";
@@ -433,6 +570,11 @@ namespace MESharp.ViewModels
                         if (stats != null) GraphStatsText = stats;
                         _nodeCache = null; // graph may have changed; refresh nearest-node cache
                         _isValidating = false;
+                        if (_validationPending)
+                        {
+                            _validationPending = false;
+                            RunValidation();
+                        }
                     }
                     finally
                     {
@@ -464,6 +606,10 @@ namespace MESharp.ViewModels
             _disposed = true;
             try { _validationCts?.Cancel(); } catch { }
             Services.CoverageMapServer.FocusRequested -= OnMapFocusRequested;
+            Services.CoverageMapServer.TravelStateChanged -= OnJourneyStateChanged;
+            if (_travel != null) _travel.PropertyChanged -= OnJourneyPropertyChanged;
+            if (_routes != null) _routes.PropertyChanged -= OnJourneyPropertyChanged;
+            if (_graph != null) _graph.PropertyChanged -= OnJourneyPropertyChanged;
             _statusTimer?.Stop();
 
             foreach (var child in new object?[] { _map, _travel, _routes, _graph, _dungeons, _status })

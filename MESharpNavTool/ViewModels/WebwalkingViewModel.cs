@@ -309,6 +309,7 @@ namespace MESharp.ViewModels
 
         private void NewRoute()
         {
+            if (!ConfirmDiscardDraft("start a new route")) return;
             _suppressDirtyTracking = true;
             try
             {
@@ -408,6 +409,7 @@ namespace MESharp.ViewModels
                 LastStatus = "Select a route to load.";
                 return;
             }
+            if (!ConfirmDiscardDraft($"load '{route.Name}'")) return;
 
             _suppressDirtyTracking = true;
             try
@@ -435,6 +437,16 @@ namespace MESharp.ViewModels
             AddLog(LastStatus);
             RefreshCommandStates();
             RefreshWorkflowState();
+        }
+
+        public bool ConfirmDiscardDraft(string action)
+        {
+            if (!IsDirty) return true;
+            return System.Windows.MessageBox.Show(
+                $"The current route draft has unsaved changes. Discard them and {action}?",
+                "Unsaved route draft",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes;
         }
 
         private void DuplicateSelectedRoute()

@@ -50,9 +50,9 @@ namespace MESharp.Views
     {
         public static HelpContent Map() => new()
         {
-            Title = "Coverage Map",
-            Subtitle = "The map is the primary authoring surface for the webwalk graph: it shows live data (nodes, edges, routes, your player) and lets you create graph content by clicking the world directly. Edits land in the same files the Routes and Graph Data sections edit.",
-            FooterText = "The same map is served at the local URL shown in the toolbar — 'Browser' opens it externally.",
+            Title = "Live map",
+            Subtitle = "Search for a location or preview a journey on the map. Travel uses the attached character's current capabilities. Turn on Authoring mode in the left rail for recording and editing tools.",
+            FooterText = "Journey status and Stop are in the top toolbar. Browser opens the same map with its own bottom journey bar.",
             IconKind = PackIconMaterialKind.MapSearch,
             Sections = new()
             {
@@ -61,11 +61,9 @@ namespace MESharp.Views
                     Title = "Modes (buttons in the map sidebar)",
                     Topics = new()
                     {
-                        new HelpTopic { Title = "Browse", Body = "Default mode. Pan and zoom freely; click any node, edge, or route trail for a detail popup with its id, tags, and cost." },
-                        new HelpTopic { Title = "Path A→B", Body = "Click two tiles. A collision-aware path is generated between them and drawn on the map. The popup offers 'Save as route' (adds it to the route catalog) and 'Travel here' (walks the live player along it)." },
-                        new HelpTopic { Title = "+ Node", Body = "Click a tile to place a graph node there. Fill in name, id (blank = derived from name), and tags in the editor panel, then Save. The node is written straight into the webwalk graph." },
-                        new HelpTopic { Title = "+ Edge", Body = "Click two existing nodes (from → to). Pick the route the edge executes, set cost, and optionally mark it reversible, then Save." },
-                        new HelpTopic { Title = "● Record", Body = "Toggles the route recorder: walk in-game and your trail is drawn live. On stop, the trail is split into walked segments — each gets a 'save as route' popup. Teleport jumps show as dashed magenta edge candidates, and clicked obstacles (doors, stairs) are captured as transition candidates. While recording, the REC chip in the hub status strip lights up." },
+                        new HelpTopic { Title = "Browse", Body = "Default mode. Pan and zoom, search for locations, and click visible locations, areas, connections, or route trails for details. Browsing does not start a journey." },
+                        new HelpTopic { Title = "Go here", Body = "Choose Go here, then click a destination. This previews a journey from the player's current position; it does not move the character yet. Use Travel in the preview popup to start. The plan can include supported teleports and walking, filtered by the current character's requirements." },
+                        new HelpTopic { Title = "Path A→B", Body = "Click a start tile and then a destination to preview a graph journey, which may include teleports and walking. Travel executes toward that destination from the live player position. If graph planning fails but a local collision path is available, the walking preview offers Travel for those exact waypoints; Save as route is available in Authoring mode." },
                     },
                 },
                 new HelpSection
@@ -73,20 +71,33 @@ namespace MESharp.Views
                     Title = "Sidebar controls",
                     Topics = new()
                     {
-                        new HelpTopic { Title = "Plane", Body = "Which floor/level (z) to display; nodes and edges are filtered to it." },
-                        new HelpTopic { Title = "Layers", Body = "Show/hide Nodes, Edges, Wildcard teleport targets (edges usable from anywhere, e.g. lodestones), and Route waypoint trails." },
-                        new HelpTopic { Title = "File pickers", Body = "Graph JSON / Routes JSON pickers are only needed when viewing the page standalone in a browser without a session; inside this app the live data loads automatically." },
-                        new HelpTopic { Title = "Legend / Stats", Body = "Color key for the layers and counts for the loaded graph." },
+                        new HelpTopic { Title = "Find me / Plane", Body = "The map centers on the player when it first receives a position. Find me recenters the view afterward; it is not a continuous follow switch. Plane chooses the floor to display and the target floor for map clicks; it does not move the character." },
+                        new HelpTopic { Title = "Map layers", Body = "Locations, areas, and surveyed terrain start enabled. Connections, teleport connections, recorded trails, presence, and surveyed obstacles start disabled. Authoring mode exposes the technical connection and trail layers. Presence is shared between local sessions." },
+                        new HelpTopic { Title = "Surveyed terrain", Body = "Green and red show current cache-derived terrain at previously surveyed tiles, not independent live verification. A zoomed-out red block can contain clear tiles. Missing survey color does not by itself mean a tile is blocked." },
+                        new HelpTopic { Title = "Legend / Stats", Body = "The collapsed Legend and Stats panels in the sidebar explain overlay colors and summarize the loaded graph. Open their headings to inspect them." },
                     },
                 },
                 new HelpSection
                 {
-                    Title = "Live session",
-                    Intro = "When a game session is injected, your player appears as a live marker and the view follows it. Authoring actions that touch the game (Travel here, Record) need that session; pure viewing and node/edge editing work without one.",
+                    Title = "Journey toolbar and data",
+                    Intro = "Travel and recording require an injected, logged-in game session. A preview is a plan, not confirmation that the journey has been executed successfully.",
                     Topics = new()
                     {
-                        new HelpTopic { Title = "Show on Map", Body = "Buttons in the Routes and Graph Data sections jump this map to the selected route or node." },
-                        new HelpTopic { Title = "Toolbar", Body = "Reload refreshes the map page so it picks up route/graph edits made in the other sections. Browser opens the same live map in your default browser (handy for a second monitor); both views talk to the same local server." },
+                        new HelpTopic { Title = "Status / Stop", Body = "The top toolbar shows Ready, Journey in progress, or Last journey. Stop appears only while a journey is active and remains available when switching sections. It requests cancellation; it cannot undo an action already sent to the game. Completed or failed results remain visible after Stop disappears." },
+                        new HelpTopic { Title = "Preparing navigation data", Body = "A missing or outdated local dataset may need a full cache build before travel starts. The journey status reports build progress while the request waits. Closing the tool cancels its startup build. A build with different collision options, such as Wilderness ditch crossability, may need rebuilding for live navigation." },
+                        new HelpTopic { Title = "Reload / Browser", Body = "Reload refreshes the map page; it does not cancel the active journey or rebuild terrain. Browser opens the same local map and shares its journey and authoring state. The browser page has its own bottom status bar because the tool's top toolbar is not present there." },
+                        new HelpTopic { Title = "Show on map", Body = "Actions in the route and location editors focus the selected route or location on this map. Browsing another section does not stop a journey." },
+                    },
+                },
+                new HelpSection
+                {
+                    Title = "Authoring mode",
+                    Intro = "Enable Authoring mode in the left rail to expose these controls. Creating a location or connection does not verify that it can be traversed.",
+                    Topics = new()
+                    {
+                        new HelpTopic { Title = "+ Node / + Edge / + Area", Body = "Place a location by clicking a tile, connect two existing locations with a saved route, or click opposite corners of a rectangular area. Save the editor to persist the definition." },
+                        new HelpTopic { Title = "Record route", Body = "Records your live trail. Stop recording with the same button, then review and save the resulting walked segments. Teleport jumps and obstacle clicks are candidates for connection authoring, not proof of a complete executable network. The REC indicator shows an active recorder." },
+                        new HelpTopic { Title = "Source files / Scanning", Body = "Hosted views load navigation data automatically. Graph and Routes JSON pickers support manual viewing inputs. Scan here captures nearby observations; Scanning mode controls passive capture as you move. Neither control generates collision terrain." },
                     },
                 },
             },
@@ -102,13 +113,14 @@ namespace MESharp.Views
             {
                 new HelpSection
                 {
-                    Title = "Workflow (the three panels)",
-                    Intro = "Work left to right. The checklist strip at the top tracks where you are.",
+                    Title = "Workflow (the four tabs)",
+                    Intro = "Start with Saved Routes or Record, then review edits and test. The checklist strip at the top tracks where you are.",
                     Topics = new()
                     {
-                        new HelpTopic { Title = "1 · Catalog", Body = "Pick or create a route. Search by name, category, or tags; double-click to load into the editor. New Draft starts blank, Clone copies the selection, Show on Map jumps the Map section to the route's start." },
-                        new HelpTopic { Title = "2 · Route Setup", Body = "Edit route metadata and the waypoint list. Add waypoints from your current tile or the target helper, insert/reorder/remove, and mark the route enabled. For a route segment, the first waypoint is normally the first click target from the expected start node — include the start tile itself only when you want explicit preflight clarity (e.g. a bank tile for a bank-origin route)." },
-                        new HelpTopic { Title = "3 · Waypoint + Run", Body = "Edit the selected waypoint (position, label, and advanced arrival/jitter/transition settings), then Save Route and run the draft or the selected catalog route. Per-waypoint results land in the execution log." },
+                        new HelpTopic { Title = "Saved Routes", Body = "Pick or create a route. Search by name, category, or tags; double-click to load into the editor. New Draft starts blank, Clone copies the selection, Show on Map jumps to the route's start." },
+                        new HelpTopic { Title = "Record", Body = "Open the map, start Record route, walk in-game, and stop to review and save the captured segments." },
+                        new HelpTopic { Title = "Review / Edit", Body = "Edit route metadata and its waypoint list. Add, reorder, or remove waypoints and mark the route enabled." },
+                        new HelpTopic { Title = "Test", Body = "Edit the selected waypoint, save the route, then run the draft or selected catalog route. Per-waypoint results appear in the execution log." },
                     },
                 },
                 new HelpSection
@@ -148,7 +160,7 @@ namespace MESharp.Views
         public static HelpContent Travel() => new()
         {
             Title = "Travel",
-            Subtitle = "Diagnostics surface for the movement and teleport APIs. Use it to verify a primitive works before relying on it in a route or graph edge. Reusable travel content is authored in Routes and Graph Data; everyday point-to-point travel is easiest from the Map (Path A→B → Travel).",
+            Subtitle = "Choose a known destination and travel. Turn on Diagnostics to inspect the movement and teleport probes used for development.",
             FooterText = "Per-action results land in the Activity Log panel on the right.",
             IconKind = PackIconMaterialKind.CompassOutline,
             Sections = new()

@@ -39,7 +39,7 @@ namespace MESharp.ViewModels
             {
                 var url = Services.CoverageMapServer.Start();
                 MapUrl = url;
-                Status = $"Map served at {url}";
+                Status = "Live map · select a location to preview a journey";
                 return url;
             }
             catch (Exception ex)

@@ -12,6 +12,38 @@ namespace csharp_interop.Tests;
 public sealed class ApiDocumentationBrowserUiTests
 {
     [Fact]
+    public void Wide_saved_sidebar_keeps_space_for_details_when_window_narrows()
+    {
+        StaTestRunner.Run(() =>
+        {
+            EnsureWpfApplication();
+            var browser = new ApiDocumentationBrowser(new ApiDocumentationSettings { SidebarWidth = 500 });
+            var window = new Window { Content = browser, Width = 860, Height = 560, ShowActivated = false };
+            // Recreate a sibling tool's ambient style, which overrides inherited attached settings.
+            var ambientScroll = new Style(typeof(ScrollViewer));
+            ambientScroll.Setters.Add(new Setter(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Auto));
+            window.Resources[typeof(ScrollViewer)] = ambientScroll;
+            try
+            {
+                window.Show();
+                StaTestRunner.PumpDispatcher();
+                var list = Assert.IsType<ListBox>(browser.FindName("ClassList"));
+                var details = Assert.IsType<ScrollViewer>(browser.FindName("DetailScroll"));
+                Assert.True(details.ActualWidth >= 390, $"Detail width was {details.ActualWidth}");
+                Assert.True(list.ClipToBounds);
+                var scroller = Assert.IsType<ScrollViewer>(FindVisualChild<ScrollViewer>(list));
+                Assert.Equal(ScrollBarVisibility.Disabled, scroller.HorizontalScrollBarVisibility);
+                Assert.True(scroller.ExtentWidth <= scroller.ViewportWidth + 1);
+                foreach (var item in list.Items)
+                {
+                    if (list.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem row)
+                        Assert.True(row.ActualWidth <= list.ActualWidth, $"Sidebar row exceeded its viewport: {row.ActualWidth}");
+                }
+            }
+            finally { window.Close(); }
+        });
+    }
+    [Fact]
     public void Browser_constructs_with_runtime_theme_resources_and_viewmodel()
     {
         StaTestRunner.Run(() =>

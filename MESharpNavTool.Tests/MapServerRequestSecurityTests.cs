@@ -34,6 +34,26 @@ public sealed class MapServerRequestSecurityTests
 
 public sealed class MapTravelStatusTests
 {
+    [Theory]
+    [InlineData(true, true, "Preparing navigation data: Building shared walkability components.")]
+    [InlineData(true, false, "Travel to target…")]
+    [InlineData(false, true, "Travel to target…")]
+    public void PreparationIsVisibleOnlyForAnActiveJourney(bool running, bool preparing, string expected)
+        => Assert.Equal(expected, MapTravelStatus.WithPreparation("Travel to target…", running, preparing,
+            "Building shared walkability components."));
+
+    [Fact]
+    public void FromResult_PreservesNavigationFailureDetails()
+    {
+        var result = MESharp.API.NavigationResult.Failure(
+            "Lodestone failed at ClickDestination: click was not dispatched.",
+            MESharp.API.NavigationFailReason.WalkFailed);
+
+        Assert.Equal("Travel failed: " + result.FailMessage,
+            MapTravelStatus.FromResult("Travel", result, false));
+        Assert.Equal("Travel cancelled.", MapTravelStatus.FromResult("Travel", result, true));
+    }
+
     [Fact]
     public void FromResult_ReportsFalseResultAsFailure()
     {
@@ -52,6 +72,66 @@ public sealed class MapTravelStatusTests
 
 public sealed class CoverageMapServerAuthorizationTests
 {
+    [Fact]
+    public async Task ClientModeRejectsAuthoringEvenWithValidCapability()
+    {
+        CoverageMapServer.SetDeveloperToolsEnabled(false);
+        var map = new Uri(CoverageMapServer.Start());
+        try
+        {
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, map.GetLeftPart(UriPartial.Path) + "api/node")
+            {
+                Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add(MapServerRequestSecurity.TokenHeaderName, new UriQuery(map.Fragment).Get("mapToken"));
+            using var response = await client.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Contains("Enable Developer tools", body);
+        }
+        finally { CoverageMapServer.Stop(); }
+    }
+    [Fact]
+    public async Task CatalogReturnsOneSnapshotAndSkipsUnchangedData()
+    {
+        var map = new Uri(CoverageMapServer.Start());
+        try
+        {
+            using var client = new HttpClient();
+            var endpoint = map.GetLeftPart(UriPartial.Path) + "catalog.json";
+            using var first = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync(endpoint));
+            Assert.True(first.RootElement.TryGetProperty("graph", out _));
+            Assert.True(first.RootElement.TryGetProperty("routes", out _));
+            var version = first.RootElement.GetProperty("version").GetString()!;
+            using var next = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync(endpoint + "?version=" + Uri.EscapeDataString(version)));
+            Assert.True(next.RootElement.GetProperty("unchanged").GetBoolean());
+            Assert.False(next.RootElement.TryGetProperty("graph", out _));
+        }
+        finally { CoverageMapServer.Stop(); }
+    }
+    [Theory]
+    [InlineData("leaflet.js", "text/javascript")]
+    [InlineData("leaflet.css", "text/css")]
+    [InlineData("images/marker-icon.png", "image/png")]
+    [InlineData("leaflet-license.txt", "text/plain")]
+    public async Task BundledMapAssetsAreServedLocally(string path, string contentType)
+    {
+        var mapUrl = new Uri(CoverageMapServer.Start());
+        try
+        {
+            using var client = new HttpClient();
+            var assetUrl = new Uri(mapUrl.GetLeftPart(UriPartial.Path) + path);
+            using var response = await client.GetAsync(assetUrl);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(contentType, response.Content.Headers.ContentType?.MediaType);
+            Assert.NotEmpty(await response.Content.ReadAsByteArrayAsync());
+        }
+        finally
+        {
+            CoverageMapServer.Stop();
+        }
+    }
+
     [Fact]
     public async Task ExcessConnections_AreClosedWhileRequestSlotsAreOccupied()
     {

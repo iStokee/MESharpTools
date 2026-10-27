@@ -34,7 +34,8 @@ namespace csharp_interop.Documentation.ViewModels
 
 			SearchCommand = new RelayCommand(ExecuteSearch);
 			ClearSearchCommand = new RelayCommand(ExecuteClearSearch);
-			CopySignatureCommand = new RelayCommand<object>(ExecuteCopyExample);
+			CopyExampleCommand = new RelayCommand<object>(ExecuteCopyExample, member => !string.IsNullOrWhiteSpace(GetExample(member)));
+			CopySignatureCommand = new RelayCommand<object>(ExecuteCopySignature);
 
 			SizeOptions.Add(new ApiViewerSizeOption("Compact", 980, 640));
 			SizeOptions.Add(new ApiViewerSizeOption("Default", 1180, 780));
@@ -206,6 +207,9 @@ namespace csharp_interop.Documentation.ViewModels
 
 		public int DisplayedMemberCount => DisplayedMethods.Count + DisplayedProperties.Count;
 
+		private string _copyStatus = "Ctrl+K to search. Enter selects the first result. Esc clears search.";
+		public string CopyStatus { get => _copyStatus; private set { _copyStatus = value; OnPropertyChanged(); } }
+
 		public int ResultMemberCount => DisplayedClasses.Sum(CountMatchingMembers);
 
 		public string SelectedClassFilterSummary
@@ -218,6 +222,8 @@ namespace csharp_interop.Documentation.ViewModels
 				}
 
 				var memberLabel = DisplayedMemberCount == 1 ? "member" : "members";
+				if (IncludeClasses && string.Equals(SelectedClass.Name, SearchText.Trim(), StringComparison.OrdinalIgnoreCase))
+					return $"Showing all {DisplayedMemberCount} enabled {memberLabel} in {SelectedClass.Name}.";
 				return $"Search filter active: showing {DisplayedMemberCount} matching {memberLabel} in {SelectedClass.Name}.";
 			}
 		}
@@ -260,6 +266,7 @@ namespace csharp_interop.Documentation.ViewModels
 		public ICommand SearchCommand { get; }
 		public ICommand ClearSearchCommand { get; }
 		public ICommand CopySignatureCommand { get; }
+		public ICommand CopyExampleCommand { get; }
 
 		#endregion
 
@@ -311,7 +318,7 @@ namespace csharp_interop.Documentation.ViewModels
 			}
 			else
 			{
-				foreach (var apiClass in AllClasses)
+				foreach (var apiClass in AllClasses.OrderBy(c => string.Equals(c.Name, search, StringComparison.OrdinalIgnoreCase) ? 0 : Contains(c.Name, search) ? 1 : 2))
 				{
 					if (ClassMatches(apiClass, search) || CountMatchingMembers(apiClass, search) > 0)
 					{
@@ -320,7 +327,13 @@ namespace csharp_interop.Documentation.ViewModels
 				}
 			}
 
-			if (SelectedClass == null || !DisplayedClasses.Contains(SelectedClass))
+			var exactClass = HasSearchText && IncludeClasses
+				? DisplayedClasses.FirstOrDefault(c => string.Equals(c.Name, search, StringComparison.OrdinalIgnoreCase)) : null;
+			if (exactClass != null && SelectedClass != exactClass)
+			{
+				SelectedClass = exactClass;
+			}
+			else if (SelectedClass == null || !DisplayedClasses.Contains(SelectedClass))
 			{
 				SelectedClass = DisplayedClasses.FirstOrDefault();
 			}
@@ -362,7 +375,8 @@ namespace csharp_interop.Documentation.ViewModels
 			}
 
 			var search = SearchText?.Trim();
-			var hasSearch = !string.IsNullOrWhiteSpace(search);
+			// A class-name search opens that class's full reference. Member searches narrow it.
+			var hasSearch = !string.IsNullOrWhiteSpace(search) && !(IncludeClasses && string.Equals(SelectedClass.Name, search, StringComparison.OrdinalIgnoreCase));
 
 			if (IncludeMethods)
 			{
@@ -438,29 +452,28 @@ namespace csharp_interop.Documentation.ViewModels
 		/// </summary>
 		private void ExecuteCopyExample(object member)
 		{
-			try
-			{
-				string example = null;
+			CopyText(GetExample(member), "Copied example usage.");
+		}
 
-				if (member is ApiMethodInfo method)
-				{
-					example = method.Example;
-				}
-				else if (member is ApiPropertyInfo property)
-				{
-					example = property.Example;
-				}
+		private static string GetExample(object member) => member switch
+		{
+			ApiMethodInfo method => method.Example,
+			ApiPropertyInfo property => property.Example,
+			_ => null
+		};
 
-				if (!string.IsNullOrEmpty(example))
-				{
-					System.Windows.Clipboard.SetText(example);
-					Console.WriteLine($"[ApiDocs] Copied example usage to clipboard");
-				}
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"[ApiDocs] Error copying example usage: {ex.Message}");
-			}
+		private void ExecuteCopySignature(object member) => CopyText(member switch
+		{
+			ApiMethodInfo method => method.GetSignature(),
+			ApiPropertyInfo property => property.GetSignature(),
+			_ => null
+		}, "Copied signature.");
+
+		private void CopyText(string text, string message)
+		{
+			if (string.IsNullOrWhiteSpace(text)) return;
+			try { System.Windows.Clipboard.SetText(text); CopyStatus = message; }
+			catch (Exception ex) { CopyStatus = "Copy failed: " + ex.Message; }
 		}
 
 		#endregion

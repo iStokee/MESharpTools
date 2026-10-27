@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
+using MESharp.Services.NavigationData;
 
 namespace MESharp.Services
 {
@@ -13,9 +14,7 @@ namespace MESharp.Services
         private static readonly string SettingsFileName = "settings.json";
         private static readonly string LegacySettingsFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, SettingsFileName);
         private static readonly string SettingsDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MESharp",
-            "WPFScript");
+            NavigationDataManager.UserDirectory, "tool");
         private static readonly string SettingsFilePath = Path.Combine(SettingsDirectory, SettingsFileName);
 
         private static Uri GetThemePackUri(string relative)

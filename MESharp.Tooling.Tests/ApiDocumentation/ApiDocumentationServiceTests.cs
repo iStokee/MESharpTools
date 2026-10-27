@@ -7,6 +7,19 @@ namespace csharp_interop.Tests;
 public sealed class ApiDocumentationServiceTests
 {
     [Fact]
+    public void Signatures_use_CSharp_byref_and_optional_default_syntax()
+    {
+        var classes = new ApiDocumentationService().GetAllApiClasses();
+        var signals = classes.Single(c => c.Name == "DoActionDebugSignals");
+        var snapshot = signals.Methods.Single(m => m.Name == "Snapshot");
+        Assert.Contains("bool includeFailed = true", snapshot.GetSignature());
+        var configure = signals.Methods.Single(m => m.Name == "Configure");
+        Assert.Contains("bool? enabled = null", configure.GetSignature());
+        var parse = signals.Methods.Single(m => m.Name == "TryParseCapture");
+        Assert.Contains("out CaptureInfo info", parse.GetSignature());
+        Assert.Contains("out _", parse.Example);
+    }
+    [Fact]
     public void GetAllApiClasses_discovers_public_mesharp_static_api_classes()
     {
         var service = new ApiDocumentationService();

@@ -112,7 +112,8 @@
 
                 <!--  view chips + filters  -->
                 <Border Grid.Row="1" Style="{StaticResource Desk.Card}">
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel>
+                      <WrapPanel Margin="0,0,0,8">
                         <ToggleButton Margin="0,0,6,0" Padding="10,4" Command="{Binding SelectViewCommand}" CommandParameter="open" IsChecked="{Binding IsViewOpen, Mode=OneWay}">
                             <StackPanel Orientation="Horizontal"><TextBlock Text="Open" /><TextBlock Margin="6,0,0,0" Opacity="0.65" Text="{Binding OpenCount}" /></StackPanel>
                         </ToggleButton>
@@ -128,15 +129,26 @@
                         <ToggleButton Margin="0,0,16,0" Padding="10,4" Command="{Binding SelectViewCommand}" CommandParameter="closed" IsChecked="{Binding IsViewClosed, Mode=OneWay}">
                             <StackPanel Orientation="Horizontal"><TextBlock Text="Closed" /><TextBlock Margin="6,0,0,0" Opacity="0.65" Text="{Binding ClosedCount}" /></StackPanel>
                         </ToggleButton>
-
-                        <ComboBox Width="130" Margin="0,0,8,0" VerticalAlignment="Center" ItemsSource="{Binding SignalFilterOptions}" SelectedItem="{Binding SignalFilter}" ToolTip="Signal type" />
-                        <ComboBox Width="100" Margin="0,0,8,0" VerticalAlignment="Center" ItemsSource="{Binding CategoryFilterOptions}" SelectedItem="{Binding CategoryFilter}" ToolTip="Surface" />
+                      </WrapPanel>
+                      <WrapPanel>
+                        <StackPanel Margin="0,0,12,6">
+                            <TextBlock Style="{StaticResource Desk.Hint}" Text="Signal type" Margin="0,0,0,4" />
+                            <ComboBox Width="150" MinHeight="32" ItemsSource="{Binding SignalFilterOptions}" SelectedItem="{Binding SignalFilter}" ToolTip="Signal type" AutomationProperties.Name="Signal type" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,12,6">
+                            <TextBlock Style="{StaticResource Desk.Hint}" Text="Surface" Margin="0,0,0,4" />
+                            <ComboBox Width="120" MinHeight="32" ItemsSource="{Binding CategoryFilterOptions}" SelectedItem="{Binding CategoryFilter}" ToolTip="Surface" AutomationProperties.Name="Surface" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,0,6">
+                        <TextBlock Style="{StaticResource Desk.Hint}" Text="Search cases" Margin="0,0,0,4" />
                         <Border Style="{StaticResource Desk.Chip}" Padding="6,3" Background="{DynamicResource MahApps.Brushes.ThemeBackground}">
                             <StackPanel Orientation="Horizontal">
                                 <iconPacks:PackIconMaterial Width="13" Height="13" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource MahApps.Brushes.Gray}" Kind="Magnify" />
-                                <TextBox Width="150" BorderThickness="0" Background="Transparent" VerticalAlignment="Center" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}" ToolTip="Search case #, title or target" />
+                                <TextBox Width="170" MinHeight="24" BorderThickness="0" Background="Transparent" VerticalAlignment="Center" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}" ToolTip="Search case #, title or target" AutomationProperties.Name="Search cases by number, title or target" />
                             </StackPanel>
                         </Border>
+                        </StackPanel>
+                      </WrapPanel>
                     </StackPanel>
                 </Border>
 
@@ -145,8 +157,11 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" MinWidth="320" />
                         <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="404" />
+                        <ColumnDefinition Width="*" MinWidth="320" />
                     </Grid.ColumnDefinitions>
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                                  Background="{DynamicResource MahApps.Brushes.Gray}" ResizeDirection="Columns"
+                                  ResizeBehavior="PreviousAndNext" ToolTip="Drag to resize the case list and details" />
 
                     <Border Grid.Column="0" Style="{StaticResource Desk.Card}" Padding="6">
                         <ListBox ItemsSource="{Binding Tasks}" SelectedItem="{Binding Selected}"
@@ -155,11 +170,12 @@
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Margin="0,0,0,6" CornerRadius="6" BorderThickness="1"
-                                            Background="{DynamicResource MahApps.Brushes.ThemeBackground}"
-                                            BorderBrush="{DynamicResource MahApps.Brushes.Gray6}">
+                                    <Border Margin="0,0,0,6" CornerRadius="6"
+                                            Background="{DynamicResource MahApps.Brushes.ThemeBackground}">
                                         <Border.Style>
                                             <Style TargetType="Border">
+                                                <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray}" />
+                                                <Setter Property="BorderThickness" Value="1" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
                                                         <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Accent}" />
@@ -263,6 +279,8 @@
                                         <Button Grid.Column="0" Style="{StaticResource Desk.ActionButton}" HorizontalContentAlignment="Center" Content="Claim" Command="{Binding ClaimCommand}" CommandParameter="{Binding Selected}" />
                                         <Button Grid.Column="2" Style="{StaticResource Desk.ActionButton}" HorizontalContentAlignment="Center" Content="Flag" Command="{Binding FlagCommand}" CommandParameter="{Binding Selected}" />
                                     </Grid>
+                                    <Separator Margin="0,14,0,10" />
+                                    <TextBlock Style="{StaticResource Desk.Hint}" Text="Closing permanently removes captured evidence and screenshots. Save closing notes first." />
                                     <Button Style="{StaticResource Desk.ActionButton}" Margin="0,8,0,0" HorizontalContentAlignment="Center" Content="Close (purge evidence)" Command="{Binding CloseCommand}" CommandParameter="{Binding Selected}" />
                                 </StackPanel>
                             </ScrollViewer>
@@ -281,9 +299,9 @@
                         <StackPanel>
                             <DockPanel>
                                 <Ellipse DockPanel.Dock="Right" Style="{StaticResource Desk.StatusDot}" Tag="{Binding ClickDot}" VerticalAlignment="Center" />
-                                <CheckBox FontSize="13" IsChecked="{Binding RecordClicks}" Content="Record clicks (DoAction recorder)" />
+                                <CheckBox Style="{StaticResource Desk.CheckBox}" FontSize="13" IsChecked="{Binding RecordClicks}" Content="Record clicks (DoAction recorder)" />
                             </DockPanel>
-                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,4,0,0" Text="Enables ME's click recorder so capture packs include your approach → cross → run sequence. Without it, packs record the world snapshot but no clicks." />
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="31,4,0,0" Text="Enables ME's click recorder so capture packs include your approach → cross → run sequence. Without it, packs record the world snapshot but no clicks." />
                         </StackPanel>
                     </Border>
 
@@ -291,18 +309,18 @@
                         <StackPanel>
                             <DockPanel>
                                 <Ellipse DockPanel.Dock="Right" Style="{StaticResource Desk.StatusDot}" Tag="{Binding PassiveDot}" VerticalAlignment="Center" />
-                                <CheckBox FontSize="13" IsChecked="{Binding CaptureEnabled}" Content="Passive auto-resolve" />
+                                <CheckBox Style="{StaticResource Desk.CheckBox}" FontSize="13" IsChecked="{Binding CaptureEnabled}" Content="Passive auto-resolve" />
                             </DockPanel>
-                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,4,0,0" Text="Auto-resolves tier-1 tile cases from movement during normal play — walk past a seeded tile and it confirms itself." />
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="31,4,0,0" Text="Auto-resolves tier-1 tile cases from movement during normal play — walk past a seeded tile and it confirms itself." />
                         </StackPanel>
                     </Border>
 
                     <Border Style="{StaticResource Desk.Card}">
                         <StackPanel>
-                            <CheckBox FontSize="13" IsChecked="{Binding ScreenshotsEnabled}" Content="Capture screenshots" />
-                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="0,4,0,8" Text="Attach a screenshot to each capture pack for visual attestation (what the screen shows vs what the code reads). The image is saved to disk and purged when the case closes; only its path goes in the pack." />
-                            <CheckBox Margin="20,0,0,0" FontSize="13" IsEnabled="{Binding ScreenshotsEnabled}" IsChecked="{Binding BlackoutChat}" Content="Black out chatbox (privacy)" />
-                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="20,4,0,0" Text="Redacts the chat region (resolved from interface geometry, with a bottom-left fallback) before the file is written. Requires ME's native capture export." />
+                            <CheckBox Style="{StaticResource Desk.CheckBox}" FontSize="13" IsChecked="{Binding ScreenshotsEnabled}" Content="Capture screenshots" />
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="31,4,0,8" Text="Attach a screenshot to each capture pack for visual attestation (what the screen shows vs what the code reads). The image is saved to disk and purged when the case closes; only its path goes in the pack." />
+                            <CheckBox Style="{StaticResource Desk.CheckBox}" Margin="28,0,0,0" FontSize="13" IsEnabled="{Binding ScreenshotsEnabled}" IsChecked="{Binding BlackoutChat}" Content="Black out chatbox (privacy)" />
+                            <TextBlock Style="{StaticResource Desk.Hint}" Margin="59,4,0,0" Text="Redacts the chat region (resolved from interface geometry, with a bottom-left fallback) before the file is written. Requires ME's native capture export." />
                         </StackPanel>
                     </Border>
 

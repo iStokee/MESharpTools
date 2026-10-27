@@ -34,12 +34,12 @@ namespace MESharp.Services
                 merged[BuildKey(core)] = core;
             }
 
-            foreach (var stored in Webwalking.GetStoredRoutes())
+            foreach (var stored in Webwalking.GetPublishedRoutes().Concat(Webwalking.GetStoredRoutes()))
             {
                 var route = ConvertFromStored(stored);
                 if (route != null && !string.IsNullOrWhiteSpace(route.Name))
                 {
-                    merged[BuildKey(route)] = route;
+                    merged.TryAdd(BuildKey(route), route);
                 }
             }
 
@@ -84,9 +84,7 @@ namespace MESharp.Services
         public static bool IsCoreRoute(RouteDefinition? route)
         {
             if (route == null) return false;
-            return Webwalking.GetCoreRoutes().Any(core =>
-                string.Equals(core.Id, route.Id, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(core.Name, route.Name, StringComparison.OrdinalIgnoreCase));
+            return Webwalking.IsPublishedRoute(route.Id) || Webwalking.IsPublishedRoute(route.Name);
         }
 
         public static string GetStorePath() => Webwalking.GetRouteStorePath();

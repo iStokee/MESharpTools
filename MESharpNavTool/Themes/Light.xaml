@@ -54,6 +54,7 @@
                 <ControlTemplate TargetType="Button">
                     <Border
                         x:Name="border"
+                        Padding="{TemplateBinding Padding}"
                         Background="{TemplateBinding Background}"
                         BorderBrush="{TemplateBinding BorderBrush}"
                         BorderThickness="{TemplateBinding BorderThickness}"

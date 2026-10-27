@@ -24,6 +24,8 @@ public sealed class NavigationRunGateTests
         Assert.False(pending.IsCompleted);
 
         first.Dispose();
-        Assert.True(await pending);
+        Assert.False(pending.IsCompleted);
+        nested.Dispose();
+        Assert.True(await pending.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 }

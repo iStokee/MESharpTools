@@ -46,10 +46,12 @@ namespace csharp_interop.Documentation
 			_themeTimer.Tick += OnThemeTimerTick;
 			Loaded += (_, _) => _themeTimer.Start();
 			Unloaded += (_, _) => _themeTimer.Stop();
+			SizeChanged += (_, _) => SidebarColumn.MaxWidth = Math.Max(250, Math.Min(500, ActualWidth - 405));
 		}
 
 		private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
 		{
+			if (e.PropertyName == nameof(ApiDocBrowserViewModel.SelectedClass)) DetailScroll.ScrollToTop();
 			if (e.PropertyName == nameof(ApiDocBrowserViewModel.IsDarkMode) &&
 			    DataContext is ApiDocBrowserViewModel vm)
 			{
@@ -85,7 +87,7 @@ namespace csharp_interop.Documentation
 				return;
 			}
 
-			if (e.Key == Key.Enter && vm.HasResults)
+			if (e.Key == Key.Enter && SearchBox.IsKeyboardFocusWithin && vm.HasResults)
 			{
 				vm.SelectFirstResult();
 				e.Handled = true;

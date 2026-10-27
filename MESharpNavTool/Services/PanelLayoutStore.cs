@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using MESharp.Services.NavigationData;
 
 namespace MESharp.Services
 {
@@ -10,9 +11,7 @@ namespace MESharp.Services
     {
         private static readonly object SyncRoot = new object();
         private static readonly string LayoutDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MESharp",
-            "WPFScript");
+            NavigationDataManager.UserDirectory, "tool");
         private static readonly string LayoutFilePath = Path.Combine(LayoutDirectory, "panel-layouts.json");
         private static readonly string LayoutStateFilePath = Path.Combine(LayoutDirectory, "panel-layouts-v2.json");
 

@@ -188,7 +188,10 @@ namespace csharp_interop.McpTools
 
         private static UIElement LegendRow(Color dotColor, string status, string description)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.Children.Add(new System.Windows.Shapes.Ellipse
             {
                 Width = 9,
@@ -197,7 +200,7 @@ namespace csharp_interop.McpTools
                 Margin = new Thickness(0, 0, 8, 0),
                 VerticalAlignment = VerticalAlignment.Center
             });
-            row.Children.Add(new TextBlock
+            var statusText = new TextBlock
             {
                 Text = status,
                 FontFamily = Mono,
@@ -205,14 +208,18 @@ namespace csharp_interop.McpTools
                 Width = 110,
                 Foreground = TextBrush,
                 VerticalAlignment = VerticalAlignment.Center
-            });
-            row.Children.Add(new TextBlock
+            };
+            Grid.SetColumn(statusText, 1);
+            row.Children.Add(statusText);
+            var descriptionText = new TextBlock
             {
                 Text = description,
                 Foreground = TextDimBrush,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap
-            });
+            };
+            Grid.SetColumn(descriptionText, 2);
+            row.Children.Add(descriptionText);
             return row;
         }
     }

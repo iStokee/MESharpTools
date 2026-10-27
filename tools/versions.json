@@ -1,19 +1,24 @@
-{
-  "_comment": "Single source of truth for MESharp tool versions and the explicit public release allowlist. Only ids in _include are built/published; newly discovered tools stay internal until deliberately added.",
-  "_navigationDataVersion": "1.0.0",
-  "_navigationDataMinInteropVersion": "1.0.0",
-  "_include": [
-    "MESharpApiTool",
-    "MESharpMcpTool",
-    "MESharpNavTool",
-    "MESharpDoActionTool"
-  ],
-  "MESharpApiTool": "1.0.0",
-  "MESharpCaptureTool": "1.0.0",
-  "MESharpMcpTool": "1.0.0",
-  "MESharpNavTool": "1.0.1",
-  "MESharpKnowledgeTool": "1.0.0",
-  "MESharpDoActionTool": "1.0.0",
-  "MESharpCacheTool": "1.0.0",
-  "SharpBuilder.ScriptHost": "0.9.0"
+﻿{
+    "_comment":  "Single source of truth for MESharp tool versions and the explicit public release allowlist. Only ids in _include are built/published; newly discovered tools stay internal until deliberately added.",
+    "_toolMinInteropVersions": {
+        "MESharpApiTool": "1.1.0",
+        "MESharpNavTool": "1.3.1",
+        "MESharpMcpTool": "1.1.0"
+    },
+    "_navigationDataVersion":  "1.0.0",
+    "_toolManagerVersion": "1.0.0",
+    "_navigationDataMinInteropVersion":  "1.0.0",
+    "_include":  [
+                     "MESharpApiTool",
+                     "MESharpMcpTool",
+                     "MESharpNavTool"
+                 ],
+    "MESharpApiTool":  "1.0.1",
+    "MESharpCaptureTool":  "1.0.0",
+    "MESharpMcpTool":  "1.0.1",
+    "MESharpNavTool":  "1.0.5",
+    "MESharpKnowledgeTool":  "1.0.0",
+    "MESharpDoActionTool":  "1.0.0",
+    "MESharpCacheTool":  "1.0.0",
+    "SharpBuilder.ScriptHost":  "0.9.0"
 }
