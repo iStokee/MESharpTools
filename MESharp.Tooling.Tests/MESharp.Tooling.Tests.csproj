@@ -10,9 +10,19 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Private local tests are excluded from the public test project. -->
+    <Compile Remove="AtomPipelineTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Private local tests are excluded from the public test project. -->
+    <Compile Remove="AtomPipelineTests.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,6 +33,5 @@
     <ProjectReference Include="..\MESharpApiTool\MESharpApiTool.csproj" />
     <ProjectReference Include="..\MESharpDoActionTool\MESharpDoActionTool.csproj" />
     <ProjectReference Include="..\MESharpMcpTool\MESharpMcpTool.csproj" />
-    <ProjectReference Include="..\MESharpFoundryTool\MESharpFoundryTool.csproj" />
   </ItemGroup>
 </Project>

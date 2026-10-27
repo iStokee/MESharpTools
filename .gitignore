@@ -38,3 +38,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Private local tool and its tests (never publish)
+/MESharpFoundryTool/
+/MESharp.Tooling.Tests/AtomPipelineTests.cs

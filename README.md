@@ -1,14 +1,14 @@
 # MESharpTools
 
-Public monorepo of hot-reloadable **MESharp tools** — standalone WPF utilities loaded into the ME
+Public source repository for hot-reloadable **MESharp tools** — standalone WPF utilities loaded into the ME
 runtime as collectible scripts (like SharpBuilder). Each tool is independently versioned and
 **live-updatable**: publish a GitHub release here and the in-client `ToolUpdater` detects it and
 hot-reloads the new DLL with no `csharp_interop.dll`/ME redeploy.
 
 ## Projects
 
-This solution (`MESharpTools.slnx`) contains only what lives in this folder, plus the shared
-`csharp_interop` API it compiles against:
+The shared solution (`MESharpTools.slnx`) contains the tools below plus dependencies from the
+parent MemoryError checkout. Source availability does not imply inclusion in the public release catalog.
 
 | Project              | Output                          | Notes                                                        |
 |----------------------|---------------------------------|--------------------------------------------------------------|
@@ -16,11 +16,12 @@ This solution (`MESharpTools.slnx`) contains only what lives in this folder, plu
 | `MESharpApiTool`     | `MESharpApiTool.dll` (script)   | API browser (extracted from `csharp_interop/Documentation`). |
 | `MESharpMcpTool`     | `MESharpMcpTool.dll` (script)   | MCP dashboard (extracted from `csharp_interop/McpTools`).    |
 | `MESharpNavTool`     | `MESharpNavTool.dll` (script)   | Map / webwalk graph / routes (extracted from DebugUtil).     |
+| `MESharpCaptureTool` | `MESharpCaptureTool.dll` (script) | Activity capture, timeline review, and analysis reports. See [Activity Capture](MESharpCaptureTool/README.md). |
 | `MESharpKnowledgeTool` | `MESharpKnowledgeTool.dll` (script) | Knowledge OS UI.                                    |
 | `MESharpSlayerKnowledgeTool` | `MESharpSlayerKnowledgeTool.dll` (script) | Slayer assignment/master/location/mechanic curation and knowledge-pack publishing. |
 | `MESharpDoActionTool` | `MESharpDoActionTool.dll` (script) | DoAction / input debugging.                          |
 | `MESharpCacheTool`   | `MESharpCacheTool.dll` (script) | RS3 cache browser.                                           |
-| `SharpBuilder.ScriptHost` | `SharpBuilder.ScriptHost.dll` (script) | SharpBuilder node-editor host.                |
+| `SharpBuilder` | script host / Orbit plugin | Node-editor tooling with its own [README](SharpBuilder/README.md); not included in the shared solution. |
 | `MESharp.Tooling.Tests` | xUnit                        | Covers `ToolVersioning` + the relocated API-browser tests.  |
 | `csharp_interop` (ref) | `csharp_interop.dll`          | The shared MESharp API + the tool-update engine (`Services/Tools/`). Lives **outside** this repo. |
 
@@ -37,7 +38,7 @@ steps to refresh definitions and capture visible NPCs. A region remains disabled
 independent sources agree on the cluster.
 
 Tools are discovered by the `<IsMESharpTool>true</IsMESharpTool>` marker in their `.csproj`, then
-explicitly allowed into public releases through `tools/versions.json` (see *Releasing tools*). They are tied together
+explicitly allowed into public releases through `tools/versions.json` (see [Publisher workflow](#publisher-workflow)). They are tied together
 at runtime by ME's native **Tools menu** + `ToolRegistry`, regardless of which folder/solution they
 build from.
 
@@ -48,12 +49,28 @@ MemoryError monorepo** and is built from that full checkout — the tool project
 `ProjectReference` `..\..\csharp_interop\csharp_interop.csproj` and `MESharpNavTool` embeds
 `..\..\..\tools\webwalk_map\index.html`, both of which live in the monorepo, *outside this repo root*.
 
-**`csharp_interop` source can never be published from here:** it sits above this repo's root, so git
-in `MESharpTools/` cannot track or commit it. Tools also **never ship** the interop binary — the
-woven build excludes it (`FodyWeavers.xml` `ExcludeAssemblies="csharp_interop"`) and each PostBuild
-copies only the tool's own DLL. Publishing a tool (source or binary) therefore exposes neither
-interop's source nor its DLL; tools only consume its *public API* at compile time, and ME provides
-the real `csharp_interop.dll` at runtime.
+A standalone clone is not sufficient to build the solution. Development requires Windows/x64,
+the .NET 10 SDK, and the parent checkout, including `csharp_interop`, `MESharp.CacheDerivation`,
+`MESharp.Slayer`, `C#/MESharpTool.targets`, and the navigation web assets under `tools/webwalk_map`.
+These dependencies are outside this nested repository and are not included when cloning it.
+
+Tool builds exclude `csharp_interop` from Costura embedding and deploy only their entry DLL and
+manifest. ME supplies the shared interop assembly at runtime; do not copy a second copy into a
+tool's output/deployment directory.
+
+### Public source and private local tools
+
+`tools/versions.json` controls which tools are built into public release bundles through `_include`.
+It does not control which source files Git publishes. Review tracked files separately before pushing.
+
+Private local tools and their private tests must be ignored and untracked, and must not be required
+by the shared solution or public test projects. Keep private project references in a separate local
+solution. Ignoring a path prevents accidental additions; it does not remove files already tracked.
+Use `git rm --cached` to stop tracking while preserving local files.
+
+Untracking takes effect in the next commit. It does not erase earlier commits, existing clones, or
+previously uploaded release assets. Removing previously published private content requires a
+separate history cleanup and review of release assets.
 
 Release artifacts (the tool DLLs) are built by the maintainer from the monorepo via
 `tools/ToolRelease.ps1`, which has `csharp_interop` available.
@@ -62,7 +79,7 @@ Release artifacts (the tool DLLs) are built by the maintainer from the monorepo 
 
 ### Install without copying files
 
-With the current MESharp client (interop product version 1.2.0 or newer and the updated Tools UI), open
+With the current MESharp client (interop product version 1.3.1 or newer for the current Navigation release and the updated Tools UI), open
 **Tools & Scripts > Tools > Tool sources**, add this source, then choose **Install** for the tools
 you want:
 
